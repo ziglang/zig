@@ -57,7 +57,7 @@ stage3-debug/bin/zig build test docs \
   -Dskip-freebsd \
   -Dskip-netbsd \
   -Dskip-windows \
-  -Dskip-macos \
+  -Dskip-darwin \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \

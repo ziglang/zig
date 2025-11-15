@@ -154,7 +154,7 @@ pub fn detectFromBuilding(
         const list = try arena.alloc([]const u8, 1);
         list[0] = try std.fmt.allocPrint(
             arena,
-            "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-macos-any",
+            "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-darwin-any",
             .{zig_lib_dir},
         );
         return .{

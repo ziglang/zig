@@ -447,7 +447,7 @@ pub const CaseTestOptions = struct {
     skip_freebsd: bool,
     skip_netbsd: bool,
     skip_windows: bool,
-    skip_macos: bool,
+    skip_darwin: bool,
     skip_linux: bool,
     skip_llvm: bool,
     skip_libc: bool,
@@ -475,7 +475,7 @@ pub fn lowerToBuildSteps(
         if (options.skip_freebsd and case.target.query.os_tag == .freebsd) continue;
         if (options.skip_netbsd and case.target.query.os_tag == .netbsd) continue;
         if (options.skip_windows and case.target.query.os_tag == .windows) continue;
-        if (options.skip_macos and case.target.query.os_tag == .macos) continue;
+        if (options.skip_darwin and case.target.query.os_tag != null and case.target.query.os_tag.?.isDarwin()) continue;
         if (options.skip_linux and case.target.query.os_tag == .linux) continue;
 
         const would_use_llvm = @import("../tests.zig").wouldUseLlvm(
