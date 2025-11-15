@@ -290,19 +290,16 @@ pub inline fn expectApproxEqAbs(expected: anytype, actual: anytype, tolerance: a
 
 fn expectApproxEqAbsInner(comptime T: type, expected: T, actual: T, tolerance: T) !void {
     switch (@typeInfo(T)) {
-        .float => if (!math.approxEqAbs(T, expected, actual, tolerance)) {
+        .float, .comptime_float => if (!math.approxEqAbs(T, expected, actual, tolerance)) {
             print("actual {}, not within absolute tolerance {} of expected {}\n", .{ actual, tolerance, expected });
             return error.TestExpectedApproxEqAbs;
         },
-
-        .comptime_float => @compileError("Cannot approximately compare two comptime_float values"),
-
         else => @compileError("Unable to compare non floating point values"),
     }
 }
 
 test expectApproxEqAbs {
-    inline for ([_]type{ f16, f32, f64, f128 }) |T| {
+    inline for ([_]type{ f16, f32, f64, f128, comptime_float }) |T| {
         const pos_x: T = 12.0;
         const pos_y: T = 12.06;
         const neg_x: T = -12.0;
@@ -326,19 +323,16 @@ pub inline fn expectApproxEqRel(expected: anytype, actual: anytype, tolerance: a
 
 fn expectApproxEqRelInner(comptime T: type, expected: T, actual: T, tolerance: T) !void {
     switch (@typeInfo(T)) {
-        .float => if (!math.approxEqRel(T, expected, actual, tolerance)) {
+        .float, .comptime_float => if (!math.approxEqRel(T, expected, actual, tolerance)) {
             print("actual {}, not within relative tolerance {} of expected {}\n", .{ actual, tolerance, expected });
             return error.TestExpectedApproxEqRel;
         },
-
-        .comptime_float => @compileError("Cannot approximately compare two comptime_float values"),
-
         else => @compileError("Unable to compare non floating point values"),
     }
 }
 
 test expectApproxEqRel {
-    inline for ([_]type{ f16, f32, f64, f128 }) |T| {
+    inline for ([_]type{ f16, f32, f64, f128, comptime_float }) |T| {
         const eps_value = comptime math.floatEps(T);
         const sqrt_eps_value = comptime @sqrt(eps_value);
 

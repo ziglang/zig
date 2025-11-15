@@ -81,8 +81,10 @@ pub fn approxEqAbs(comptime T: type, x: T, y: T, tolerance: T) bool {
     if (x == y)
         return true;
 
-    if (isNan(x) or isNan(y))
+    if (isNan(x) or isNan(y)) {
+        if (T == comptime_float) unreachable;
         return false;
+    }
 
     return @abs(x - y) <= tolerance;
 }
@@ -109,8 +111,10 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
     if (x == y)
         return true;
 
-    if (isNan(x) or isNan(y))
+    if (isNan(x) or isNan(y)) {
+        if (T == comptime_float) unreachable;
         return false;
+    }
 
     return @abs(x - y) <= @max(@abs(x), @abs(y)) * tolerance;
 }

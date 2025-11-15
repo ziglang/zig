@@ -31,24 +31,20 @@ const expect = std.testing.expect;
 ///  - pow(-inf, y)   = pow(-0, -y)
 ///  - pow(x, y)      = nan for finite x < 0 and finite non-integer y
 pub fn pow(comptime T: type, x: T, y: T) T {
-    if (@typeInfo(T) == .int) {
+    const info = @typeInfo(T);
+    if (info == .int or info == .comptime_int)
         return math.powi(T, x, y) catch unreachable;
-    }
-
-    if (T != f32 and T != f64) {
-        @compileError("pow not implemented for " ++ @typeName(T));
-    }
 
     // pow(x, +-0) = 1      for all x
     // pow(1, y) = 1        for all y
-    if (y == 0 or x == 1) {
+    if (y == 0 or x == 1)
         return 1;
-    }
 
     // pow(nan, y) = nan    for all y
     // pow(x, nan) = nan    for all x
     if (math.isNan(x) or math.isNan(y)) {
         @branchHint(.unlikely);
+        if (info == .comptime_float) unreachable;
         return math.nan(T);
     }
 
@@ -60,7 +56,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     if (x == 0) {
         if (y < 0) {
             // pow(+-0, y) = +-inf  for y an odd integer
-            if (isOddInteger(y)) {
+            if (isOddInteger(T, y)) {
                 return math.copysign(math.inf(T), x);
             }
             // pow(+-0, y) = +inf   for y an even integer
@@ -68,7 +64,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
                 return math.inf(T);
             }
         } else {
-            if (isOddInteger(y)) {
+            if (isOddInteger(T, y)) {
                 return x;
             } else {
                 return 0;
@@ -77,6 +73,9 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     }
 
     if (math.isInf(y)) {
+        @branchHint(.unlikely);
+        if (info == .comptime_float) unreachable;
+
         // pow(-1, inf) = 1     for all x
         if (x == -1) {
             return 1.0;
@@ -94,6 +93,9 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     }
 
     if (math.isInf(x)) {
+        @branchHint(.unlikely);
+        if (info == .comptime_float) unreachable;
+
         if (math.isNegativeInf(x)) {
             return pow(T, 1 / x, -y);
         }
@@ -145,7 +147,12 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     var xe = r2.exponent;
     var x1 = r2.significand;
 
-    var i = @as(std.meta.Int(.signed, @typeInfo(T).float.bits), @intFromFloat(yi));
+    const Int = switch (info) {
+        .float => |float| std.meta.Int(.signed, float.bits),
+        .comptime_float => i128,
+        else => @compileError("pow not implemented for " ++ @typeName(T)),
+    };
+    var i = @as(Int, @intFromFloat(yi));
     while (i != 0) : (i >>= 1) {
         const overflow_shift = math.floatExponentBits(T) + 1;
         if (xe < -(1 << overflow_shift) or (1 << overflow_shift) < xe) {
@@ -178,25 +185,37 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     return math.scalbn(a1, ae);
 }
 
-fn isOddInteger(x: f64) bool {
-    if (@abs(x) >= 1 << 53) {
+fn isOddInteger(comptime T: type, x: T) bool {
+    // standard IEEE floats have an implicit 0.m or 1.m integer part
+    // so the digits is the number of fractional bits + 1
+    const digits = math.floatFractionalBits(T) + 1;
+    if (@abs(x) >= digits) {
         // From https://golang.org/src/math/pow.go
-        // 1 << 53 is the largest exact integer in the float64 format.
+        // 1 << digits is the largest exact integer in the IEEE float format fN.
         // Any number outside this range will be truncated before the decimal point and therefore will always be
         // an even integer.
-        // Without this check and if x overflows i64 the @intFromFloat(r.ipart) conversion below will panic
+        // Without this check and if x overflows iN the @intFromFloat(r.ipart) conversion below will panic
         return false;
     }
     const r = math.modf(x);
-    return r.fpart == 0.0 and @as(i64, @intFromFloat(r.ipart)) & 1 == 1;
+
+    const Int = switch (@typeInfo(T)) {
+        .float => |float| std.meta.Int(.signed, float.bits),
+        .comptime_float => i128,
+        else => unreachable,
+    };
+    const ipart: Int = @intFromFloat(r.ipart);
+    return r.fpart == 0.0 and ipart & 1 == 1;
 }
 
 test isOddInteger {
-    try expect(isOddInteger(@floatFromInt(math.maxInt(i64) * 2)) == false);
-    try expect(isOddInteger(@floatFromInt(math.maxInt(i64) * 2 + 1)) == false);
-    try expect(isOddInteger(1 << 53) == false);
-    try expect(isOddInteger(12.0) == false);
-    try expect(isOddInteger(15.0) == true);
+    try expect(isOddInteger(f128, @floatFromInt(math.maxInt(i64) * 2)) == false);
+    try expect(isOddInteger(comptime_float, @floatFromInt(math.maxInt(i64) * 2 + 1)) == false);
+    try expect(isOddInteger(f64, 1 << 53) == false);
+    try expect(isOddInteger(f80, 12.0) == false);
+    try expect(isOddInteger(f80, 15.0) == true);
+    try expect(isOddInteger(f32, 5.0) == true);
+    try expect(isOddInteger(f16, -1.0) == true);
 }
 
 test pow {

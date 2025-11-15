@@ -540,10 +540,7 @@ pub fn parseIntSizeSuffix(buf: []const u8, digit_base: u8) ParseIntError!usize {
     } else if (without_i.len != without_B.len) {
         return error.InvalidCharacter;
     }
-    const multiplier = math.powi(usize, magnitude_base, orders_of_magnitude) catch |err| switch (err) {
-        error.Underflow => unreachable,
-        error.Overflow => return error.Overflow,
-    };
+    const multiplier = try math.powi(usize, magnitude_base, orders_of_magnitude);
     const number = try std.fmt.parseInt(usize, without_suffix, digit_base);
     return math.mul(usize, number, multiplier);
 }

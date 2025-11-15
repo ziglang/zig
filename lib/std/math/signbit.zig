@@ -43,6 +43,9 @@ fn testFloats(comptime Type: type) !void {
     try expect(!signbit(@as(Type, 1.0)));
     try expect(signbit(@as(Type, -2.0)));
     try expect(signbit(@as(Type, -0.0)));
+
+    if (Type == comptime_float) return;
+
     try expect(!signbit(math.inf(Type)));
     try expect(signbit(-math.inf(Type)));
     try expect(!signbit(math.nan(Type)));

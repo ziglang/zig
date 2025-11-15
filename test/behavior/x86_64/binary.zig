@@ -176,7 +176,7 @@ fn binary(comptime op: anytype, comptime opts: struct { compare: Compare = .rela
             try testArgs(u1025, 0x1dea81169800bac2f3afcf3be5dbd2d8eefbace8a24a2da0a383a928d1109459f34028be4413119f1af00ad90ce4d63064016dc1cee5b783c79c1998a0a49de21c4db71d432273576503589fc966c7ec2d730fa9bc4c5ff3128a82653ab8149528de67804718e39722f89b91c75d012ea41c642c889f0db95c882a9790a5e922f, 0x156fe02946ab9069a644dcc1f2b1afa04ee88ab1de19575a2715abf4a52bf374d297fdf78455ccdb87a934d3d818d774b63865eaedfdad3c56a56b8fcc62703c391aedf16cf770af06d7d205f93778c012df54fe5290084e1cd2bbec86a2f295cdce69a2cd774e064580f3c9cfae60d17b12f610e86566e68d5183d706c8ad8af);
         }
         fn testFloats() !void {
-            @setEvalBranchQuota(21_700);
+            @setEvalBranchQuota(25_000);
 
             try testArgs(f16, -nan(f16), -nan(f16));
             try testArgs(f16, -nan(f16), -inf(f16));
@@ -4646,7 +4646,7 @@ fn binary(comptime op: anytype, comptime opts: struct { compare: Compare = .rela
             });
         }
         fn testFloatVectors() !void {
-            @setEvalBranchQuota(21_700);
+            @setEvalBranchQuota(25_000);
 
             try testArgs(@Vector(1, f16), .{
                 -tmin(f16),

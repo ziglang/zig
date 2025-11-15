@@ -3133,7 +3133,7 @@ fn cast(comptime op: anytype, comptime opts: struct { compare: Compare = .relaxe
             try testArgs(i1024, u1025, 1 << 1024);
         }
         fn testFloats() !void {
-            @setEvalBranchQuota(3_100);
+            @setEvalBranchQuota(3_500);
 
             try testArgs(f16, f16, -nan(f16));
             try testArgs(f16, f16, -inf(f16));
@@ -6387,7 +6387,7 @@ fn cast(comptime op: anytype, comptime opts: struct { compare: Compare = .relaxe
             try testArgs(@Vector(3, i1024), @Vector(3, u1025), .{ 0, 1, 1 << 1024 });
         }
         fn testFloatVectors() !void {
-            @setEvalBranchQuota(6_700);
+            @setEvalBranchQuota(7_500);
 
             try testArgs(@Vector(1, f16), @Vector(1, f16), .{
                 1e0,
@@ -6890,7 +6890,7 @@ fn cast(comptime op: anytype, comptime opts: struct { compare: Compare = .relaxe
             });
         }
         fn testIntsFromFloats() !void {
-            @setEvalBranchQuota(2_600);
+            @setEvalBranchQuota(2_700);
 
             try testArgs(i8, f16, -0x0.8p8);
             try testArgs(i8, f16, next(f16, -0x0.8p8, -0.0));

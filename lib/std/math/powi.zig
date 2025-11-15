@@ -8,30 +8,42 @@ const math = std.math;
 const assert = std.debug.assert;
 const testing = std.testing;
 
+const UnsignedError = error{Overflow};
+const SignedError = error{
+    Overflow,
+    Underflow,
+    DivisionByZero,
+};
+
 /// Returns the power of x raised by the integer y (x^y).
 ///
 /// Errors:
-///  - Overflow: Integer overflow or Infinity
+///  - Overflow: Integer overflow
 ///  - Underflow: Absolute value of result smaller than 1
+///  - DivisionByZero: Undefined power.
 ///
 /// Edge case rules ordered by precedence:
 ///  - powi(T, x, 0)   = 1 unless T is i1, i0, u0
 ///  - powi(T, 0, x)   = 0 when x > 0
-///  - powi(T, 0, x)   = Overflow
+///  - powi(T, 0, x)   = DivisionByZero
 ///  - powi(T, 1, y)   = 1
 ///  - powi(T, -1, y)  = -1 for y an odd integer
 ///  - powi(T, -1, y)  = 1 unless T is i1, i0, u0
 ///  - powi(T, -1, y)  = Overflow
 ///  - powi(T, x, y)   = Overflow when y >= @bitSizeOf(x)
 ///  - powi(T, x, y)   = Underflow when y < 0
-pub fn powi(comptime T: type, x: T, y: T) (error{
-    Overflow,
-    Underflow,
-}!T) {
-    const bit_size = @typeInfo(T).int.bits;
+pub fn powi(comptime T: type, x: T, y: T) (if (@typeInfo(T) == .int and @typeInfo(T).int.signedness == .unsigned)
+    UnsignedError
+else
+    SignedError)!T {
+    const info = @typeInfo(T);
+    if (info != .int and info != .comptime_int)
+        @compileError("powi not implemented for " ++ @typeName(T));
+
+    const is_unsigned = info == .int and info.int.signedness == .unsigned;
 
     // `y & 1 == 0` won't compile when `does_one_overflow`.
-    const does_one_overflow = math.maxInt(T) < 1;
+    const does_one_overflow = info == .int and math.maxInt(T) < 1;
     const is_y_even = !does_one_overflow and y & 1 == 0;
 
     if (x == 1 or y == 0 or (x == -1 and is_y_even)) {
@@ -50,15 +62,17 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
         if (y > 0) {
             return 0;
         } else {
-            // Infinity/NaN, not overflow in strict sense
-            return error.Overflow;
+            if (is_unsigned) unreachable;
+            return error.DivisionByZero;
         }
     }
+
     // x >= 2 or x <= -2 from this point
-    if (y >= bit_size) {
+    if (info == .int and y >= info.int.bits) {
         return error.Overflow;
     }
     if (y < 0) {
+        if (is_unsigned) unreachable;
         return error.Underflow;
     }
 
@@ -71,25 +85,30 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
 
     while (exp > 1) {
         if (exp & 1 == 1) {
-            const ov = @mulWithOverflow(acc, base);
-            if (ov[1] != 0) return error.Overflow;
-            acc = ov[0];
+            acc = try mul(T, acc, base);
         }
 
         exp >>= 1;
 
-        const ov = @mulWithOverflow(base, base);
-        if (ov[1] != 0) return error.Overflow;
-        base = ov[0];
+        base = try mul(T, base, base);
     }
 
     if (exp == 1) {
-        const ov = @mulWithOverflow(acc, base);
-        if (ov[1] != 0) return error.Overflow;
-        acc = ov[0];
+        acc = try mul(T, acc, base);
     }
 
     return acc;
+}
+
+inline fn mul(comptime T: type, x: T, y: T) error{Overflow}!T {
+    return switch (@typeInfo(T)) {
+        .int => {
+            const prod, const overflow = @mulWithOverflow(x, y);
+            return if (overflow != 0) error.Overflow else prod;
+        },
+        .comptime_int => x * y,
+        else => unreachable,
+    };
 }
 
 test powi {
@@ -106,6 +125,8 @@ test powi {
     try testing.expect((try powi(i64, -36, 6)) == 2176782336);
     try testing.expect((try powi(i17, -2, 15)) == -32768);
     try testing.expect((try powi(i42, -5, 7)) == -78125);
+    try testing.expect((try powi(comptime_int, -12345, 11)) == -1014850422703912515858714960329315071728515625);
+    try comptime testing.expect((try powi(comptime_int, 13, 5)) == 371293);
 
     try testing.expect((try powi(u8, 6, 2)) == 36);
     try testing.expect((try powi(u16, 5, 4)) == 625);
@@ -113,6 +134,8 @@ test powi {
     try testing.expect((try powi(u64, 34, 2)) == 1156);
     try testing.expect((try powi(u17, 16, 3)) == 4096);
     try testing.expect((try powi(u42, 34, 6)) == 1544804416);
+    try testing.expect((try powi(comptime_int, 54321, 9)) == 4118222497610732111054528594901610509007281);
+    try comptime testing.expect((try powi(comptime_int, 51, 3)) == 132651);
 
     try testing.expectError(error.Overflow, powi(i8, 120, 7));
     try testing.expectError(error.Overflow, powi(i16, 73, 15));
@@ -157,6 +180,8 @@ test "powi.special" {
     try testing.expect((try powi(i64, -1, 6)) == 1);
     try testing.expect((try powi(i17, -1, 15)) == -1);
     try testing.expect((try powi(i42, -1, 7)) == -1);
+    try testing.expect((try powi(comptime_int, -1, 5)) == -1);
+    try comptime testing.expect((try powi(comptime_int, -1, 3)) == -1);
 
     try testing.expect((try powi(u8, 1, 2)) == 1);
     try testing.expect((try powi(u16, 1, 4)) == 1);
@@ -185,6 +210,8 @@ test "powi.special" {
     try testing.expect((try powi(u64, 34, 0)) == 1);
     try testing.expect((try powi(u17, 16, 0)) == 1);
     try testing.expect((try powi(u42, 34, 0)) == 1);
+    try testing.expect((try powi(comptime_int, 41, 0)) == 1);
+    try comptime testing.expect((try powi(comptime_int, 43, 0)) == 1);
 }
 
 test "powi.narrow" {
@@ -192,6 +219,6 @@ test "powi.narrow" {
     try testing.expectError(error.Overflow, powi(i0, 0, 0));
     try testing.expectError(error.Overflow, powi(i1, 0, 0));
     try testing.expectError(error.Overflow, powi(i1, -1, 0));
-    try testing.expectError(error.Overflow, powi(i1, 0, -1));
+    try testing.expectError(error.DivisionByZero, powi(i1, 0, -1));
     try testing.expect((try powi(i1, -1, -1)) == -1);
 }
