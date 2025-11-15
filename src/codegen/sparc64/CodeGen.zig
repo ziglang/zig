@@ -483,6 +483,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             // No "scalarize" legalizations are enabled, so these instructions never appear.
             .legalize_vec_elem_val   => unreachable,
             .legalize_vec_store_elem => unreachable,
+            // No soft float legalizations are enabled.
+            .legalize_compiler_rt_call => unreachable,
 
             .ptr_add => try self.airPtrArithmetic(inst, .ptr_add),
             .ptr_sub => try self.airPtrArithmetic(inst, .ptr_sub),

@@ -3328,6 +3328,8 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) Error!void {
             // No "scalarize" legalizations are enabled, so these instructions never appear.
             .legalize_vec_elem_val   => unreachable,
             .legalize_vec_store_elem => unreachable,
+            // No soft float legalizations are enabled.
+            .legalize_compiler_rt_call => unreachable,
 
             .arg      => try airArg(f, inst),
 

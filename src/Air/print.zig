@@ -333,6 +333,7 @@ const Writer = struct {
             .cmp_vector, .cmp_vector_optimized => try w.writeCmpVector(s, inst),
             .runtime_nav_ptr => try w.writeRuntimeNavPtr(s, inst),
             .legalize_vec_store_elem => try w.writeLegalizeVecStoreElem(s, inst),
+            .legalize_compiler_rt_call => try w.writeLegalizeCompilerRtCall(s, inst),
 
             .work_item_id,
             .work_group_size,
@@ -520,6 +521,19 @@ const Writer = struct {
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 2, bin.rhs);
         try s.writeAll(", ");
+    }
+
+    fn writeLegalizeCompilerRtCall(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {
+        const inst_data = w.air.instructions.items(.data)[@intFromEnum(inst)].legalize_compiler_rt_call;
+        const extra = w.air.extraData(Air.Call, inst_data.payload);
+        const args: []const Air.Inst.Ref = @ptrCast(w.air.extra.items[extra.end..][0..extra.data.args_len]);
+
+        try s.print("{t}, [", .{inst_data.func});
+        for (args, 0..) |arg, i| {
+            if (i != 0) try s.writeAll(", ");
+            try w.writeOperand(s, inst, i, arg);
+        }
+        try s.writeByte(']');
     }
 
     fn writeShuffleOne(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {

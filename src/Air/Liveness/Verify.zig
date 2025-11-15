@@ -583,6 +583,15 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 const bin = self.air.extraData(Air.Bin, pl_op.payload).data;
                 try self.verifyInstOperands(inst, .{ pl_op.operand, bin.lhs, bin.rhs });
             },
+            .legalize_compiler_rt_call => {
+                const extra = self.air.extraData(Air.Call, data[@intFromEnum(inst)].legalize_compiler_rt_call.payload);
+                const args: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.args_len]);
+                var bt = self.liveness.iterateBigTomb(inst);
+                for (args) |arg| {
+                    try self.verifyOperand(inst, arg, bt.feed());
+                }
+                try self.verifyInst(inst);
+            },
         }
     }
 }
