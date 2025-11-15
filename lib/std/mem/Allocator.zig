@@ -251,13 +251,22 @@ pub fn allocSentinel(
 /// Allocates with an alignment which is incorporated into the returned type.
 /// Call `free` when done.
 ///
-/// Prefer inferred types like `const data = alignedAlloc(...)` as it will use
-/// the correctly aligned type.
+/// Assign to an inferred type to have a correctly specified alignment.
+/// The alignment of the type will be used by `free` later.
+/// Specifying a type may result in a silent coercion to a different alignment.
 ///
-/// Avoid explicit types like `const data: u8[] = alignedAlloc(...)` as they
-/// can change the alignment type information needed when calling `free`.
+/// This is correct:
+/// ```
+/// const data = alignedAlloc(...);
+/// defer free(data);
+/// const d: []u8 = data;
+/// ```
 ///
-/// If alignment is not comptime known use `rawAlloc` and `rawFree`.
+/// This is hazardous:
+/// ```
+/// const d:[]u8 = alignedAlloc(...);
+/// defer free(d);
+/// ```
 pub fn alignedAlloc(
     self: Allocator,
     comptime T: type,
