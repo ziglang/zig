@@ -148,7 +148,7 @@ pub const Iterator = switch (native_os) {
                 const stat_info = posix.fstatat(
                     self.dir.fd,
                     name,
-                    posix.AT.SYMLINK_NOFOLLOW,
+                    .{ .symlink_nofollow = true },
                 ) catch |err| switch (err) {
                     error.NameTooLong => unreachable,
                     error.SymLinkLoop => unreachable,
@@ -1112,7 +1112,7 @@ pub fn deleteFileZ(self: Dir, sub_path_c: [*:0]const u8) DeleteFileError!void {
             // directory, so we need to handle that case specifically and translate the error
             .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .freebsd, .netbsd, .dragonfly, .openbsd, .illumos => {
                 // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
-                const fstat = posix.fstatatZ(self.fd, sub_path_c, posix.AT.SYMLINK_NOFOLLOW) catch return e;
+                const fstat = posix.fstatatZ(self.fd, sub_path_c, .{ .symlink_nofollow = true }) catch return e;
                 const is_dir = fstat.mode & posix.S.IFMT == posix.S.IFDIR;
                 return if (is_dir) error.IsDir else e;
             },
@@ -1163,7 +1163,7 @@ pub fn deleteDir(self: Dir, sub_path: []const u8) DeleteDirError!void {
         const sub_path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
         return self.deleteDirW(sub_path_w.span());
     } else if (native_os == .wasi and !builtin.link_libc) {
-        posix.unlinkat(self.fd, sub_path, posix.AT.REMOVEDIR) catch |err| switch (err) {
+        posix.unlinkat(self.fd, sub_path, posix.At.REMOVEDIR) catch |err| switch (err) {
             error.IsDir => unreachable, // not possible since we pass AT.REMOVEDIR
             else => |e| return e,
         };
@@ -1175,7 +1175,7 @@ pub fn deleteDir(self: Dir, sub_path: []const u8) DeleteDirError!void {
 
 /// Same as `deleteDir` except the parameter is null-terminated.
 pub fn deleteDirZ(self: Dir, sub_path_c: [*:0]const u8) DeleteDirError!void {
-    posix.unlinkatZ(self.fd, sub_path_c, posix.AT.REMOVEDIR) catch |err| switch (err) {
+    posix.unlinkatZ(self.fd, sub_path_c, posix.At.REMOVEDIR) catch |err| switch (err) {
         error.IsDir => unreachable, // not possible since we pass AT.REMOVEDIR
         else => |e| return e,
     };
@@ -1184,7 +1184,7 @@ pub fn deleteDirZ(self: Dir, sub_path_c: [*:0]const u8) DeleteDirError!void {
 /// Same as `deleteDir` except the parameter is WTF16LE, NT prefixed.
 /// This function is Windows-only.
 pub fn deleteDirW(self: Dir, sub_path_w: []const u16) DeleteDirError!void {
-    posix.unlinkatW(self.fd, sub_path_w, posix.AT.REMOVEDIR) catch |err| switch (err) {
+    posix.unlinkatW(self.fd, sub_path_w, posix.At.REMOVEDIR) catch |err| switch (err) {
         error.IsDir => unreachable, // not possible since we pass AT.REMOVEDIR
         else => |e| return e,
     };

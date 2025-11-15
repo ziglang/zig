@@ -263,7 +263,7 @@ const LinuxImpl = struct {
         }
 
         const rc = linux.futex_4arg(
-            &ptr.raw,
+            ptr,
             .{ .cmd = .WAIT, .private = true },
             expect,
             if (timeout != null) &ts else null,
@@ -285,7 +285,7 @@ const LinuxImpl = struct {
 
     fn wake(ptr: *const atomic.Value(u32), max_waiters: u32) void {
         const rc = linux.futex_3arg(
-            &ptr.raw,
+            ptr,
             .{ .cmd = .WAKE, .private = true },
             @min(max_waiters, std.math.maxInt(i32)),
         );
