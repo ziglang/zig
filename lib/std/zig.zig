@@ -349,6 +349,12 @@ pub const BuildId = union(enum) {
 
 pub const LtoMode = enum { none, full, thin };
 
+pub const SoName = union(enum) {
+    no,
+    yes_default_value,
+    yes: []const u8,
+};
+
 pub const Subsystem = enum {
     console,
     windows,
