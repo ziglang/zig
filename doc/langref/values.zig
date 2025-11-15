@@ -36,7 +36,7 @@ pub fn main() void {
     });
 
     // error union
-    var number_or_error: anyerror!i32 = error.ArgNotFound;
+    var number_or_error: anyerror!i32 = error.ArbitraryErrorName;
 
     print("\nerror union 1\ntype: {}\nvalue: {!}\n", .{
         @TypeOf(number_or_error),
