@@ -120,6 +120,9 @@
         .windows_spawn = .{
             .path = "windows_spawn",
         },
+        .windows_subsystem = .{
+            .path = "windows_subsystem",
+        },
         .windows_argv = .{
             .path = "windows_argv",
         },

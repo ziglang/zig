@@ -25,6 +25,8 @@ const Coff = struct {
         c_main: bool,
         winmain: bool,
         wwinmain: bool,
+        main_crt_startup: bool,
+        wmain_crt_startup: bool,
         winmain_crt_startup: bool,
         wwinmain_crt_startup: bool,
         dllmain_crt_startup: bool,
@@ -64,6 +66,8 @@ const Coff = struct {
                 .c_main = false,
                 .winmain = false,
                 .wwinmain = false,
+                .main_crt_startup = false,
+                .wmain_crt_startup = false,
                 .winmain_crt_startup = false,
                 .wwinmain_crt_startup = false,
                 .dllmain_crt_startup = false,
@@ -563,12 +567,14 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
                         if (coff.lld_export_flags.dllmain_crt_startup or is_dyn_lib)
                             break :blk null;
                         if (coff.lld_export_flags.c_main or comp.config.is_test or
-                            coff.lld_export_flags.winmain_crt_startup or
-                            coff.lld_export_flags.wwinmain_crt_startup)
+                            coff.lld_export_flags.main_crt_startup or
+                            coff.lld_export_flags.wmain_crt_startup)
                         {
                             break :blk .console;
                         }
-                        if (coff.lld_export_flags.winmain or coff.lld_export_flags.wwinmain)
+                        if (coff.lld_export_flags.winmain or coff.lld_export_flags.wwinmain or
+                            coff.lld_export_flags.winmain_crt_startup or
+                            coff.lld_export_flags.wwinmain_crt_startup)
                             break :blk .windows;
                     }
                 },
@@ -661,13 +667,19 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
                     try argv.append("-NODEFAULTLIB");
                     if (!is_lib and entry_name == null) {
                         if (comp.zcu != null) {
-                            if (coff.lld_export_flags.winmain_crt_startup) {
-                                try argv.append("-ENTRY:WinMainCRTStartup");
-                            } else {
+                            if (coff.lld_export_flags.wwinmain_crt_startup) {
                                 try argv.append("-ENTRY:wWinMainCRTStartup");
+                            } else if (coff.lld_export_flags.winmain_crt_startup) {
+                                try argv.append("-ENTRY:WinMainCRTStartup");
+                            } else if (coff.lld_export_flags.wmain_crt_startup) {
+                                try argv.append("-ENTRY:wmainCRTStartup");
+                            } else if (coff.lld_export_flags.main_crt_startup) {
+                                try argv.append("-ENTRY:mainCRTStartup");
+                            } else {
+                                try argv.append("-ENTRY:wmainCRTStartup");
                             }
                         } else {
-                            try argv.append("-ENTRY:wWinMainCRTStartup");
+                            try argv.append("-ENTRY:wmainCRTStartup");
                         }
                     }
                 }
