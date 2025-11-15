@@ -2032,7 +2032,11 @@ pub const Mutable = struct {
         return formatNumber(self, w, .{});
     }
 
-    pub fn formatNumber(self: Const, w: *std.Io.Writer, n: std.fmt.Number) std.Io.Writer.Error!void {
+    /// If the absolute value of integer is greater than or equal to `pow(2, 64 * @sizeOf(usize) * 8)`,
+    /// this function will fail to print the string, printing "(BigInt)" instead of a number.
+    /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
+    /// See `Const.toString` and `Const.toStringAlloc` for a way to print big integers without failure.
+    pub fn formatNumber(self: Mutable, w: *std.Io.Writer, n: std.fmt.Number) std.Io.Writer.Error!void {
         return self.toConst().formatNumber(w, n);
     }
 };
@@ -2319,6 +2323,10 @@ pub const Const = struct {
             .exponent = std.math.lossyCast(Repr.Normalized.Exponent, exponent),
         };
         return .{ normalized_res.reconstruct(if (self.positive) .positive else .negative), exactness };
+    }
+
+    pub fn format(self: Const, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        return self.formatNumber(w, .{});
     }
 
     /// If the absolute value of integer is greater than or equal to `pow(2, 64 * @sizeOf(usize) * 8)`,
@@ -4624,4 +4632,30 @@ fn testOneShiftCaseAliasing(func: fn ([]Limb, []const Limb, usize) usize, case: 
         try std.testing.expectEqual(expected.len, len);
         try std.testing.expectEqualSlices(Limb, expected, r[base .. base + len]);
     }
+}
+
+test "format" {
+    var a: Managed = try .init(std.testing.allocator);
+    defer a.deinit();
+
+    try a.set(123);
+    try testFormat(a, "123");
+
+    try a.set(-123);
+    try testFormat(a, "-123");
+
+    try a.set(20000000000000000000); // > maxInt(u64)
+    try testFormat(a, "20000000000000000000");
+
+    try a.set(1 << 64 * @sizeOf(usize) * 8);
+    try testFormat(a, "(BigInt)");
+
+    try a.set(-(1 << 64 * @sizeOf(usize) * 8));
+    try testFormat(a, "(BigInt)");
+}
+
+fn testFormat(a: Managed, expected: []const u8) !void {
+    try std.testing.expectFmt(expected, "{f}", .{a});
+    try std.testing.expectFmt(expected, "{f}", .{a.toMutable()});
+    try std.testing.expectFmt(expected, "{f}", .{a.toConst()});
 }
