@@ -4085,12 +4085,12 @@ fn netSendOne(
     flags: u32,
 ) net.Socket.SendError!void {
     var addr: PosixAddress = undefined;
-    var iovec: posix.iovec_const = .{ .base = @constCast(message.data_ptr), .len = message.data_len };
+    const iovecs: []const posix.iovec_const = @ptrCast(message.data);
     const msg: posix.msghdr_const = .{
-        .name = &addr.any,
-        .namelen = addressToPosix(message.address, &addr),
-        .iov = (&iovec)[0..1],
-        .iovlen = 1,
+        .name = if (message.address == null) null else &addr.any,
+        .namelen = if (message.address) |a| addressToPosix(a, &addr) else 0,
+        .iov = iovecs.ptr,
+        .iovlen = @intCast(iovecs.len),
         // OS returns EINVAL if this pointer is invalid even if controllen is zero.
         .control = if (message.control.len == 0) null else @constCast(message.control.ptr),
         .controllen = @intCast(message.control.len),
@@ -4127,13 +4127,13 @@ fn netSendOne(
                     else => |err| return windows.unexpectedWSAError(err),
                 }
             } else {
-                message.data_len = @intCast(rc);
+                message.bytes_sent = @intCast(rc);
                 return;
             }
         }
         switch (posix.errno(rc)) {
             .SUCCESS => {
-                message.data_len = @intCast(rc);
+                message.bytes_sent = @intCast(rc);
                 return;
             },
             .INTR => continue,
@@ -4171,21 +4171,19 @@ fn netSendMany(
 ) net.Socket.SendError!usize {
     var msg_buffer: [64]std.os.linux.mmsghdr = undefined;
     var addr_buffer: [msg_buffer.len]PosixAddress = undefined;
-    var iovecs_buffer: [msg_buffer.len]posix.iovec = undefined;
     const min_len: usize = @min(messages.len, msg_buffer.len);
     const clamped_messages = messages[0..min_len];
     const clamped_msgs = (&msg_buffer)[0..min_len];
     const clamped_addrs = (&addr_buffer)[0..min_len];
-    const clamped_iovecs = (&iovecs_buffer)[0..min_len];
 
-    for (clamped_messages, clamped_msgs, clamped_addrs, clamped_iovecs) |*message, *msg, *addr, *iovec| {
-        iovec.* = .{ .base = @constCast(message.data_ptr), .len = message.data_len };
+    for (clamped_messages, clamped_msgs, clamped_addrs) |*message, *msg, *addr| {
+        const iovecs: []posix.iovec = @ptrCast(@constCast(message.data));
         msg.* = .{
             .hdr = .{
-                .name = &addr.any,
-                .namelen = addressToPosix(message.address, addr),
-                .iov = iovec[0..1],
-                .iovlen = 1,
+                .name = if (message.address == null) null else &addr.any,
+                .namelen = if (message.address) |a| addressToPosix(a, addr) else 0,
+                .iov = iovecs.ptr,
+                .iovlen = @intCast(iovecs.len),
                 .control = @constCast(message.control.ptr),
                 .controllen = message.control.len,
                 .flags = 0,
@@ -4201,7 +4199,7 @@ fn netSendMany(
             .SUCCESS => {
                 const n: usize = @intCast(rc);
                 for (clamped_messages[0..n], clamped_msgs[0..n]) |*message, *msg| {
-                    message.data_len = msg.len;
+                    message.bytes_sent = msg.len;
                 }
                 return n;
             },
@@ -4236,7 +4234,6 @@ fn netReceivePosix(
     userdata: ?*anyopaque,
     handle: net.Socket.Handle,
     message_buffer: []net.IncomingMessage,
-    data_buffer: []u8,
     flags: net.ReceiveFlags,
     timeout: Io.Timeout,
 ) struct { ?net.Socket.ReceiveTimeoutError, usize } {
@@ -4246,10 +4243,6 @@ fn netReceivePosix(
 
     // recvmmsg is useless, here's why:
     // * [timeout bug](https://bugzilla.kernel.org/show_bug.cgi?id=75371)
-    // * it wants iovecs for each message but we have a better API: one data
-    //   buffer to handle all the messages. The better API cannot be lowered to
-    //   the split vectors though because reducing the buffer size might make
-    //   some messages unreceivable.
 
     // So the strategy instead is to use non-blocking recvmsg calls, calling
     // poll() with timeout if the first one returns EAGAIN.
@@ -4267,7 +4260,6 @@ fn netReceivePosix(
         },
     };
     var message_i: usize = 0;
-    var data_i: usize = 0;
 
     const deadline = timeout.toDeadline(t_io) catch |err| return .{ err, message_i };
 
@@ -4276,14 +4268,15 @@ fn netReceivePosix(
 
         if (message_buffer.len - message_i == 0) return .{ null, message_i };
         const message = &message_buffer[message_i];
-        const remaining_data_buffer = data_buffer[data_i..];
         var storage: PosixAddress = undefined;
-        var iov: posix.iovec = .{ .base = remaining_data_buffer.ptr, .len = remaining_data_buffer.len };
+
+        const iovecs: []posix.iovec = @ptrCast(message.data);
+
         var msg: posix.msghdr = .{
             .name = &storage.any,
             .namelen = @sizeOf(PosixAddress),
-            .iov = (&iov)[0..1],
-            .iovlen = 1,
+            .iov = iovecs.ptr,
+            .iovlen = @intCast(iovecs.len),
             .control = message.control.ptr,
             .controllen = @intCast(message.control.len),
             .flags = undefined,
@@ -4292,11 +4285,9 @@ fn netReceivePosix(
         const recv_rc = posix.system.recvmsg(handle, &msg, posix_flags);
         switch (posix.errno(recv_rc)) {
             .SUCCESS => {
-                const data = remaining_data_buffer[0..@intCast(recv_rc)];
-                data_i += data.len;
                 message.* = .{
                     .from = addressFromPosix(&storage),
-                    .data = data,
+                    .data = message.data,
                     .control = if (msg.control) |ptr| @as([*]u8, @ptrCast(ptr))[0..msg.controllen] else message.control,
                     .flags = .{
                         .eor = (msg.flags & posix.MSG.EOR) != 0,
@@ -4305,6 +4296,7 @@ fn netReceivePosix(
                         .oob = (msg.flags & posix.MSG.OOB) != 0,
                         .errqueue = if (@hasDecl(posix.MSG, "ERRQUEUE")) (msg.flags & posix.MSG.ERRQUEUE) != 0 else false,
                     },
+                    .bytes_received = @intCast(recv_rc),
                 };
                 message_i += 1;
                 continue;
@@ -4366,7 +4358,6 @@ fn netReceiveWindows(
     userdata: ?*anyopaque,
     handle: net.Socket.Handle,
     message_buffer: []net.IncomingMessage,
-    data_buffer: []u8,
     flags: net.ReceiveFlags,
     timeout: Io.Timeout,
 ) struct { ?net.Socket.ReceiveTimeoutError, usize } {
@@ -4375,7 +4366,6 @@ fn netReceiveWindows(
     _ = t;
     _ = handle;
     _ = message_buffer;
-    _ = data_buffer;
     _ = flags;
     _ = timeout;
     @panic("TODO implement netReceiveWindows");
@@ -4385,14 +4375,12 @@ fn netReceiveUnavailable(
     userdata: ?*anyopaque,
     handle: net.Socket.Handle,
     message_buffer: []net.IncomingMessage,
-    data_buffer: []u8,
     flags: net.ReceiveFlags,
     timeout: Io.Timeout,
 ) struct { ?net.Socket.ReceiveTimeoutError, usize } {
     _ = userdata;
     _ = handle;
     _ = message_buffer;
-    _ = data_buffer;
     _ = flags;
     _ = timeout;
     return .{ error.NetworkDown, 0 };
@@ -5387,8 +5375,7 @@ fn lookupDns(
                 for (mapped_nameservers) |*ns| {
                     message_buffer[message_i] = .{
                         .address = ns,
-                        .data_ptr = query.ptr,
-                        .data_len = query.len,
+                        .data = &[_][]const u8{query},
                     };
                     message_i += 1;
                 }
@@ -5402,11 +5389,22 @@ fn lookupDns(
         } };
 
         while (true) {
-            var message_buffer: [max_messages]Io.net.IncomingMessage = @splat(.init);
+            var message_buffer: [max_messages]Io.net.IncomingMessage = undefined;
             const buf = answer_buffer[answer_buffer_i..];
-            const recv_err, const recv_n = socket.receiveManyTimeout(t_io, &message_buffer, buf, .{}, timeout);
+
+            { // Partition buffer among messages - each gets equal share
+                const buf_per_message = @max(1, buf.len / max_messages);
+                var data_buffers: [max_messages][1][]u8 = undefined;
+                var it = std.mem.window(u8, buf, buf_per_message, buf_per_message);
+                for (&message_buffer, &data_buffers) |*msg, *data_buf| {
+                    data_buf[0] = @constCast(it.next() orelse &[_]u8{});
+                    msg.* = .init(data_buf);
+                }
+            }
+
+            const recv_err, const recv_n = socket.receiveManyTimeout(t_io, &message_buffer, .{}, timeout);
             for (message_buffer[0..recv_n]) |*received_message| {
-                const reply = received_message.data;
+                const reply = received_message.data[0][0..received_message.bytes_received];
                 // Ignore non-identifiable packets.
                 if (reply.len < 4) continue;
 
@@ -5438,8 +5436,7 @@ fn lookupDns(
                     2 => {
                         var retry_message: Io.net.OutgoingMessage = .{
                             .address = ns,
-                            .data_ptr = query.ptr,
-                            .data_len = query.len,
+                            .data = &.{query},
                         };
                         _ = netSendPosix(t, socket.handle, (&retry_message)[0..1], .{});
                         continue;

@@ -901,21 +901,25 @@ pub const ReceiveFlags = packed struct(u8) {
 pub const IncomingMessage = struct {
     /// Populated by receive functions.
     from: IpAddress,
-    /// Populated by receive functions, points into the caller-supplied buffer.
-    data: []u8,
+    /// Buffers to receive into. Can be a single buffer or multiple for vectored I/O.
+    data: [][]u8,
     /// Supplied by caller before calling receive functions; mutated by receive
     /// functions.
     control: []u8,
     /// Populated by receive functions.
     flags: Flags,
+    /// Populated by receive functions with total bytes received across all buffers.
+    bytes_received: usize = undefined,
 
     /// Useful for initializing before calling `receiveManyTimeout`.
-    pub const init: IncomingMessage = .{
-        .from = undefined,
-        .data = undefined,
-        .control = &.{},
-        .flags = undefined,
-    };
+    pub fn init(data: [][]u8) IncomingMessage {
+        return .{
+            .from = undefined,
+            .data = data,
+            .control = &.{},
+            .flags = undefined,
+        };
+    }
 
     pub const Flags = packed struct(u8) {
         /// indicates end-of-record; the data returned completed a record
@@ -937,12 +941,13 @@ pub const IncomingMessage = struct {
 };
 
 pub const OutgoingMessage = struct {
-    address: *const IpAddress,
-    data_ptr: [*]const u8,
-    /// Initialized with how many bytes of `data_ptr` to send. After sending
-    /// succeeds, replaced with how many bytes were actually sent.
-    data_len: usize,
+    /// For connectionless sockets (UDP). For connected sockets (TCP, Unix), pass null.
+    address: ?*const IpAddress,
+    /// Buffers to send. Can be a single buffer or multiple for scatter-gather I/O.
+    data: []const []const u8,
     control: []const u8 = &.{},
+    /// Populated by send functions with total bytes sent across all buffers.
+    bytes_sent: usize = undefined,
 };
 
 pub const SendFlags = packed struct(u8) {
@@ -1083,10 +1088,10 @@ pub const Socket = struct {
 
     /// Transfers `data` to `dest`, connectionless, in one packet.
     pub fn send(s: *const Socket, io: Io, dest: *const IpAddress, data: []const u8) SendError!void {
-        var message: OutgoingMessage = .{ .address = dest, .data_ptr = data.ptr, .data_len = data.len };
+        var message: OutgoingMessage = .{ .address = dest, .data = &.{data} };
         const err, const n = io.vtable.netSend(io.userdata, s.handle, (&message)[0..1], .{});
         if (n != 1) return err.?;
-        if (message.data_len != data.len) return error.MessageOversize;
+        if (message.bytes_sent != data.len) return error.MessageOversize;
     }
 
     pub fn sendMany(s: *const Socket, io: Io, messages: []OutgoingMessage, flags: SendFlags) SendError!void {
@@ -1118,8 +1123,8 @@ pub const Socket = struct {
     /// See also:
     /// * `receiveTimeout`
     pub fn receive(s: *const Socket, io: Io, buffer: []u8) ReceiveError!IncomingMessage {
-        var message: IncomingMessage = .init;
-        const maybe_err, const count = io.vtable.netReceive(io.userdata, s.handle, (&message)[0..1], buffer, .{}, .none);
+        var message: IncomingMessage = .init(&.{buffer});
+        const maybe_err, const count = io.vtable.netReceive(io.userdata, s.handle, (&message)[0..1], .{}, .none);
         if (maybe_err) |err| switch (err) {
             // No timeout is passed to `netReceieve`, so it must not return timeout related errors.
             error.Timeout, error.UnsupportedClock => unreachable,
@@ -1144,8 +1149,8 @@ pub const Socket = struct {
         buffer: []u8,
         timeout: Io.Timeout,
     ) ReceiveTimeoutError!IncomingMessage {
-        var message: IncomingMessage = .init;
-        const maybe_err, const count = io.vtable.netReceive(io.userdata, s.handle, (&message)[0..1], buffer, .{}, timeout);
+        var message: IncomingMessage = .init(&.{buffer});
+        const maybe_err, const count = io.vtable.netReceive(io.userdata, s.handle, (&message)[0..1], .{}, timeout);
         if (maybe_err) |err| return err;
         assert(1 == count);
         return message;
@@ -1163,14 +1168,13 @@ pub const Socket = struct {
     pub fn receiveManyTimeout(
         s: *const Socket,
         io: Io,
-        /// Function assumes each element has initialized `control` field.
+        /// Function assumes each element has initialized `control` and `data` fields.
         /// Initializing with `IncomingMessage.init` may be helpful.
         message_buffer: []IncomingMessage,
-        data_buffer: []u8,
         flags: ReceiveFlags,
         timeout: Io.Timeout,
     ) struct { ?ReceiveTimeoutError, usize } {
-        return io.vtable.netReceive(io.userdata, s.handle, message_buffer, data_buffer, flags, timeout);
+        return io.vtable.netReceive(io.userdata, s.handle, message_buffer, flags, timeout);
     }
 };
 
