@@ -4548,6 +4548,9 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             // This argument is a range.
             const range_start = try sema.resolveInst(zir_arg_pair[0]);
             const range_end = try sema.resolveInst(zir_arg_pair[1]);
+            if (try sema.resolveDefinedValue(block, arg_src, range_start)) |start| {
+                if (try sema.valuesEqual(start, .zero_usize, .usize)) break :l range_end;
+            }
             break :l try sema.analyzeArithmetic(block, .sub, range_end, range_start, arg_src, arg_src, arg_src, true);
         };
         const arg_len = try sema.coerce(block, .usize, arg_len_uncoerced, arg_src);
@@ -4611,12 +4614,18 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 
     // Now for the runtime checks.
     if (any_runtime and block.wantSafety()) {
+        var ok: Air.Inst.Ref = .none;
         for (runtime_arg_lens, 0..) |arg_len, i| {
             if (arg_len == .none) continue;
             if (i == len_idx) continue;
-            const ok = try block.addBinOp(.cmp_eq, len, arg_len);
-            try sema.addSafetyCheck(block, src, ok, .for_len_mismatch);
+            const eq = try block.addBinOp(.cmp_eq, len, arg_len);
+            ok = if (ok != .none)
+                try block.addBinOp(.bool_and, ok, eq)
+            else
+                eq;
         }
+        if (ok != .none)
+            try sema.addSafetyCheck(block, src, ok, .for_len_mismatch);
     }
 
     return len;
