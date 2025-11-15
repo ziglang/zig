@@ -993,14 +993,15 @@ const huffman = struct {
     const max_leafs = 286;
     const max_nodes = max_leafs * 2;
 
-    const Node = struct {
-        freq: u16,
+    const Node = packed struct(u32) {
         depth: u16,
+        freq: u16,
 
         pub const Index = u16;
 
+        /// `freq` is more significant than `depth`
         pub fn smaller(a: Node, b: Node) bool {
-            return if (a.freq != b.freq) a.freq < b.freq else a.depth < b.depth;
+            return @as(u32, @bitCast(a)) < @as(u32, @bitCast(b));
         }
     };
 
