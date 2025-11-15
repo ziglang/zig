@@ -1770,13 +1770,74 @@ pub const TotalSystemMemoryError = error{
 pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
     switch (native_os) {
         .linux => {
-            var info: std.os.linux.Sysinfo = undefined;
-            const result: usize = std.os.linux.sysinfo(&info);
-            if (std.os.linux.E.init(result) != .SUCCESS) {
-                return error.UnknownTotalSystemMemory;
-            }
-            // Promote to u64 to avoid overflow on systems where info.totalram is a 32-bit usize
-            return @as(u64, info.totalram) * info.mem_unit;
+            // we will first try to query cgroup limits falling back
+            // to the sysinfo syscall if this does not work
+            const method: enum { cgroup, system } = .cgroup;
+            return sw: switch (method) {
+                .cgroup => {
+                    // determine cgroup membership
+                    const cgrp_file = std.fs.openFileAbsolute("/proc/self/cgroup", .{}) catch continue :sw .system;
+                    defer cgrp_file.close();
+
+                    // the cgroup file's content depends on the cgroup version that is active:
+                    //  v2: one line of shape: 0::/a/b/c
+                    //  v1: at least one line of shape: <id>:<controller-list>:/a/b/c
+                    // we only care about cgroup v2
+                    var cgrp_membership_buff: [3 + std.fs.max_path_bytes]u8 = undefined;
+                    const cgrp_file_read_n = cgrp_file.read(&cgrp_membership_buff) catch continue :sw .system;
+                    if (cgrp_file_read_n <= 0 or !std.mem.startsWith(u8, &cgrp_membership_buff, "0::")) {
+                        continue :sw .system;
+                    }
+                    const cgrp_path = std.mem.trimEnd(
+                        u8,
+                        cgrp_membership_buff[3..cgrp_file_read_n],
+                        "\n ",
+                    );
+
+                    // path is either:
+                    //  /
+                    //  /a/b/c
+                    //  /a/b/c (deleted) -> cgroup does not exists fallback to default behavior
+                    if (std.mem.endsWith(u8, cgrp_path, ")")) {
+                        continue :sw .system;
+                    }
+
+                    var mem_file_path_buff: [std.fs.max_path_bytes]u8 = undefined;
+                    const mem_file_path = std.fmt.bufPrint(
+                        &mem_file_path_buff,
+                        "/sys/fs/cgroup{s}/memory.max", // path might be 'a//b' which is ok
+                        .{cgrp_path},
+                    ) catch unreachable;
+
+                    const mem_file = std.fs.openFileAbsolute(
+                        mem_file_path,
+                        .{},
+                    ) catch continue :sw .system;
+                    defer mem_file.close();
+
+                    // the buffer will hold either the string 'max' or a u64 at most
+                    var mem_file_buff: [128]u8 = undefined;
+                    const mem_file_read_n = mem_file.read(&mem_file_buff) catch continue :sw .system;
+                    if (mem_file_read_n == 0 or mem_file_buff[0] == 'm') {
+                        continue :sw .system;
+                    }
+
+                    return std.fmt.parseUnsigned(
+                        u64,
+                        std.mem.trimRight(u8, mem_file_buff[0..mem_file_read_n], "\n "),
+                        10,
+                    ) catch continue :sw .system;
+                },
+                .system => {
+                    var info: std.os.linux.Sysinfo = undefined;
+                    const result: usize = std.os.linux.sysinfo(&info);
+                    if (std.os.linux.E.init(result) != .SUCCESS) {
+                        return error.UnknownTotalSystemMemory;
+                    }
+                    // Promote to u64 to avoid overflow on systems where info.totalram is a 32-bit usize
+                    break :sw @as(u64, info.totalram) * info.mem_unit;
+                },
+            };
         },
         .freebsd => {
             var physmem: c_ulong = undefined;

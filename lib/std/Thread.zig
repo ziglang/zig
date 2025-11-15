@@ -1209,8 +1209,96 @@ const LinuxThreadImpl = struct {
     }
 
     fn getCpuCount() !usize {
-        const cpu_set = try posix.sched_getaffinity(0);
-        return posix.CPU_COUNT(cpu_set);
+        // we will first try to query cgroup limits falling back
+        // to querying the system for the number of cpus
+        const method: enum { cgroup, system } = .cgroup;
+        return sw: switch (method) {
+            .cgroup => {
+                // determine cgroup membership
+                const cgrp_file = std.fs.openFileAbsolute("/proc/self/cgroup", .{}) catch continue :sw .system;
+                defer cgrp_file.close();
+
+                // the cgroup file's content depends on the cgroup version that is active:
+                //  v2: one line of shape: 0::/a/b/c
+                //  v1: at least one line of shape: <id>:<controller-list>:/a/b/c
+                // we only care about cgroup v2
+                var cgrp_membership_buff: [3 + std.fs.max_path_bytes]u8 = undefined;
+                const cgrp_file_read_n = cgrp_file.read(&cgrp_membership_buff) catch continue :sw .system;
+                if (cgrp_file_read_n <= 0 or !std.mem.startsWith(u8, &cgrp_membership_buff, "0::")) {
+                    continue :sw .system;
+                }
+                const cgrp_path = std.mem.trimEnd(
+                    u8,
+                    cgrp_membership_buff[3..cgrp_file_read_n],
+                    "\n ",
+                );
+
+                // path is either:
+                //  /
+                //  /a/b/c
+                //  /a/b/c (deleted) -> cgroup does not exist
+                if (std.mem.endsWith(u8, cgrp_path, ")")) {
+                    continue :sw .system;
+                }
+
+                var cpu_file_path_buff: [std.fs.max_path_bytes]u8 = undefined;
+                const cpu_file_path = std.fmt.bufPrint(
+                    &cpu_file_path_buff,
+                    "/sys/fs/cgroup{s}/cpu.max", // path might be 'a//b' which is ok
+                    .{cgrp_path},
+                ) catch unreachable;
+
+                const cpu_file = std.fs.openFileAbsolute(
+                    cpu_file_path,
+                    .{},
+                ) catch continue :sw .system;
+                defer cpu_file.close();
+
+                // the buffer will hold at most two u64 and some whitespace: <quota> <period>\n
+                var cpu_file_buff: [256]u8 = undefined;
+                const cpu_file_read_n = cpu_file.read(&cpu_file_buff) catch continue :sw .system;
+
+                // if quota is set to 'max' no limit has been set
+                if (cpu_file_read_n == 0 or cpu_file_buff[0] == 'm') {
+                    continue :sw .system;
+                }
+
+                var iter = std.mem.splitAny(u8, cpu_file_buff[0..cpu_file_read_n], " \n");
+                const quota = std.fmt.parseUnsigned(
+                    usize,
+                    iter.next() orelse continue :sw .system,
+                    10,
+                ) catch continue :sw .system;
+                const period = std.fmt.parseUnsigned(
+                    usize,
+                    iter.next() orelse continue :sw .system,
+                    10,
+                ) catch continue :sw .system;
+
+                // period should never be 0 but it should be handled just in case
+                if (period == 0) {
+                    continue :sw .system;
+                }
+
+                // quota / period is the number of cpu we can have
+                //  10000 / 10000 => 1
+                //  40000 / 20000 => 2
+                //  10000 / 20000 => 0.5
+                // for compatibility we return a unsinged integer >=1
+                if (quota < period) {
+                    break :sw 1;
+                }
+                // rounding down means that the user of getCpuCount potentially does less work
+                // than the system would permit but since this is a general inteface which should
+                // be the same accross different operating systems returning less is better than
+                // letting the user overcommit cpu resources.
+                break :sw std.math.divTrunc(usize, quota, period) catch continue :sw .system;
+            },
+            .system => {
+                const cpu_set = try posix.sched_getaffinity(0);
+                break :sw posix.CPU_COUNT(cpu_set);
+            },
+        };
     }
 
     thread: *ThreadCompletion,
