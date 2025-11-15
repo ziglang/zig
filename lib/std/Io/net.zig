@@ -462,18 +462,34 @@ pub const Ip6Address = struct {
             overflow: usize,
         };
 
-        pub fn parse(text: []const u8) Parsed {
+        pub fn parse(text_in: []const u8) Parsed {
+            var text: []const u8 = text_in; // so we can alias v4_amended if needed
             if (text.len < 2) return .incomplete;
-            const ip4_prefix = "::ffff:";
-            if (std.ascii.startsWithIgnoreCase(text, ip4_prefix)) {
-                const parsed = Ip4Address.parse(text[ip4_prefix.len..], 0) catch
-                    return .{ .invalid_ip4_mapping = ip4_prefix.len };
-                const b = parsed.bytes;
-                return .{ .success = .{
-                    .bytes = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, b[0], b[1], b[2], b[3] },
-                    .interface_name = null,
-                } };
+
+            // Pre-processing for trailing :IPv4 - If there is no "%iface", and
+            // the part after the last ':' has a '.', parse it as ipv4 and
+            // convert to IPv6 ASCII text in v4_amended as the new "text"
+            var v4_amended: [(8 * 4) + 7]u8 = undefined;
+            if (std.mem.findScalar(u8, text, '%') == null) {
+                const first_parts, const last_part = std.mem.cutScalarLast(u8, text, ':') orelse
+                    return .incomplete;
+                if (std.mem.findScalar(u8, last_part, '.')) |_| {
+                    if (first_parts.len > (6 * 4) + 5) // hhhh:hhhh:hhhh:hhhh:hhhh:hhhh
+                        return .{ .invalid_ip4_mapping = first_parts.len };
+                    const parsed = Ip4Address.parse(last_part, 0) catch
+                        return .{ .invalid_ip4_mapping = first_parts.len + 1 };
+                    @memcpy(v4_amended[0..first_parts.len], first_parts);
+                    const v4_part = v4_amended[first_parts.len..][0..10];
+                    v4_part[0] = ':';
+                    @memcpy(v4_part[1..3], &std.fmt.hex(parsed.bytes[0]));
+                    @memcpy(v4_part[3..5], &std.fmt.hex(parsed.bytes[1]));
+                    v4_part[5] = ':';
+                    @memcpy(v4_part[6..8], &std.fmt.hex(parsed.bytes[2]));
+                    @memcpy(v4_part[8..10], &std.fmt.hex(parsed.bytes[3]));
+                    text = v4_amended[0 .. first_parts.len + 10];
+                }
             }
+
             // Has to be u16 elements to handle 3-digit hex numbers from compression.
             var parts: [8]u16 = @splat(0);
             var parts_i: u8 = 0;
@@ -586,66 +602,67 @@ pub const Ip6Address = struct {
 
         pub fn format(u: *const Unresolved, w: *Io.Writer) Io.Writer.Error!void {
             const bytes = &u.bytes;
-            if (std.mem.eql(u8, bytes[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
-                try w.print("::ffff:{d}.{d}.{d}.{d}", .{ bytes[12], bytes[13], bytes[14], bytes[15] });
-            } else {
-                const parts: [8]u16 = .{
-                    std.mem.readInt(u16, bytes[0..2], .big),
-                    std.mem.readInt(u16, bytes[2..4], .big),
-                    std.mem.readInt(u16, bytes[4..6], .big),
-                    std.mem.readInt(u16, bytes[6..8], .big),
-                    std.mem.readInt(u16, bytes[8..10], .big),
-                    std.mem.readInt(u16, bytes[10..12], .big),
-                    std.mem.readInt(u16, bytes[12..14], .big),
-                    std.mem.readInt(u16, bytes[14..16], .big),
-                };
+            if (std.mem.eql(u8, bytes[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff }))
+                return w.print("::ffff:{d}.{d}.{d}.{d}", .{ bytes[12], bytes[13], bytes[14], bytes[15] });
+            if (std.mem.eql(u8, bytes[0..12], &[_]u8{ 0, 0x64, 0xff, 0x9b, 0, 0, 0, 0, 0, 0, 0, 0 }))
+                return w.print("64:ff9b::{d}.{d}.{d}.{d}", .{ bytes[12], bytes[13], bytes[14], bytes[15] });
 
-                // Find the longest zero run
-                var longest_start: usize = 8;
-                var longest_len: usize = 0;
-                var current_start: usize = 0;
-                var current_len: usize = 0;
+            const parts: [8]u16 = .{
+                std.mem.readInt(u16, bytes[0..2], .big),
+                std.mem.readInt(u16, bytes[2..4], .big),
+                std.mem.readInt(u16, bytes[4..6], .big),
+                std.mem.readInt(u16, bytes[6..8], .big),
+                std.mem.readInt(u16, bytes[8..10], .big),
+                std.mem.readInt(u16, bytes[10..12], .big),
+                std.mem.readInt(u16, bytes[12..14], .big),
+                std.mem.readInt(u16, bytes[14..16], .big),
+            };
 
-                for (parts, 0..) |part, i| {
-                    if (part == 0) {
-                        if (current_len == 0) {
-                            current_start = i;
-                        }
-                        current_len += 1;
-                        if (current_len > longest_len) {
-                            longest_start = current_start;
-                            longest_len = current_len;
-                        }
-                    } else {
-                        current_len = 0;
+            // Find the longest zero run
+            var longest_start: usize = 8;
+            var longest_len: usize = 0;
+            var current_start: usize = 0;
+            var current_len: usize = 0;
+
+            for (parts, 0..) |part, i| {
+                if (part == 0) {
+                    if (current_len == 0) {
+                        current_start = i;
                     }
+                    current_len += 1;
+                    if (current_len > longest_len) {
+                        longest_start = current_start;
+                        longest_len = current_len;
+                    }
+                } else {
+                    current_len = 0;
                 }
+            }
 
-                // Only compress if the longest zero run is 2 or more
-                if (longest_len < 2) {
-                    longest_start = 8;
-                    longest_len = 0;
+            // Only compress if the longest zero run is 2 or more
+            if (longest_len < 2) {
+                longest_start = 8;
+                longest_len = 0;
+            }
+
+            var i: usize = 0;
+            var abbrv = false;
+            while (i < parts.len) : (i += 1) {
+                if (i == longest_start) {
+                    // Emit "::" for the longest zero run
+                    if (!abbrv) {
+                        try w.writeAll(if (i == 0) "::" else ":");
+                        abbrv = true;
+                    }
+                    i += longest_len - 1; // Skip the compressed range
+                    continue;
                 }
-
-                var i: usize = 0;
-                var abbrv = false;
-                while (i < parts.len) : (i += 1) {
-                    if (i == longest_start) {
-                        // Emit "::" for the longest zero run
-                        if (!abbrv) {
-                            try w.writeAll(if (i == 0) "::" else ":");
-                            abbrv = true;
-                        }
-                        i += longest_len - 1; // Skip the compressed range
-                        continue;
-                    }
-                    if (abbrv) {
-                        abbrv = false;
-                    }
-                    try w.print("{x}", .{parts[i]});
-                    if (i != parts.len - 1) {
-                        try w.writeAll(":");
-                    }
+                if (abbrv) {
+                    abbrv = false;
+                }
+                try w.print("{x}", .{parts[i]});
+                if (i != parts.len - 1) {
+                    try w.writeAll(":");
                 }
             }
             if (u.interface_name) |n| try w.print("%{s}", .{n});
@@ -1362,6 +1379,13 @@ test "parsing IPv6 addresses" {
     try testIp6Parse("fe80::abcd:ef12%3");
     try testIp6Parse("ff02::");
     try testIp6Parse("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
+    try testIp6Parse("::ffff:192.0.2.1"); // IPv4 Mapped
+    try testIp6Parse("64:ff9b::192.0.2.1"); // RFC 6052 Well-Known Prefix
+    try testIp6Parse("fe80::e0e:76ff:fed4:cf22%iface.123"); // edge case for :ipv4 parsing
+    try testIp6ParseTransform("::c000:201", "::192.0.2.1"); // Deprecated "IPv4 Compatible"
+    try testIp6ParseTransform("::ffff:192.0.2.1", "::ffff:c000:201"); // Non-canonical in Mapped
+    try testIp6ParseTransform("2001:db8::c000:201", "2001:db8::192.0.2.1"); // arbitrary prefix
+    try testIp6ParseTransform("2001:db8::201", "2001:db8::0.0.2.1"); // Compression+:IPv4 edge case
 }
 
 fn testIp6Parse(input: []const u8) !void {
