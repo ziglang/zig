@@ -1772,12 +1772,22 @@ pub const F80 = struct {
     }
 };
 
+// Named `Signum` since `Sign` is already taken.
+fn Signum(T: type) type {
+    return switch (@typeInfo(T)) {
+        .int => |int| IntFittingRange(if (int.signedness == .signed) -1 else 0, 1),
+        .vector => |vec| @Vector(vec.len, Signum(vec.child)),
+        else => T,
+    };
+}
+
 /// Returns -1, 0, or 1.
 /// Supports integer and float types and vectors of integer and float types.
 /// Unsigned integer types will always return 0 or 1.
+/// Returned integer types are narrowed to fit the possible values.
 /// Branchless.
-pub inline fn sign(i: anytype) @TypeOf(i) {
-    const T = @TypeOf(i);
+pub inline fn sign(i: anytype) Signum(@TypeOf(i)) {
+    const T = Signum(@TypeOf(i));
     return switch (@typeInfo(T)) {
         .int, .comptime_int => @as(T, @intFromBool(i > 0)) - @as(T, @intFromBool(i < 0)),
         .float, .comptime_float => @as(T, @floatFromInt(@intFromBool(i > 0))) - @as(T, @floatFromInt(@intFromBool(i < 0))),
