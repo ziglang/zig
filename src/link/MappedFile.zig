@@ -213,7 +213,7 @@ pub const Node = extern struct {
             defer node_moved.* = false;
             return node_moved.*;
         }
-        fn movedAssumeCapacity(ni: Node.Index, mf: *MappedFile) void {
+        pub fn movedAssumeCapacity(ni: Node.Index, mf: *MappedFile) void {
             if (ni.hasMoved(mf)) return;
             const node = ni.get(mf);
             node.flags.moved = true;
@@ -234,7 +234,7 @@ pub const Node = extern struct {
             defer node_resized.* = false;
             return node_resized.*;
         }
-        fn resizedAssumeCapacity(ni: Node.Index, mf: *MappedFile) void {
+        pub fn resizedAssumeCapacity(ni: Node.Index, mf: *MappedFile) void {
             const node = ni.get(mf);
             if (node.flags.resized) return;
             node.flags.resized = true;

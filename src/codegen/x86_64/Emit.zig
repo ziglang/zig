@@ -881,7 +881,7 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             end_offset - 4,
             @enumFromInt(reloc.target.index),
             reloc.off - 4,
-            .{ .X86_64 = .PC32 },
+            .{ .X86_64 = .PLT32 },
         ) else if (emit.bin_file.cast(.macho)) |macho_file| {
             const zo = macho_file.getZigObject().?;
             const atom = zo.symbols.items[emit.atom_index].getAtom(macho_file).?;
@@ -916,7 +916,13 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
                 .r_info = @as(u64, reloc.target.index) << 32 | @intFromEnum(r_type),
                 .r_addend = reloc.off - 4,
             }, zo);
-        } else return emit.fail("TODO implement {s} reloc for {s}", .{
+        } else if (emit.bin_file.cast(.elf2)) |elf| try elf.addReloc(
+            @enumFromInt(emit.atom_index),
+            end_offset - 4,
+            @enumFromInt(reloc.target.index),
+            reloc.off - 4,
+            .{ .X86_64 = if (emit.pic) .TLSLD else unreachable },
+        ) else return emit.fail("TODO implement {s} reloc for {s}", .{
             @tagName(reloc.target.type), @tagName(emit.bin_file.tag),
         }),
         .tlv => if (emit.bin_file.cast(.elf)) |elf_file| {
@@ -933,7 +939,7 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             end_offset - 4,
             @enumFromInt(reloc.target.index),
             reloc.off,
-            .{ .X86_64 = .TPOFF32 },
+            .{ .X86_64 = if (emit.pic) .DTPOFF32 else .TPOFF32 },
         ) else if (emit.bin_file.cast(.macho)) |macho_file| {
             const zo = macho_file.getZigObject().?;
             const atom = zo.symbols.items[emit.atom_index].getAtom(macho_file).?;
