@@ -1118,6 +1118,8 @@ pub fn alignCast(comptime alignment: Alignment, ptr: anytype) AlignCastError!Ali
     return error.UnalignedMemory;
 }
 
+/// Returns whether `int` is an integral power of two.
+///
 /// Asserts `int > 0`.
 pub fn isPowerOfTwo(int: anytype) bool {
     assert(int > 0);
