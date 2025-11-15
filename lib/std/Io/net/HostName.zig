@@ -24,15 +24,82 @@ pub const ValidateError = error{
     InvalidHostName,
 };
 
+/// Validates a hostname according to [RFC 1123](https://www.rfc-editor.org/rfc/rfc1123)
 pub fn validate(bytes: []const u8) ValidateError!void {
-    if (bytes.len > max_len) return error.NameTooLong;
-    if (!std.unicode.utf8ValidateSlice(bytes)) return error.InvalidHostName;
-    for (bytes) |byte| {
-        if (!std.ascii.isAscii(byte) or byte == '.' or byte == '-' or std.ascii.isAlphanumeric(byte)) {
-            continue;
+    if (bytes.len == 0) return error.InvalidHostName;
+    if (bytes[0] == '.') return error.InvalidHostName;
+
+    // Ignore trailing dot (FQDN). It doesn't count toward our length.
+    const end = if (bytes[bytes.len - 1] == '.') end: {
+        if (bytes.len == 1) return error.InvalidHostName;
+        break :end bytes.len - 1;
+    } else bytes.len;
+
+    // The accepted maximum length of a hostname, including labels and dots.
+    if (end > max_len) return error.NameTooLong;
+
+    // Hostnames are divided into dot-separated "labels", which:
+    //
+    // - Start with a letter or digit
+    // - Can contain letters, digits, or hyphens
+    // - Must end with a letter or digit
+    // - Have a minimum of 1 character and a maximum of 63
+    var label_start: usize = 0;
+    var label_len: usize = 0;
+    for (bytes[0..end], 0..) |c, i| {
+        switch (c) {
+            '.' => {
+                if (label_len == 0 or label_len > 63) return error.InvalidHostName;
+                if (!std.ascii.isAlphanumeric(bytes[label_start])) return error.InvalidHostName;
+                if (!std.ascii.isAlphanumeric(bytes[i - 1])) return error.InvalidHostName;
+
+                label_start = i + 1;
+                label_len = 0;
+            },
+            '-' => {
+                label_len += 1;
+            },
+            else => {
+                if (!std.ascii.isAlphanumeric(c)) return error.InvalidHostName;
+                label_len += 1;
+            },
         }
-        return error.InvalidHostName;
     }
+
+    // Validate the final label
+    if (label_len == 0 or label_len > 63) return error.InvalidHostName;
+    if (!std.ascii.isAlphanumeric(bytes[label_start])) return error.InvalidHostName;
+    if (!std.ascii.isAlphanumeric(bytes[end - 1])) return error.InvalidHostName;
+}
+
+test validate {
+    // Valid hostnames
+    try validate("example");
+    try validate("example.com");
+    try validate("www.example.com");
+    try validate("sub.domain.example.com");
+    try validate("example.com.");
+    try validate("host-name.example.com.");
+    try validate("123.example.com.");
+    try validate("a-b.com");
+    try validate("a.b.c.d.e.f.g");
+    try validate("127.0.0.1"); // Also a valid hostname
+    try validate("a" ** 63 ++ ".com"); // Label exactly 63 chars (valid)
+    try validate("a." ** 127 ++ "a"); // Total length 255 (valid)
+
+    // Invalid hostnames
+    try std.testing.expectError(error.InvalidHostName, validate(""));
+    try std.testing.expectError(error.InvalidHostName, validate(".example.com"));
+    try std.testing.expectError(error.InvalidHostName, validate("example.com.."));
+    try std.testing.expectError(error.InvalidHostName, validate("host..domain"));
+    try std.testing.expectError(error.InvalidHostName, validate("-hostname"));
+    try std.testing.expectError(error.InvalidHostName, validate("hostname-"));
+    try std.testing.expectError(error.InvalidHostName, validate("a.-.b"));
+    try std.testing.expectError(error.InvalidHostName, validate("host_name.com"));
+    try std.testing.expectError(error.InvalidHostName, validate("."));
+    try std.testing.expectError(error.InvalidHostName, validate(".."));
+    try std.testing.expectError(error.InvalidHostName, validate("a" ** 64 ++ ".com")); // Label length 64 (too long)
+    try std.testing.expectError(error.NameTooLong, validate("a." ** 127 ++ "ab")); // Total length 256 (too long)
 }
 
 pub fn init(bytes: []const u8) ValidateError!HostName {
