@@ -27,6 +27,10 @@ pub fn main() !void {
     var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
     const gpa = general_purpose_allocator.allocator();
 
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
+
     var argv = try std.process.argsWithAllocator(arena);
     defer argv.deinit();
     assert(argv.skip());
@@ -58,11 +62,11 @@ pub fn main() !void {
     }
     const should_open_browser = force_open_browser orelse (listen_port == 0);
 
-    const address = std.net.Address.parseIp("127.0.0.1", listen_port) catch unreachable;
-    var http_server = try address.listen(.{
+    const address = std.Io.net.IpAddress.parse("127.0.0.1", listen_port) catch unreachable;
+    var http_server = try address.listen(io, .{
         .reuse_address = true,
     });
-    const port = http_server.listen_address.in.getPort();
+    const port = http_server.socket.address.getPort();
     const url_with_newline = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/\n", .{port});
     std.fs.File.stdout().writeAll(url_with_newline) catch {};
     if (should_open_browser) {
@@ -73,6 +77,7 @@ pub fn main() !void {
 
     var context: Context = .{
         .gpa = gpa,
+        .io = io,
         .zig_exe_path = zig_exe_path,
         .global_cache_path = global_cache_path,
         .lib_dir = lib_dir,
@@ -80,23 +85,23 @@ pub fn main() !void {
     };
 
     while (true) {
-        const connection = try http_server.accept();
-        _ = std.Thread.spawn(.{}, accept, .{ &context, connection }) catch |err| {
+        const stream = try http_server.accept(io);
+        _ = std.Thread.spawn(.{}, accept, .{ &context, stream }) catch |err| {
             std.log.err("unable to accept connection: {s}", .{@errorName(err)});
-            connection.stream.close();
+            stream.close(io);
             continue;
         };
     }
 }
 
-fn accept(context: *Context, connection: std.net.Server.Connection) void {
-    defer connection.stream.close();
+fn accept(context: *Context, stream: std.Io.net.Stream) void {
+    defer stream.close(context.io);
 
     var recv_buffer: [4000]u8 = undefined;
     var send_buffer: [4000]u8 = undefined;
-    var conn_reader = connection.stream.reader(&recv_buffer);
-    var conn_writer = connection.stream.writer(&send_buffer);
-    var server = std.http.Server.init(conn_reader.interface(), &conn_writer.interface);
+    var conn_reader = stream.reader(context.io, &recv_buffer);
+    var conn_writer = stream.writer(context.io, &send_buffer);
+    var server = std.http.Server.init(&conn_reader.interface, &conn_writer.interface);
     while (server.reader.state == .ready) {
         var request = server.receiveHead() catch |err| switch (err) {
             error.HttpConnectionClosing => return,
@@ -124,6 +129,7 @@ fn accept(context: *Context, connection: std.net.Server.Connection) void {
 
 const Context = struct {
     gpa: Allocator,
+    io: std.Io,
     lib_dir: std.fs.Dir,
     zig_lib_directory: []const u8,
     zig_exe_path: []const u8,
@@ -215,15 +221,11 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
             },
             else => continue,
         }
-        var file = try entry.dir.openFile(entry.basename, .{});
+        const file = try entry.dir.openFile(entry.basename, .{});
         defer file.close();
         const stat = try file.stat();
-        var file_reader: std.fs.File.Reader = .{
-            .file = file,
-            .interface = std.fs.File.Reader.initInterface(&.{}),
-            .size = stat.size,
-        };
-        try archiver.writeFile(entry.path, &file_reader, stat.mtime);
+        var file_reader = file.reader(context.io, &.{});
+        try archiver.writeFileTimestamp(entry.path, &file_reader, stat.mtime);
     }
 
     {
@@ -255,7 +257,7 @@ fn serveWasm(
     const wasm_base_path = try buildWasmBinary(arena, context, optimize_mode);
     const bin_name = try std.zig.binNameAlloc(arena, .{
         .root_name = autodoc_root_name,
-        .target = &(std.zig.system.resolveTargetQuery(std.Build.parseTargetQuery(.{
+        .target = &(std.zig.system.resolveTargetQuery(context.io, std.Build.parseTargetQuery(.{
             .arch_os_abi = autodoc_arch_os_abi,
             .cpu_features = autodoc_cpu_features,
         }) catch unreachable) catch unreachable),
@@ -394,7 +396,7 @@ fn buildWasmBinary(
     }
 
     if (result_error_bundle.errorMessageCount() > 0) {
-        result_error_bundle.renderToStdErr(.{}, true);
+        result_error_bundle.renderToStdErr(.{}, .on);
         std.log.err("the following command failed with {d} compilation errors:\n{s}", .{
             result_error_bundle.errorMessageCount(),
             try std.Build.Step.allocPrintCmd(arena, null, argv.items),
