@@ -413,6 +413,7 @@ pub const CpuContextPtr = if (cpu_context.Native == noreturn) noreturn else *con
 /// ReleaseFast and ReleaseSmall mode. Outside of a test block, this assert
 /// function is the correct function to use.
 pub fn assert(ok: bool) void {
+    @disableInstrumentation();
     if (!ok) unreachable; // assertion failure
 }
 

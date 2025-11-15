@@ -425,7 +425,7 @@ pub fn DebugAllocator(comptime config: Config) type {
             bucket: *BucketHeader,
             size_class_index: usize,
             used_bits_count: usize,
-            tty_config: std.Io.tty.Config,
+            tty_config: *?std.Io.tty.Config,
         ) usize {
             const size_class = @as(usize, 1) << @as(Log2USize, @intCast(size_class_index));
             const slot_count = slot_counts[size_class_index];
@@ -445,7 +445,10 @@ pub fn DebugAllocator(comptime config: Config) type {
                                 addr,
                                 std.debug.FormatStackTrace{
                                     .stack_trace = stack_trace,
-                                    .tty_config = tty_config,
+                                    .tty_config = tty_config.* orelse config: {
+                                        tty_config.* = std.Io.tty.detectConfig(.stderr());
+                                        break :config tty_config.*.?;
+                                    },
                                 },
                             });
                             leaks += 1;
@@ -460,14 +463,14 @@ pub fn DebugAllocator(comptime config: Config) type {
         pub fn detectLeaks(self: *Self) usize {
             var leaks: usize = 0;
 
-            const tty_config = std.Io.tty.detectConfig(.stderr());
+            var tty_config: ?std.Io.tty.Config = null;
 
             for (self.buckets, 0..) |init_optional_bucket, size_class_index| {
                 var optional_bucket = init_optional_bucket;
                 const slot_count = slot_counts[size_class_index];
                 const used_bits_count = usedBitsCount(slot_count);
                 while (optional_bucket) |bucket| {
-                    leaks += detectLeaksInBucket(bucket, size_class_index, used_bits_count, tty_config);
+                    leaks += detectLeaksInBucket(bucket, size_class_index, used_bits_count, &tty_config);
                     optional_bucket = bucket.prev;
                 }
             }
@@ -480,7 +483,10 @@ pub fn DebugAllocator(comptime config: Config) type {
                     @intFromPtr(large_alloc.bytes.ptr),
                     std.debug.FormatStackTrace{
                         .stack_trace = stack_trace,
-                        .tty_config = tty_config,
+                        .tty_config = tty_config orelse config: {
+                            tty_config = std.Io.tty.detectConfig(.stderr());
+                            break :config tty_config.?;
+                        },
                     },
                 });
                 leaks += 1;

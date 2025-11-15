@@ -1,5 +1,6 @@
 // Server timestamp.
 var start_fuzzing_timestamp: i64 = undefined;
+var start_fuzzing_n_runs: u64 = undefined;
 
 const js = struct {
     extern "fuzz" fn requestSources() void;
@@ -36,6 +37,7 @@ pub fn sourceIndexMessage(msg_bytes: []u8) error{OutOfMemory}!void {
     const source_locations: []const Coverage.SourceLocation = @alignCast(std.mem.bytesAsSlice(Coverage.SourceLocation, msg_bytes[source_locations_start..source_locations_end]));
 
     start_fuzzing_timestamp = header.start_timestamp;
+    start_fuzzing_n_runs = header.start_n_runs;
     try updateCoverageSources(directories, files, source_locations, string_bytes);
     js.ready();
 }
@@ -270,7 +272,7 @@ fn updateStats() error{OutOfMemory}!void {
 
     const avg_speed: f64 = speed: {
         const ns_elapsed: f64 = @floatFromInt(nsSince(start_fuzzing_timestamp));
-        const n_runs: f64 = @floatFromInt(hdr.n_runs);
+        const n_runs: f64 = @floatFromInt(hdr.n_runs -% start_fuzzing_n_runs);
         break :speed n_runs / (ns_elapsed / std.time.ns_per_s);
     };
 
