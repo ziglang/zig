@@ -3443,6 +3443,7 @@ pub const MAXIMUM_WAIT_OBJECTS = 64;
 pub const WAIT_ABANDONED = 0x00000080;
 pub const WAIT_ABANDONED_0 = WAIT_ABANDONED + 0;
 pub const WAIT_OBJECT_0 = 0x00000000;
+pub const WAIT_IO_COMPLETION = 0x000000C0;
 pub const WAIT_TIMEOUT = 0x00000102;
 pub const WAIT_FAILED = 0xFFFFFFFF;
 
@@ -3501,6 +3502,8 @@ pub const MEM_RELEASE = 0x8000;
 
 pub const PTHREAD_START_ROUTINE = *const fn (LPVOID) callconv(.winapi) DWORD;
 pub const LPTHREAD_START_ROUTINE = PTHREAD_START_ROUTINE;
+
+pub const PAPCFUNC = *const fn (ULONG_PTR) callconv(.winapi) void;
 
 pub const WIN32_FIND_DATAW = extern struct {
     dwFileAttributes: DWORD,

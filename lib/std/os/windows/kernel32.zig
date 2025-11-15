@@ -19,6 +19,7 @@ const LPCVOID = windows.LPCVOID;
 const LPCWSTR = windows.LPCWSTR;
 const LPTHREAD_START_ROUTINE = windows.LPTHREAD_START_ROUTINE;
 const LPVOID = windows.LPVOID;
+const PAPCFUNC = windows.PAPCFUNC;
 const LPWSTR = windows.LPWSTR;
 const MODULEENTRY32 = windows.MODULEENTRY32;
 const OVERLAPPED = windows.OVERLAPPED;
@@ -346,6 +347,12 @@ pub extern "kernel32" fn CreateThread(
     dwCreationFlags: DWORD,
     lpThreadId: ?*DWORD,
 ) callconv(.winapi) ?HANDLE;
+
+pub extern "kernel32" fn QueueUserAPC(
+    pfnAPC: PAPCFUNC,
+    hThread: HANDLE,
+    dwData: ULONG_PTR,
+) callconv(.winapi) DWORD;
 
 // TODO: Wrapper around RtlDelayExecution.
 pub extern "kernel32" fn SwitchToThread() callconv(.winapi) BOOL;
