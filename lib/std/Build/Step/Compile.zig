@@ -135,6 +135,9 @@ link_z_common_page_size: ?u64 = null,
 /// Maximum page size
 link_z_max_page_size: ?u64 = null,
 
+/// Force a fatal error if any undefined symbols remain.
+link_z_defs: bool = false,
+
 /// (Darwin) Install name for the dylib
 install_name: ?[]const u8 = null,
 
@@ -1549,6 +1552,10 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     if (compile.link_z_max_page_size) |size| {
         try zig_args.append("-z");
         try zig_args.append(b.fmt("max-page-size={d}", .{size}));
+    }
+    if (compile.link_z_defs) {
+        try zig_args.append("-z");
+        try zig_args.append("defs");
     }
 
     if (compile.libc_file) |libc_file| {
