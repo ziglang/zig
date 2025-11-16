@@ -529,6 +529,7 @@ pub fn hasNonEmptyEnvVar(allocator: Allocator, key: []const u8) HasEnvVarError!b
 }
 
 /// Windows-only. Get an environment variable with a null-terminated, WTF-16 encoded name.
+/// The returned slice points to memory in the PEB.
 ///
 /// This function performs a Unicode-aware case-insensitive lookup using RtlEqualUnicodeString.
 ///
