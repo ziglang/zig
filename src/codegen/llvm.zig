@@ -2697,7 +2697,7 @@ pub const Object = struct {
     fn allocTypeName(o: *Object, pt: Zcu.PerThread, ty: Type) Allocator.Error![:0]const u8 {
         var aw: std.Io.Writer.Allocating = .init(o.gpa);
         defer aw.deinit();
-        ty.print(&aw.writer, pt) catch |err| switch (err) {
+        ty.print(&aw.writer, pt, null) catch |err| switch (err) {
             error.WriteFailed => return error.OutOfMemory,
         };
         return aw.toOwnedSliceSentinel(0);

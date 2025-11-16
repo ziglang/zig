@@ -2447,19 +2447,6 @@ fn failWithStructInitNotSupported(sema: *Sema, block: *Block, src: LazySrcLoc, t
     });
 }
 
-fn failWithErrorSetCodeMissing(
-    sema: *Sema,
-    block: *Block,
-    src: LazySrcLoc,
-    dest_err_set_ty: Type,
-    src_err_set_ty: Type,
-) CompileError {
-    const pt = sema.pt;
-    return sema.fail(block, src, "expected type '{f}', found type '{f}'", .{
-        dest_err_set_ty.fmt(pt), src_err_set_ty.fmt(pt),
-    });
-}
-
 pub fn failWithIntegerOverflow(sema: *Sema, block: *Block, src: LazySrcLoc, int_ty: Type, val: Value, vector_index: ?usize) CompileError {
     const pt = sema.pt;
     return sema.failWithOwnedErrorMsg(block, msg: {
@@ -2619,6 +2606,26 @@ pub fn errMsg(
     return Zcu.ErrorMsg.create(sema.gpa, src, format, args);
 }
 
+fn typeMismatchErrMsg(sema: *Sema, src: LazySrcLoc, expected: Type, found: Type) Allocator.Error!*Zcu.ErrorMsg {
+    const pt = sema.pt;
+    var cmp: Type.Comparison = try .init(&.{ expected, found }, pt);
+    defer cmp.deinit(pt);
+
+    const msg = try sema.errMsg(src, "expected type '{f}', found '{f}'", .{
+        cmp.fmtType(expected, pt),
+        cmp.fmtType(found, pt),
+    });
+    errdefer msg.destroy(sema.gpa);
+
+    for (cmp.type_dedupe_cache.keys(), cmp.type_dedupe_cache.values()) |ty, value| {
+        if (value == .dont_dedupe) continue;
+        const placeholder = value.dedupe;
+        try sema.errNote(src, msg, "{f} = {f}", .{ placeholder, ty.fmt(pt) });
+    }
+
+    return msg;
+}
+
 pub fn fail(
     sema: *Sema,
     block: *Block,
@@ -2632,6 +2639,14 @@ pub fn fail(
             try addDeclaredHereNote(sema, err_msg, arg.data.ty);
         }
     }
+    return sema.failWithOwnedErrorMsg(block, err_msg);
+}
+
+fn failWithTypeMismatch(sema: *Sema, block: *Block, src: LazySrcLoc, expected: Type, found: Type) CompileError {
+    const err_msg = try sema.typeMismatchErrMsg(src, expected, found);
+    errdefer err_msg.destroy(sema.gpa);
+    try addDeclaredHereNote(sema, err_msg, expected);
+    try addDeclaredHereNote(sema, err_msg, found);
     return sema.failWithOwnedErrorMsg(block, err_msg);
 }
 
@@ -22933,7 +22948,7 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const operand_is_vector = operand_ty.zigTypeTag(zcu) == .vector;
     const dest_is_vector = dest_ty.zigTypeTag(zcu) == .vector;
     if (operand_is_vector != dest_is_vector) {
-        return sema.fail(block, operand_src, "expected type '{f}', found '{f}'", .{ dest_ty.fmt(pt), operand_ty.fmt(pt) });
+        return sema.failWithTypeMismatch(block, operand_src, dest_ty, operand_ty);
     }
 
     if (dest_scalar_ty.zigTypeTag(zcu) == .comptime_int) {
@@ -29167,7 +29182,7 @@ fn coerceExtra(
     }
 
     const msg = msg: {
-        const msg = try sema.errMsg(inst_src, "expected type '{f}', found '{f}'", .{ dest_ty.fmt(pt), inst_ty.fmt(pt) });
+        const msg = try sema.typeMismatchErrMsg(inst_src, dest_ty, inst_ty);
         errdefer msg.destroy(sema.gpa);
 
         if (!can_coerce_to) {
@@ -30780,9 +30795,7 @@ fn coerceEnumToUnion(
 
     const tag_ty = union_ty.unionTagType(zcu) orelse {
         const msg = msg: {
-            const msg = try sema.errMsg(inst_src, "expected type '{f}', found '{f}'", .{
-                union_ty.fmt(pt), inst_ty.fmt(pt),
-            });
+            const msg = try sema.typeMismatchErrMsg(inst_src, union_ty, inst_ty);
             errdefer msg.destroy(sema.gpa);
             try sema.errNote(union_ty_src, msg, "cannot coerce enum to untagged union", .{});
             try sema.addDeclaredHereNote(msg, union_ty);
@@ -30933,9 +30946,7 @@ fn coerceArrayLike(
     const dest_len = try sema.usizeCast(block, dest_ty_src, dest_ty.arrayLen(zcu));
     if (dest_len != inst_len) {
         const msg = msg: {
-            const msg = try sema.errMsg(inst_src, "expected type '{f}', found '{f}'", .{
-                dest_ty.fmt(pt), inst_ty.fmt(pt),
-            });
+            const msg = try sema.typeMismatchErrMsg(inst_src, dest_ty, inst_ty);
             errdefer msg.destroy(sema.gpa);
             try sema.errNote(dest_ty_src, msg, "destination has length {d}", .{dest_len});
             try sema.errNote(inst_src, msg, "source has length {d}", .{inst_len});
@@ -31018,9 +31029,7 @@ fn coerceTupleToArray(
 
     if (dest_len != inst_len) {
         const msg = msg: {
-            const msg = try sema.errMsg(inst_src, "expected type '{f}', found '{f}'", .{
-                dest_ty.fmt(pt), inst_ty.fmt(pt),
-            });
+            const msg = try sema.typeMismatchErrMsg(inst_src, dest_ty, inst_ty);
             errdefer msg.destroy(sema.gpa);
             try sema.errNote(dest_ty_src, msg, "destination has length {d}", .{dest_len});
             try sema.errNote(inst_src, msg, "source has length {d}", .{inst_len});
@@ -32719,12 +32728,12 @@ fn wrapErrorUnionSet(
                         break :ok;
                     },
                 }
-                return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
+                return sema.failWithTypeMismatch(block, inst_src, dest_err_set_ty, inst_ty);
             },
             else => switch (ip.indexToKey(dest_err_set_ty.toIntern())) {
                 .error_set_type => |error_set_type| ok: {
                     if (error_set_type.nameIndex(ip, expected_name) != null) break :ok;
-                    return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
+                    return sema.failWithTypeMismatch(block, inst_src, dest_err_set_ty, inst_ty);
                 },
                 .inferred_error_set_type => |func_index| ok: {
                     // We carefully do this in an order that avoids unnecessarily
@@ -32740,7 +32749,7 @@ fn wrapErrorUnionSet(
                         },
                     }
 
-                    return sema.failWithErrorSetCodeMissing(block, inst_src, dest_err_set_ty, inst_ty);
+                    return sema.failWithTypeMismatch(block, inst_src, dest_err_set_ty, inst_ty);
                 },
                 else => unreachable,
             },
