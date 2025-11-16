@@ -1704,7 +1704,9 @@ pub const BufferGroup = struct {
     pub fn get(self: *BufferGroup, cqe: linux.io_uring_cqe) ![]u8 {
         const buffer_id = try cqe.buffer_id();
         const used_len = @as(usize, @intCast(cqe.res));
-        return self.get_by_id(buffer_id)[0..used_len];
+        const buf = self.get_by_id(buffer_id)[0..used_len];
+        std.valgrind.memcheck.makeMemDefinedIfAddressable(buf);
+        return buf;
     }
 
     // Release buffer from CQE to the kernel.
@@ -2178,7 +2180,7 @@ test "write_fixed/read_fixed" {
     defer file.close();
     const fd = file.handle;
 
-    var raw_buffers: [2][11]u8 = undefined;
+    var raw_buffers: [2][11]u8 = @splat(@splat(0));
     // First buffer will be written to the file.
     @memset(&raw_buffers[0], 'z');
     raw_buffers[0][0.."foobar".len].* = "foobar".*;
@@ -2712,6 +2714,8 @@ test "statx" {
         .BADF => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
+    // buf is initialized after a successful copy_cqe
+    std.valgrind.memcheck.makeMemDefinedIfAddressable(std.mem.sliceAsBytes(std.mem.asBytes(&buf)));
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xaaaaaaaa,
         .res = 0,
@@ -3202,6 +3206,7 @@ test "provide_buffers: read" {
     const buffer_len = 128;
 
     var buffers: [4][buffer_len]u8 = undefined;
+    std.valgrind.memcheck.makeMemDefinedIfAddressable(std.mem.sliceAsBytes(&buffers));
 
     // Provide 4 buffers
 
@@ -3334,6 +3339,7 @@ test "remove_buffers" {
     const buffer_len = 128;
 
     var buffers: [4][buffer_len]u8 = undefined;
+    std.valgrind.memcheck.makeMemDefinedIfAddressable(std.mem.sliceAsBytes(&buffers));
 
     // Provide 4 buffers
 
@@ -4068,7 +4074,7 @@ test "waitid" {
         posix.exit(7);
     }
 
-    var siginfo: posix.siginfo_t = undefined;
+    var siginfo = std.mem.zeroes(posix.siginfo_t);
     _ = try ring.waitid(0, .PID, pid, &siginfo, posix.W.EXITED, 0);
 
     try testing.expectEqual(1, try ring.submit());
@@ -4432,9 +4438,7 @@ fn expect_buf_grp_cqe(
     try testing.expectEqual(posix.E.SUCCESS, cqe.err());
 
     // get buffer from pool
-    const buffer_id = try cqe.buffer_id();
-    const len = @as(usize, @intCast(cqe.res));
-    const buf = buf_grp.get_by_id(buffer_id)[0..len];
+    const buf = try buf_grp.get(cqe);
     try testing.expectEqualSlices(u8, expected, buf);
 
     return cqe;
@@ -4618,6 +4622,8 @@ fn testSendRecv(ring: *IoUring, send_fd: posix.socket_t, recv_fd: posix.socket_t
         try testing.expectEqual(posix.E.SUCCESS, cqe.err());
         recv_len += @intCast(cqe.res);
     }
+    // if this is not the case, the check fails
+    std.valgrind.memcheck.makeMemDefinedIfAddressable(&buffer_recv);
 
     // inspect recv buffer
     try testing.expectEqualSlices(u8, buffer_send, buffer_recv[0..buffer_send.len]);
