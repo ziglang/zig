@@ -1,22 +1,21 @@
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
-const cmath = math.complex;
-const Complex = cmath.Complex;
+const Complex = math.Complex;
 
-/// Returns the sine of z.
+const sinh = @import("sinh.zig").sinh;
+
+/// Calculates the sine of a complex number.
 pub fn sin(z: anytype) Complex(@TypeOf(z.re, z.im)) {
-    const T = @TypeOf(z.re, z.im);
-    const p = Complex(T).init(-z.im, z.re);
-    const q = cmath.sinh(p);
-    return Complex(T).init(q.im, -q.re);
+    return sinh(z.mulByI()).mulByMinusI();
 }
 
 test sin {
     const epsilon = math.floatEps(f32);
-    const a = Complex(f32).init(5, 3);
-    const c = sin(a);
 
-    try testing.expectApproxEqAbs(-9.654126, c.re, epsilon);
-    try testing.expectApproxEqAbs(2.8416924, c.im, epsilon);
+    const a: Complex(f32) = .init(5, 3);
+    const sin_a = sin(a);
+
+    try testing.expectApproxEqAbs(-9.654126, sin_a.re, epsilon);
+    try testing.expectApproxEqAbs(2.8416924, sin_a.im, epsilon);
 }

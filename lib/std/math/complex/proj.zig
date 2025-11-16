@@ -1,24 +1,40 @@
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
-const cmath = math.complex;
-const Complex = cmath.Complex;
+const Complex = math.Complex;
 
-/// Returns the projection of z onto the riemann sphere.
+/// Calculates the projection of a complex number onto the riemann sphere.
 pub fn proj(z: anytype) Complex(@TypeOf(z.re, z.im)) {
-    const T = @TypeOf(z.re, z.im);
+    const x = z.re;
+    const y = z.im;
 
-    if (math.isInf(z.re) or math.isInf(z.im)) {
-        return Complex(T).init(math.inf(T), math.copysign(@as(T, 0.0), z.re));
-    }
+    const T = @TypeOf(x, y);
 
-    return Complex(T).init(z.re, z.im);
+    if (math.isInf(x) or math.isInf(y))
+        return .init(
+            math.inf(T),
+            math.copysign(@as(T, 0), x),
+        );
+
+    return .init(x, y);
 }
 
 test proj {
-    const a = Complex(f32).init(5, 3);
-    const c = proj(a);
+    { // Finite complex number
+        const a: Complex(f32) = .init(5, 3);
+        const a_proj = proj(a);
 
-    try testing.expectEqual(5, c.re);
-    try testing.expectEqual(3, c.im);
+        try testing.expectEqual(5, a_proj.re);
+        try testing.expectEqual(3, a_proj.im);
+    }
+
+    { // Infinity complex number
+        const inf = math.inf(f32);
+
+        const a: Complex(f32) = .init(inf, 2);
+        const a_proj = proj(a);
+
+        try testing.expectEqual(inf, a_proj.re);
+        try testing.expectEqual(0, a_proj.im);
+    }
 }
