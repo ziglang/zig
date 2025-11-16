@@ -2088,7 +2088,7 @@ pub fn nanoSecondsToFileTime(ns: Io.Timestamp) FILETIME {
 /// Compares two WTF16 strings using the equivalent functionality of
 /// `RtlEqualUnicodeString` (with case insensitive comparison enabled).
 /// This function can be called on any target.
-pub fn eqlIgnoreCaseWTF16(a: []const u16, b: []const u16) bool {
+pub fn eqlIgnoreCaseWtf16(a: []const u16, b: []const u16) bool {
     if (@inComptime() or builtin.os.tag != .windows) {
         // This function compares the strings code unit by code unit (aka u16-to-u16),
         // so any length difference implies inequality. In other words, there's no possible
@@ -2165,19 +2165,19 @@ pub fn eqlIgnoreCaseWtf8(a: []const u8, b: []const u8) bool {
 
 fn testEqlIgnoreCase(comptime expect_eql: bool, comptime a: []const u8, comptime b: []const u8) !void {
     try std.testing.expectEqual(expect_eql, eqlIgnoreCaseWtf8(a, b));
-    try std.testing.expectEqual(expect_eql, eqlIgnoreCaseWTF16(
+    try std.testing.expectEqual(expect_eql, eqlIgnoreCaseWtf16(
         std.unicode.utf8ToUtf16LeStringLiteral(a),
         std.unicode.utf8ToUtf16LeStringLiteral(b),
     ));
 
     try comptime std.testing.expect(expect_eql == eqlIgnoreCaseWtf8(a, b));
-    try comptime std.testing.expect(expect_eql == eqlIgnoreCaseWTF16(
+    try comptime std.testing.expect(expect_eql == eqlIgnoreCaseWtf16(
         std.unicode.utf8ToUtf16LeStringLiteral(a),
         std.unicode.utf8ToUtf16LeStringLiteral(b),
     ));
 }
 
-test "eqlIgnoreCaseWTF16/Wtf8" {
+test "eqlIgnoreCaseWtf16/Wtf8" {
     try testEqlIgnoreCase(true, "\x01 a B Λ ɐ", "\x01 A b λ Ɐ");
     // does not do case-insensitive comparison for codepoints >= U+10000
     try testEqlIgnoreCase(false, "𐓏", "𐓷");

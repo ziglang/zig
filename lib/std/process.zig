@@ -564,7 +564,7 @@ pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
         };
 
         const this_key = key_value[0..equal_index];
-        if (windows.eqlIgnoreCaseWTF16(key_slice, this_key)) {
+        if (windows.eqlIgnoreCaseWtf16(key_slice, this_key)) {
             return key_value[equal_index + 1 ..];
         }
 
