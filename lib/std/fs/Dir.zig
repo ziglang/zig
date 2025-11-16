@@ -1361,8 +1361,14 @@ pub fn readLink(self: Dir, sub_path: []const u8, buffer: []u8) ReadLinkError![]u
         return self.readLinkWasi(sub_path, buffer);
     }
     if (native_os == .windows) {
-        const sub_path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
-        return self.readLinkW(sub_path_w.span(), buffer);
+        var sub_path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
+        const result_w = try self.readLinkW(sub_path_w.span(), &sub_path_w.data);
+
+        const len = std.unicode.calcWtf8Len(result_w);
+        if (len > buffer.len) return error.NameTooLong;
+
+        const end_index = std.unicode.wtf16LeToWtf8(buffer, result_w);
+        return buffer[0..end_index];
     }
     const sub_path_c = try posix.toPosixPath(sub_path);
     return self.readLinkZ(&sub_path_c, buffer);
@@ -1376,15 +1382,24 @@ pub fn readLinkWasi(self: Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
 /// Same as `readLink`, except the `sub_path_c` parameter is null-terminated.
 pub fn readLinkZ(self: Dir, sub_path_c: [*:0]const u8, buffer: []u8) ![]u8 {
     if (native_os == .windows) {
-        const sub_path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path_c);
-        return self.readLinkW(sub_path_w.span(), buffer);
+        var sub_path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path_c);
+        const result_w = try self.readLinkW(sub_path_w.span(), &sub_path_w.data);
+
+        const len = std.unicode.calcWtf8Len(result_w);
+        if (len > buffer.len) return error.NameTooLong;
+
+        const end_index = std.unicode.wtf16LeToWtf8(buffer, result_w);
+        return buffer[0..end_index];
     }
     return posix.readlinkatZ(self.fd, sub_path_c, buffer);
 }
 
-/// Windows-only. Same as `readLink` except the pathname parameter
-/// is WTF16 LE encoded.
-pub fn readLinkW(self: Dir, sub_path_w: []const u16, buffer: []u8) ![]u8 {
+/// Windows-only. Same as `readLink` except the path parameter
+/// is WTF-16 LE encoded, NT-prefixed.
+///
+/// `sub_path_w` will never be accessed after `buffer` has been written to, so it
+/// is safe to reuse a single buffer for both.
+pub fn readLinkW(self: Dir, sub_path_w: []const u16, buffer: []u16) ![]u16 {
     return windows.ReadLink(self.fd, sub_path_w, buffer);
 }
 
