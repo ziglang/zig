@@ -1186,7 +1186,15 @@ const test_targets = blk: {
             .use_lld = false,
         },
 
-        // macOS Targets
+        // Darwin Targets
+
+        .{
+            .target = .{
+                .cpu_arch = .aarch64,
+                .os_tag = .maccatalyst,
+                .abi = .none,
+            },
+        },
 
         .{
             .target = .{
@@ -1206,6 +1214,14 @@ const test_targets = blk: {
             .use_lld = false,
             .optimize_mode = .ReleaseFast,
             .strip = true,
+        },
+
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .maccatalyst,
+                .abi = .none,
+            },
         },
 
         .{
@@ -2234,7 +2250,7 @@ const ModuleTestOptions = struct {
     skip_freebsd: bool,
     skip_netbsd: bool,
     skip_windows: bool,
-    skip_macos: bool,
+    skip_darwin: bool,
     skip_linux: bool,
     skip_llvm: bool,
     skip_libc: bool,
@@ -2269,7 +2285,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (options.skip_freebsd and test_target.target.os_tag == .freebsd) continue;
         if (options.skip_netbsd and test_target.target.os_tag == .netbsd) continue;
         if (options.skip_windows and test_target.target.os_tag == .windows) continue;
-        if (options.skip_macos and test_target.target.os_tag == .macos) continue;
+        if (options.skip_darwin and test_target.target.os_tag != null and test_target.target.os_tag.?.isDarwin()) continue;
         if (options.skip_linux and test_target.target.os_tag == .linux) continue;
 
         const would_use_llvm = wouldUseLlvm(test_target.use_llvm, test_target.target, test_target.optimize_mode);
@@ -2506,7 +2522,7 @@ const CAbiTestOptions = struct {
     skip_freebsd: bool,
     skip_netbsd: bool,
     skip_windows: bool,
-    skip_macos: bool,
+    skip_darwin: bool,
     skip_linux: bool,
     skip_llvm: bool,
     skip_release: bool,
@@ -2525,7 +2541,7 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
             if (options.skip_freebsd and c_abi_target.target.os_tag == .freebsd) continue;
             if (options.skip_netbsd and c_abi_target.target.os_tag == .netbsd) continue;
             if (options.skip_windows and c_abi_target.target.os_tag == .windows) continue;
-            if (options.skip_macos and c_abi_target.target.os_tag == .macos) continue;
+            if (options.skip_darwin and c_abi_target.target.os_tag != null and c_abi_target.target.os_tag.?.isDarwin()) continue;
             if (options.skip_linux and c_abi_target.target.os_tag == .linux) continue;
 
             const would_use_llvm = wouldUseLlvm(c_abi_target.use_llvm, c_abi_target.target, .Debug);
