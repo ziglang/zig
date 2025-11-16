@@ -678,14 +678,14 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     });
     run_opt.addArtifactArg(exe);
     run_opt.addArg("-o");
-    run_opt.addFileArg(b.path("stage1/zig1.wasm"));
+    const optimized_wasm = run_opt.addOutputFileArg("zig1.wasm");
 
-    const copy_zig_h = b.addUpdateSourceFiles();
-    copy_zig_h.addCopyFileToSource(b.path("lib/zig.h"), "stage1/zig.h");
+    const update_zig1 = b.addUpdateSourceFiles();
+    update_zig1.addCopyFileToSource(optimized_wasm, "stage1/zig1.wasm");
+    update_zig1.addCopyFileToSource(b.path("lib/zig.h"), "stage1/zig.h");
 
     const update_zig1_step = b.step("update-zig1", "Update stage1/zig1.wasm");
-    update_zig1_step.dependOn(&run_opt.step);
-    update_zig1_step.dependOn(&copy_zig_h.step);
+    update_zig1_step.dependOn(&update_zig1.step);
 }
 
 const AddCompilerModOptions = struct {

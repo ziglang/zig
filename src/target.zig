@@ -842,7 +842,7 @@ pub fn compilerRtIntAbbrev(bits: u16) []const u8 {
         32 => "s",
         64 => "d",
         128 => "t",
-        else => "o", // Non-standard
+        else => unreachable,
     };
 }
 

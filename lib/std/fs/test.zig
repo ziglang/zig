@@ -193,10 +193,16 @@ test "Dir.readLink" {
             // test 1: symlink to a file
             try setupSymlink(ctx.dir, file_target_path, "symlink1", .{});
             try testReadLink(ctx.dir, canonical_file_target_path, "symlink1");
+            if (builtin.os.tag == .windows) {
+                try testReadLinkW(testing.allocator, ctx.dir, canonical_file_target_path, "symlink1");
+            }
 
             // test 2: symlink to a directory (can be different on Windows)
             try setupSymlink(ctx.dir, dir_target_path, "symlink2", .{ .is_directory = true });
             try testReadLink(ctx.dir, canonical_dir_target_path, "symlink2");
+            if (builtin.os.tag == .windows) {
+                try testReadLinkW(testing.allocator, ctx.dir, canonical_dir_target_path, "symlink2");
+            }
 
             // test 3: relative path symlink
             const parent_file = ".." ++ fs.path.sep_str ++ "target.txt";
@@ -205,6 +211,9 @@ test "Dir.readLink" {
             defer subdir.close();
             try setupSymlink(subdir, canonical_parent_file, "relative-link.txt", .{});
             try testReadLink(subdir, canonical_parent_file, "relative-link.txt");
+            if (builtin.os.tag == .windows) {
+                try testReadLinkW(testing.allocator, subdir, canonical_parent_file, "relative-link.txt");
+            }
         }
     }.impl);
 }
@@ -213,6 +222,17 @@ fn testReadLink(dir: Dir, target_path: []const u8, symlink_path: []const u8) !vo
     var buffer: [fs.max_path_bytes]u8 = undefined;
     const actual = try dir.readLink(symlink_path, buffer[0..]);
     try testing.expectEqualStrings(target_path, actual);
+}
+
+fn testReadLinkW(allocator: mem.Allocator, dir: Dir, target_path: []const u8, symlink_path: []const u8) !void {
+    const target_path_w = try std.unicode.wtf8ToWtf16LeAlloc(allocator, target_path);
+    defer allocator.free(target_path_w);
+    // Calling the W functions directly requires the path to be NT-prefixed
+    const symlink_path_w = try std.os.windows.sliceToPrefixedFileW(dir.fd, symlink_path);
+    const wtf16_buffer = try allocator.alloc(u16, target_path_w.len);
+    defer allocator.free(wtf16_buffer);
+    const actual = try dir.readLinkW(symlink_path_w.span(), wtf16_buffer);
+    try testing.expectEqualSlices(u16, target_path_w, actual);
 }
 
 fn testReadLinkAbsolute(target_path: []const u8, symlink_path: []const u8) !void {

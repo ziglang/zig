@@ -24,6 +24,21 @@ cwd: ?Build.LazyPath,
 /// Override this field to modify the environment, or use setEnvironmentVariable
 env_map: ?*EnvMap,
 
+/// Controls the `NO_COLOR` and `CLICOLOR_FORCE` environment variables.
+color: enum {
+    /// `CLICOLOR_FORCE` is set, and `NO_COLOR` is unset.
+    enable,
+    /// `NO_COLOR` is set, and `CLICOLOR_FORCE` is unset.
+    disable,
+    /// If the build runner is using color, equivalent to `.enable`. Otherwise, equivalent to `.disable`.
+    inherit,
+    /// If stderr is captured or checked, equivalent to `.disable`. Otherwise, equivalent to `.inherit`.
+    auto,
+    /// The build runner does not modify the `CLICOLOR_FORCE` or `NO_COLOR` environment variables.
+    /// They are treated like normal variables, so can be controlled through `setEnvironmentVariable`.
+    manual,
+} = .auto,
+
 /// When `true` prevents `ZIG_PROGRESS` environment variable from being passed
 /// to the child process, which otherwise would be used for the child to send
 /// progress updates to the parent.
@@ -525,7 +540,7 @@ pub fn setCwd(run: *Run, cwd: Build.LazyPath) void {
 pub fn clearEnvironment(run: *Run) void {
     const b = run.step.owner;
     const new_env_map = b.allocator.create(EnvMap) catch @panic("OOM");
-    new_env_map.* = EnvMap.init(b.allocator);
+    new_env_map.* = .init(b.allocator);
     run.env_map = new_env_map;
 }
 
@@ -805,6 +820,9 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
             man.hash.addBytes(kv[1]);
         }
     }
+
+    man.hash.add(run.color);
+    man.hash.add(run.disable_zig_progress);
 
     for (run.argv.items) |arg| {
         switch (arg) {
@@ -1130,6 +1148,7 @@ pub fn rerunInFuzzMode(
         .thread_pool = undefined, // not used by `runCommand`
         .watch = undefined, // not used by `runCommand`
         .web_server = null, // only needed for time reports
+        .ttyconf = fuzz.ttyconf,
         .unit_test_timeout_ns = null, // don't time out fuzz tests for now
         .gpa = undefined, // not used by `runCommand`
     }, .{
@@ -1234,9 +1253,40 @@ fn runCommand(
     var interp_argv = std.array_list.Managed([]const u8).init(b.allocator);
     defer interp_argv.deinit();
 
-    var env_map = run.env_map orelse &b.graph.env_map;
+    var env_map: EnvMap = env: {
+        const orig = run.env_map orelse &b.graph.env_map;
+        break :env try orig.clone(gpa);
+    };
+    defer env_map.deinit();
 
-    const opt_generic_result = spawnChildAndCollect(run, argv, env_map, has_side_effects, options, fuzz_context) catch |err| term: {
+    color: switch (run.color) {
+        .manual => {},
+        .enable => {
+            try env_map.put("CLICOLOR_FORCE", "1");
+            env_map.remove("NO_COLOR");
+        },
+        .disable => {
+            try env_map.put("NO_COLOR", "1");
+            env_map.remove("CLICOLOR_FORCE");
+        },
+        .inherit => switch (options.ttyconf) {
+            .no_color, .windows_api => continue :color .disable,
+            .escape_codes => continue :color .enable,
+        },
+        .auto => {
+            const capture_stderr = run.captured_stderr != null or switch (run.stdio) {
+                .check => |checks| checksContainStderr(checks.items),
+                .infer_from_args, .inherit, .zig_test => false,
+            };
+            if (capture_stderr) {
+                continue :color .disable;
+            } else {
+                continue :color .inherit;
+            }
+        },
+    }
+
+    const opt_generic_result = spawnChildAndCollect(run, argv, &env_map, has_side_effects, options, fuzz_context) catch |err| term: {
         // InvalidExe: cpu arch mismatch
         // FileNotFound: can happen with a wrong dynamic linker path
         if (err == error.InvalidExe or err == error.FileNotFound) interpret: {
@@ -1273,12 +1323,7 @@ fn runCommand(
                         // Wine's excessive stderr logging is only situationally helpful. Disable it by default, but
                         // allow the user to override it (e.g. with `WINEDEBUG=err+all`) if desired.
                         if (env_map.get("WINEDEBUG") == null) {
-                            // We don't own `env_map` at this point, so create a copy in order to modify it.
-                            const new_env_map = arena.create(EnvMap) catch @panic("OOM");
-                            new_env_map.hash_map = try env_map.hash_map.cloneWithAllocator(arena);
-                            try new_env_map.put("WINEDEBUG", "-all");
-
-                            env_map = new_env_map;
+                            try env_map.put("WINEDEBUG", "-all");
                         }
                     } else {
                         return failForeign(run, "-fwine", argv[0], exe);
@@ -1377,7 +1422,7 @@ fn runCommand(
             step.result_failed_command = null;
             try Step.handleVerbose2(step.owner, cwd, run.env_map, interp_argv.items);
 
-            break :term spawnChildAndCollect(run, interp_argv.items, env_map, has_side_effects, options, fuzz_context) catch |e| {
+            break :term spawnChildAndCollect(run, interp_argv.items, &env_map, has_side_effects, options, fuzz_context) catch |e| {
                 if (!run.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
                 if (e == error.MakeFailed) return error.MakeFailed; // error already reported
                 return step.fail("unable to spawn interpreter {s}: {s}", .{

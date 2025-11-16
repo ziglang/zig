@@ -141,7 +141,7 @@ const Format = struct {
     pt: Zcu.PerThread,
 
     fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        return print(f.ty, writer, f.pt);
+        return print(f.ty, writer, f.pt, null);
     }
 };
 
@@ -157,7 +157,17 @@ pub fn dump(start_type: Type, writer: *std.Io.Writer) std.Io.Writer.Error!void {
 
 /// Prints a name suitable for `@typeName`.
 /// TODO: take an `opt_sema` to pass to `fmtValue` when printing sentinels.
-pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread) std.Io.Writer.Error!void {
+pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread, ctx: ?*Comparison) std.Io.Writer.Error!void {
+    if (ctx) |c| {
+        const should_dedupe = shouldDedupeType(ty, c, pt) catch |err| switch (err) {
+            error.OutOfMemory => return error.WriteFailed,
+        };
+        switch (should_dedupe) {
+            .dont_dedupe => {},
+            .dedupe => |placeholder| return placeholder.format(writer),
+        }
+    }
+
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(ty.toIntern())) {
@@ -209,39 +219,39 @@ pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread) std.Io.Writer.
             if (info.flags.is_const) try writer.writeAll("const ");
             if (info.flags.is_volatile) try writer.writeAll("volatile ");
 
-            try print(Type.fromInterned(info.child), writer, pt);
+            try print(Type.fromInterned(info.child), writer, pt, ctx);
             return;
         },
         .array_type => |array_type| {
             if (array_type.sentinel == .none) {
                 try writer.print("[{d}]", .{array_type.len});
-                try print(Type.fromInterned(array_type.child), writer, pt);
+                try print(Type.fromInterned(array_type.child), writer, pt, ctx);
             } else {
                 try writer.print("[{d}:{f}]", .{
                     array_type.len,
                     Value.fromInterned(array_type.sentinel).fmtValue(pt),
                 });
-                try print(Type.fromInterned(array_type.child), writer, pt);
+                try print(Type.fromInterned(array_type.child), writer, pt, ctx);
             }
             return;
         },
         .vector_type => |vector_type| {
             try writer.print("@Vector({d}, ", .{vector_type.len});
-            try print(Type.fromInterned(vector_type.child), writer, pt);
+            try print(Type.fromInterned(vector_type.child), writer, pt, ctx);
             try writer.writeAll(")");
             return;
         },
         .opt_type => |child| {
             try writer.writeByte('?');
-            return print(Type.fromInterned(child), writer, pt);
+            return print(Type.fromInterned(child), writer, pt, ctx);
         },
         .error_union_type => |error_union_type| {
-            try print(Type.fromInterned(error_union_type.error_set_type), writer, pt);
+            try print(Type.fromInterned(error_union_type.error_set_type), writer, pt, ctx);
             try writer.writeByte('!');
             if (error_union_type.payload_type == .generic_poison_type) {
                 try writer.writeAll("anytype");
             } else {
-                try print(Type.fromInterned(error_union_type.payload_type), writer, pt);
+                try print(Type.fromInterned(error_union_type.payload_type), writer, pt, ctx);
             }
             return;
         },
@@ -323,7 +333,7 @@ pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread) std.Io.Writer.
             for (tuple.types.get(ip), tuple.values.get(ip), 0..) |field_ty, val, i| {
                 try writer.writeAll(if (i == 0) " " else ", ");
                 if (val != .none) try writer.writeAll("comptime ");
-                try print(Type.fromInterned(field_ty), writer, pt);
+                try print(Type.fromInterned(field_ty), writer, pt, ctx);
                 if (val != .none) try writer.print(" = {f}", .{Value.fromInterned(val).fmtValue(pt)});
             }
             try writer.writeAll(" }");
@@ -360,7 +370,7 @@ pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread) std.Io.Writer.
                 if (param_ty == .generic_poison_type) {
                     try writer.writeAll("anytype");
                 } else {
-                    try print(Type.fromInterned(param_ty), writer, pt);
+                    try print(Type.fromInterned(param_ty), writer, pt, ctx);
                 }
             }
             if (fn_info.is_var_args) {
@@ -387,13 +397,13 @@ pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread) std.Io.Writer.
             if (fn_info.return_type == .generic_poison_type) {
                 try writer.writeAll("anytype");
             } else {
-                try print(Type.fromInterned(fn_info.return_type), writer, pt);
+                try print(Type.fromInterned(fn_info.return_type), writer, pt, ctx);
             }
         },
         .anyframe_type => |child| {
             if (child == .none) return writer.writeAll("anyframe");
             try writer.writeAll("anyframe->");
-            return print(Type.fromInterned(child), writer, pt);
+            return print(Type.fromInterned(child), writer, pt, ctx);
         },
 
         // values, not types
@@ -4045,6 +4055,175 @@ pub fn isNullFromType(ty: Type, zcu: *const Zcu) ?bool {
     if (child.zigTypeTag(zcu) == .noreturn) return true; // `?noreturn` is always null
     return null;
 }
+
+/// Recursively walks the type and marks for each subtype how many times it has been seen
+fn collectSubtypes(ty: Type, pt: Zcu.PerThread, visited: *std.AutoArrayHashMapUnmanaged(Type, u16)) error{OutOfMemory}!void {
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+
+    const gop = try visited.getOrPut(zcu.gpa, ty);
+    if (gop.found_existing) {
+        gop.value_ptr.* += 1;
+    } else {
+        gop.value_ptr.* = 1;
+    }
+
+    switch (ip.indexToKey(ty.toIntern())) {
+        .ptr_type => try collectSubtypes(Type.fromInterned(ty.ptrInfo(zcu).child), pt, visited),
+        .array_type => |array_type| try collectSubtypes(Type.fromInterned(array_type.child), pt, visited),
+        .vector_type => |vector_type| try collectSubtypes(Type.fromInterned(vector_type.child), pt, visited),
+        .opt_type => |child| try collectSubtypes(Type.fromInterned(child), pt, visited),
+        .error_union_type => |error_union_type| {
+            try collectSubtypes(Type.fromInterned(error_union_type.error_set_type), pt, visited);
+            if (error_union_type.payload_type != .generic_poison_type) {
+                try collectSubtypes(Type.fromInterned(error_union_type.payload_type), pt, visited);
+            }
+        },
+        .tuple_type => |tuple| {
+            for (tuple.types.get(ip)) |field_ty| {
+                try collectSubtypes(Type.fromInterned(field_ty), pt, visited);
+            }
+        },
+        .func_type => |fn_info| {
+            const param_types = fn_info.param_types.get(&zcu.intern_pool);
+            for (param_types) |param_ty| {
+                if (param_ty != .generic_poison_type) {
+                    try collectSubtypes(Type.fromInterned(param_ty), pt, visited);
+                }
+            }
+
+            if (fn_info.return_type != .generic_poison_type) {
+                try collectSubtypes(Type.fromInterned(fn_info.return_type), pt, visited);
+            }
+        },
+        .anyframe_type => |child| try collectSubtypes(Type.fromInterned(child), pt, visited),
+
+        // leaf types
+        .undef,
+        .inferred_error_set_type,
+        .error_set_type,
+        .struct_type,
+        .union_type,
+        .opaque_type,
+        .enum_type,
+        .simple_type,
+        .int_type,
+        => {},
+
+        // values, not types
+        .simple_value,
+        .variable,
+        .@"extern",
+        .func,
+        .int,
+        .err,
+        .error_union,
+        .enum_literal,
+        .enum_tag,
+        .empty_enum_value,
+        .float,
+        .ptr,
+        .slice,
+        .opt,
+        .aggregate,
+        .un,
+        // memoization, not types
+        .memoized_call,
+        => unreachable,
+    }
+}
+
+fn shouldDedupeType(ty: Type, ctx: *Comparison, pt: Zcu.PerThread) error{OutOfMemory}!Comparison.DedupeEntry {
+    if (ctx.type_occurrences.get(ty)) |occ| {
+        if (ctx.type_dedupe_cache.get(ty)) |cached| {
+            return cached;
+        }
+
+        var discarding: std.Io.Writer.Discarding = .init(&.{});
+
+        print(ty, &discarding.writer, pt, null) catch
+            unreachable; // we are writing into a discarding writer, it should never fail
+
+        const type_len: i32 = @intCast(discarding.count);
+
+        const placeholder_len: i32 = 3;
+        const min_saved_bytes: i32 = 10;
+
+        const saved_bytes = (type_len - placeholder_len) * (occ - 1);
+        const max_placeholders = 7; // T to Z
+        const should_dedupe = saved_bytes >= min_saved_bytes and ctx.placeholder_index < max_placeholders;
+
+        const entry: Comparison.DedupeEntry = if (should_dedupe) b: {
+            ctx.placeholder_index += 1;
+            break :b .{ .dedupe = .{ .index = ctx.placeholder_index - 1 } };
+        } else .dont_dedupe;
+
+        try ctx.type_dedupe_cache.put(pt.zcu.gpa, ty, entry);
+
+        return entry;
+    } else {
+        return .{ .dont_dedupe = {} };
+    }
+}
+
+/// The comparison recursively walks all types given and notes how many times
+/// each subtype occurs. It then while recursively printing decides for each
+/// subtype whether to print the type inline or create a placeholder based on
+/// the subtype length and number of occurences. Placeholders are then found by
+/// iterating `type_dedupe_cache` which caches the inline/placeholder decisions.
+pub const Comparison = struct {
+    type_occurrences: std.AutoArrayHashMapUnmanaged(Type, u16),
+    type_dedupe_cache: std.AutoArrayHashMapUnmanaged(Type, DedupeEntry),
+    placeholder_index: u8,
+
+    pub const Placeholder = struct {
+        index: u8,
+
+        pub fn format(p: Placeholder, writer: *std.Io.Writer) error{WriteFailed}!void {
+            return writer.print("<{c}>", .{p.index + 'T'});
+        }
+    };
+
+    pub const DedupeEntry = union(enum) {
+        dont_dedupe: void,
+        dedupe: Placeholder,
+    };
+
+    pub fn init(types: []const Type, pt: Zcu.PerThread) error{OutOfMemory}!Comparison {
+        var cmp: Comparison = .{
+            .type_occurrences = .empty,
+            .type_dedupe_cache = .empty,
+            .placeholder_index = 0,
+        };
+
+        errdefer cmp.deinit(pt);
+
+        for (types) |ty| {
+            try collectSubtypes(ty, pt, &cmp.type_occurrences);
+        }
+
+        return cmp;
+    }
+
+    pub fn deinit(cmp: *Comparison, pt: Zcu.PerThread) void {
+        const gpa = pt.zcu.gpa;
+        cmp.type_occurrences.deinit(gpa);
+        cmp.type_dedupe_cache.deinit(gpa);
+    }
+
+    pub fn fmtType(ctx: *Comparison, ty: Type, pt: Zcu.PerThread) Comparison.Formatter {
+        return .{ .ty = ty, .ctx = ctx, .pt = pt };
+    }
+    pub const Formatter = struct {
+        ty: Type,
+        ctx: *Comparison,
+        pt: Zcu.PerThread,
+
+        pub fn format(self: Comparison.Formatter, writer: anytype) error{WriteFailed}!void {
+            print(self.ty, writer, self.pt, self.ctx) catch return error.WriteFailed;
+        }
+    };
+};
 
 pub const @"u1": Type = .{ .ip_index = .u1_type };
 pub const @"u8": Type = .{ .ip_index = .u8_type };

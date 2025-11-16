@@ -935,6 +935,17 @@ pub const Inst = struct {
         /// type is the vector element type.
         legalize_vec_elem_val,
 
+        /// A call to a compiler_rt routine. `Legalize` may emit this instruction if any soft-float
+        /// legalizations are enabled.
+        ///
+        /// Uses the `legalize_compiler_rt_call` union field.
+        ///
+        /// The name of the function symbol is given by `func.name(target)`.
+        /// The calling convention is given by `func.@"callconv"(target)`.
+        /// The return type (and hence the result type of this instruction) is `func.returnType()`.
+        /// The parameter types are the types of the arguments given in `Air.Call`.
+        legalize_compiler_rt_call,
+
         pub fn fromCmpOp(op: std.math.CompareOperator, optimized: bool) Tag {
             switch (op) {
                 .lt => return if (optimized) .cmp_lt_optimized else .cmp_lt,
@@ -1239,6 +1250,11 @@ pub const Inst = struct {
         ty_nav: struct {
             ty: InternPool.Index,
             nav: InternPool.Nav.Index,
+        },
+        legalize_compiler_rt_call: struct {
+            func: CompilerRtFunc,
+            /// Index into `extra` to a payload of type `Call`.
+            payload: u32,
         },
         inferred_alloc_comptime: InferredAllocComptime,
         inferred_alloc: InferredAlloc,
@@ -1756,6 +1772,8 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .work_group_id,
         => return .u32,
 
+        .legalize_compiler_rt_call => return datas[@intFromEnum(inst)].legalize_compiler_rt_call.func.returnType(),
+
         .inferred_alloc => unreachable,
         .inferred_alloc_comptime => unreachable,
     }
@@ -1879,6 +1897,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .int_from_float_safe,
         .int_from_float_optimized_safe,
         .legalize_vec_store_elem,
+        .legalize_compiler_rt_call,
         => true,
 
         .add,
@@ -2191,4 +2210,339 @@ pub const CoveragePoint = enum(u1) {
     /// Point of interest. The next instruction emitted corresponds to
     /// a source location used for coverage instrumentation.
     poi,
+};
+
+pub const CompilerRtFunc = enum(u32) {
+    // zig fmt: off
+
+    // float simple arithmetic
+    __addhf3, __addsf3, __adddf3, __addxf3, __addtf3,
+    __subhf3, __subsf3, __subdf3, __subxf3, __subtf3,
+    __mulhf3, __mulsf3, __muldf3, __mulxf3, __multf3,
+    __divhf3, __divsf3, __divdf3, __divxf3, __divtf3,
+
+    // float minmax
+    __fminh, fminf, fmin, __fminx, fminq,
+    __fmaxh, fmaxf, fmax, __fmaxx, fmaxq,
+
+    // float round
+    __ceilh,  ceilf,  ceil,  __ceilx,  ceilq,
+    __floorh, floorf, floor, __floorx, floorq,
+    __trunch, truncf, trunc, __truncx, truncq,
+    __roundh, roundf, round, __roundx, roundq,
+
+    // float log
+    __logh,   logf,   log,   __logx,   logq,
+    __log2h,  log2f,  log2,  __log2x,  log2q,
+    __log10h, log10f, log10, __log10x, log10q,
+
+    // float exp
+    __exph,  expf,  exp,  __expx,  expq,
+    __exp2h, exp2f, exp2, __exp2x, exp2q,
+
+    // float trigonometry
+    __sinh, sinf, sin, __sinx, sinq,
+    __cosh, cosf, cos, __cosx, cosq,
+    __tanh, tanf, tan, __tanx, tanq,
+
+    // float misc ops
+    __fabsh, fabsf, fabs, __fabsx, fabsq,
+    __sqrth, sqrtf, sqrt, __sqrtx, sqrtq,
+    __fmodh, fmodf, fmod, __fmodx, fmodq,
+    __fmah,  fmaf,  fma,  __fmax,  fmaq,
+
+    // float comparison
+    __eqhf2, __eqsf2, __eqdf2, __eqxf2, __eqtf2, // == iff return == 0
+    __nehf2, __nesf2, __nedf2, __nexf2, __netf2, // != iff return != 0
+    __lthf2, __ltsf2, __ltdf2, __ltxf2, __lttf2, // <  iff return < 0
+    __lehf2, __lesf2, __ledf2, __lexf2, __letf2, // <= iff return <= 0
+    __gthf2, __gtsf2, __gtdf2, __gtxf2, __gttf2, // >  iff return > 0
+    __gehf2, __gesf2, __gedf2, __gexf2, __getf2, // >= iff return >= 0
+
+    // AEABI float comparison. On ARM, the `sf`/`df` functions above are not available,
+    // and these must be used instead. They are not just aliases for the above functions
+    // because they have a different (better) ABI.
+    __aeabi_fcmpeq, __aeabi_dcmpeq, // ==, returns bool
+    __aeabi_fcmplt, __aeabi_dcmplt, // <, returns bool
+    __aeabi_fcmple, __aeabi_dcmple, // <=, returns bool
+    __aeabi_fcmpgt, __aeabi_dcmpgt, // >, returns bool
+    __aeabi_fcmpge, __aeabi_dcmpge, // >=, returns bool
+
+    // float shortening
+    // to f16     // to f32     // to f64     // to f80
+    __trunctfhf2, __trunctfsf2, __trunctfdf2, __trunctfxf2, // from f128
+    __truncxfhf2, __truncxfsf2, __truncxfdf2,               // from f80
+    __truncdfhf2, __truncdfsf2,                             // from f64
+    __truncsfhf2,                                           // from f32
+
+    // float widening
+    // to f128     // to f80      // to f64      // to f32
+    __extendhftf2, __extendhfxf2, __extendhfdf2, __extendhfsf2, // from f16
+    __extendsftf2, __extendsfxf2, __extendsfdf2,                // from f32
+    __extenddftf2, __extenddfxf2,                               // from f64
+    __extendxftf2,                                              // from f80
+
+    // int to float
+    __floatsihf, __floatsisf, __floatsidf, __floatsixf, __floatsitf, // i32 to float
+    __floatdihf, __floatdisf, __floatdidf, __floatdixf, __floatditf, // i64 to float
+    __floattihf, __floattisf, __floattidf, __floattixf, __floattitf, // i128 to float
+    __floateihf, __floateisf, __floateidf, __floateixf, __floateitf, // arbitrary iN to float
+    __floatunsihf, __floatunsisf, __floatunsidf, __floatunsixf, __floatunsitf, // u32 to float
+    __floatundihf, __floatundisf, __floatundidf, __floatundixf, __floatunditf, // u64 to float
+    __floatuntihf, __floatuntisf, __floatuntidf, __floatuntixf, __floatuntitf, // u128 to float
+    __floatuneihf, __floatuneisf, __floatuneidf, __floatuneixf, __floatuneitf, // arbitrary uN to float
+
+    // float to int
+    __fixhfsi, __fixsfsi, __fixdfsi, __fixxfsi, __fixtfsi, // float to i32
+    __fixhfdi, __fixsfdi, __fixdfdi, __fixxfdi, __fixtfdi, // float to i64
+    __fixhfti, __fixsfti, __fixdfti, __fixxfti, __fixtfti, // float to i128
+    __fixhfei, __fixsfei, __fixdfei, __fixxfei, __fixtfei, // float to arbitray iN
+    __fixunshfsi, __fixunssfsi, __fixunsdfsi, __fixunsxfsi, __fixunstfsi, // float to u32
+    __fixunshfdi, __fixunssfdi, __fixunsdfdi, __fixunsxfdi, __fixunstfdi, // float to u64
+    __fixunshfti, __fixunssfti, __fixunsdfti, __fixunsxfti, __fixunstfti, // float to u128
+    __fixunshfei, __fixunssfei, __fixunsdfei, __fixunsxfei, __fixunstfei, // float to arbitray uN
+
+    // zig fmt: on
+
+    /// Usually, the tag names of `CompilerRtFunc` match the corresponding symbol name, but not
+    /// always; some target triples have slightly different compiler-rt ABIs for one reason or
+    /// another.
+    pub fn name(f: CompilerRtFunc, target: *const std.Target) []const u8 {
+        const use_gnu_f16_abi = switch (target.cpu.arch) {
+            .wasm32,
+            .wasm64,
+            .riscv64,
+            .riscv64be,
+            .riscv32,
+            .riscv32be,
+            => false,
+            .x86, .x86_64 => true,
+            .arm, .armeb, .thumb, .thumbeb => switch (target.abi) {
+                .eabi, .eabihf => false,
+                else => true,
+            },
+            else => !target.os.tag.isDarwin(),
+        };
+        const use_aeabi = target.cpu.arch.isArm() and switch (target.abi) {
+            .eabi,
+            .eabihf,
+            .musleabi,
+            .musleabihf,
+            .gnueabi,
+            .gnueabihf,
+            .android,
+            .androideabi,
+            => true,
+            else => false,
+        };
+
+        // GNU didn't like the standard names specifically for conversions between f16
+        // and f32, so decided to make their own naming convention with blackjack and
+        // hookers (but only use it on a few random targets of course). This overrides
+        // the ARM EABI in some cases. I don't like GNU.
+        if (use_gnu_f16_abi) switch (f) {
+            .__truncsfhf2 => return "__gnu_f2h_ieee",
+            .__extendhfsf2 => return "__gnu_h2f_ieee",
+            else => {},
+        };
+
+        if (use_aeabi) return switch (f) {
+            .__addsf3 => "__aeabi_fadd",
+            .__adddf3 => "__aeabi_dadd",
+            .__subsf3 => "__aeabi_fsub",
+            .__subdf3 => "__aeabi_dsub",
+            .__mulsf3 => "__aeabi_fmul",
+            .__muldf3 => "__aeabi_dmul",
+            .__divsf3 => "__aeabi_fdiv",
+            .__divdf3 => "__aeabi_ddiv",
+            .__truncdfhf2 => "__aeabi_d2h",
+            .__truncdfsf2 => "__aeabi_d2f",
+            .__truncsfhf2 => "__aeabi_f2h",
+            .__extendsfdf2 => "__aeabi_f2d",
+            .__extendhfsf2 => "__aeabi_h2f",
+            .__floatsisf => "__aeabi_i2f",
+            .__floatsidf => "__aeabi_i2d",
+            .__floatdisf => "__aeabi_l2f",
+            .__floatdidf => "__aeabi_l2d",
+            .__floatunsisf => "__aeabi_ui2f",
+            .__floatunsidf => "__aeabi_ui2d",
+            .__floatundisf => "__aeabi_ul2f",
+            .__floatundidf => "__aeabi_ul2d",
+            .__fixsfsi => "__aeabi_f2iz",
+            .__fixdfsi => "__aeabi_d2iz",
+            .__fixsfdi => "__aeabi_f2lz",
+            .__fixdfdi => "__aeabi_d2lz",
+            .__fixunssfsi => "__aeabi_f2uiz",
+            .__fixunsdfsi => "__aeabi_d2uiz",
+            .__fixunssfdi => "__aeabi_f2ulz",
+            .__fixunsdfdi => "__aeabi_d2ulz",
+
+            // These functions are not available on AEABI. The AEABI equivalents are
+            // separate fields rather than aliases because they have a different ABI.
+            .__eqsf2, .__eqdf2 => unreachable,
+            .__nesf2, .__nedf2 => unreachable,
+            .__ltsf2, .__ltdf2 => unreachable,
+            .__lesf2, .__ledf2 => unreachable,
+            .__gtsf2, .__gtdf2 => unreachable,
+            .__gesf2, .__gedf2 => unreachable,
+
+            else => @tagName(f),
+        };
+
+        return switch (f) {
+            // These functions are only available on AEABI.
+            .__aeabi_fcmpeq, .__aeabi_dcmpeq => unreachable,
+            .__aeabi_fcmplt, .__aeabi_dcmplt => unreachable,
+            .__aeabi_fcmple, .__aeabi_dcmple => unreachable,
+            .__aeabi_fcmpgt, .__aeabi_dcmpgt => unreachable,
+            .__aeabi_fcmpge, .__aeabi_dcmpge => unreachable,
+
+            else => @tagName(f),
+        };
+    }
+
+    pub fn @"callconv"(f: CompilerRtFunc, target: *const std.Target) std.builtin.CallingConvention {
+        const use_gnu_f16_abi = switch (target.cpu.arch) {
+            .wasm32,
+            .wasm64,
+            .riscv64,
+            .riscv64be,
+            .riscv32,
+            .riscv32be,
+            => false,
+            .x86, .x86_64 => true,
+            .arm, .armeb, .thumb, .thumbeb => switch (target.abi) {
+                .eabi, .eabihf => false,
+                else => true,
+            },
+            else => !target.os.tag.isDarwin(),
+        };
+        const use_aeabi = target.cpu.arch.isArm() and switch (target.abi) {
+            .eabi,
+            .eabihf,
+            .musleabi,
+            .musleabihf,
+            .gnueabi,
+            .gnueabihf,
+            .android,
+            .androideabi,
+            => true,
+            else => false,
+        };
+
+        if (use_gnu_f16_abi) switch (f) {
+            .__truncsfhf2,
+            .__extendhfsf2,
+            => return target.cCallingConvention().?,
+            else => {},
+        };
+
+        if (use_aeabi) switch (f) {
+            // zig fmt: off
+            .__addsf3, .__adddf3, .__subsf3, .__subdf3,
+            .__mulsf3, .__muldf3, .__divsf3, .__divdf3,
+            .__truncdfhf2,  .__truncdfsf2, .__truncsfhf2,
+            .__extendsfdf2, .__extendhfsf2,
+            .__floatsisf,   .__floatsidf,   .__floatdisf,   .__floatdidf,
+            .__floatunsisf, .__floatunsidf, .__floatundisf, .__floatundidf,
+            .__fixsfsi,    .__fixdfsi,    .__fixsfdi,    .__fixdfdi,
+            .__fixunssfsi, .__fixunsdfsi, .__fixunssfdi, .__fixunsdfdi,
+            => return .{ .arm_aapcs = .{} },
+            // zig fmt: on
+            else => {},
+        };
+
+        return target.cCallingConvention().?;
+    }
+
+    pub fn returnType(f: CompilerRtFunc) Type {
+        return switch (f) {
+            .__addhf3, .__subhf3, .__mulhf3, .__divhf3 => .f16,
+            .__addsf3, .__subsf3, .__mulsf3, .__divsf3 => .f32,
+            .__adddf3, .__subdf3, .__muldf3, .__divdf3 => .f64,
+            .__addxf3, .__subxf3, .__mulxf3, .__divxf3 => .f80,
+            .__addtf3, .__subtf3, .__multf3, .__divtf3 => .f128,
+
+            // zig fmt: off
+            .__fminh, .__fmaxh,
+            .__ceilh, .__floorh, .__trunch, .__roundh,
+            .__logh, .__log2h, .__log10h,
+            .__exph, .__exp2h,
+            .__sinh, .__cosh, .__tanh,
+            .__fabsh, .__sqrth, .__fmodh, .__fmah,
+            => .f16,
+            .fminf, .fmaxf,
+            .ceilf, .floorf, .truncf, .roundf,
+            .logf, .log2f, .log10f,
+            .expf, .exp2f,
+            .sinf, .cosf, .tanf,
+            .fabsf, .sqrtf, .fmodf, .fmaf,
+            => .f32,
+            .fmin, .fmax,
+            .ceil, .floor, .trunc, .round,
+            .log, .log2, .log10,
+            .exp, .exp2,
+            .sin, .cos, .tan,
+            .fabs, .sqrt, .fmod, .fma,
+            => .f64,
+            .__fminx, .__fmaxx,
+            .__ceilx, .__floorx, .__truncx, .__roundx,
+            .__logx, .__log2x, .__log10x,
+            .__expx, .__exp2x,
+            .__sinx, .__cosx, .__tanx,
+            .__fabsx, .__sqrtx, .__fmodx, .__fmax,
+            => .f80,
+            .fminq, .fmaxq,
+            .ceilq, .floorq, .truncq, .roundq,
+            .logq, .log2q, .log10q,
+            .expq, .exp2q,
+            .sinq, .cosq, .tanq,
+            .fabsq, .sqrtq, .fmodq, .fmaq,
+            => .f128,
+            // zig fmt: on
+
+            .__eqhf2, .__eqsf2, .__eqdf2, .__eqxf2, .__eqtf2 => .i32,
+            .__nehf2, .__nesf2, .__nedf2, .__nexf2, .__netf2 => .i32,
+            .__lthf2, .__ltsf2, .__ltdf2, .__ltxf2, .__lttf2 => .i32,
+            .__lehf2, .__lesf2, .__ledf2, .__lexf2, .__letf2 => .i32,
+            .__gthf2, .__gtsf2, .__gtdf2, .__gtxf2, .__gttf2 => .i32,
+            .__gehf2, .__gesf2, .__gedf2, .__gexf2, .__getf2 => .i32,
+
+            .__aeabi_fcmpeq, .__aeabi_dcmpeq => .i32,
+            .__aeabi_fcmplt, .__aeabi_dcmplt => .i32,
+            .__aeabi_fcmple, .__aeabi_dcmple => .i32,
+            .__aeabi_fcmpgt, .__aeabi_dcmpgt => .i32,
+            .__aeabi_fcmpge, .__aeabi_dcmpge => .i32,
+
+            .__trunctfhf2, .__truncxfhf2, .__truncdfhf2, .__truncsfhf2 => .f16,
+            .__trunctfsf2, .__truncxfsf2, .__truncdfsf2 => .f32,
+            .__trunctfdf2, .__truncxfdf2 => .f64,
+            .__trunctfxf2 => .f80,
+
+            .__extendhftf2, .__extendsftf2, .__extenddftf2, .__extendxftf2 => .f128,
+            .__extendhfxf2, .__extendsfxf2, .__extenddfxf2 => .f80,
+            .__extendhfdf2, .__extendsfdf2 => .f64,
+            .__extendhfsf2 => .f32,
+
+            .__floatsihf, .__floatdihf, .__floattihf, .__floateihf => .f16,
+            .__floatsisf, .__floatdisf, .__floattisf, .__floateisf => .f32,
+            .__floatsidf, .__floatdidf, .__floattidf, .__floateidf => .f64,
+            .__floatsixf, .__floatdixf, .__floattixf, .__floateixf => .f80,
+            .__floatsitf, .__floatditf, .__floattitf, .__floateitf => .f128,
+            .__floatunsihf, .__floatundihf, .__floatuntihf, .__floatuneihf => .f16,
+            .__floatunsisf, .__floatundisf, .__floatuntisf, .__floatuneisf => .f32,
+            .__floatunsidf, .__floatundidf, .__floatuntidf, .__floatuneidf => .f64,
+            .__floatunsixf, .__floatundixf, .__floatuntixf, .__floatuneixf => .f80,
+            .__floatunsitf, .__floatunditf, .__floatuntitf, .__floatuneitf => .f128,
+
+            .__fixhfsi, .__fixsfsi, .__fixdfsi, .__fixxfsi, .__fixtfsi => .i32,
+            .__fixhfdi, .__fixsfdi, .__fixdfdi, .__fixxfdi, .__fixtfdi => .i64,
+            .__fixhfti, .__fixsfti, .__fixdfti, .__fixxfti, .__fixtfti => .i128,
+            .__fixhfei, .__fixsfei, .__fixdfei, .__fixxfei, .__fixtfei => .void,
+            .__fixunshfsi, .__fixunssfsi, .__fixunsdfsi, .__fixunsxfsi, .__fixunstfsi => .u32,
+            .__fixunshfdi, .__fixunssfdi, .__fixunsdfdi, .__fixunsxfdi, .__fixunstfdi => .u64,
+            .__fixunshfti, .__fixunssfti, .__fixunsdfti, .__fixunsxfti, .__fixunstfti => .u128,
+            .__fixunshfei, .__fixunssfei, .__fixunsdfei, .__fixunsxfei, .__fixunstfei => .void,
+        };
+    }
 };

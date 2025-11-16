@@ -1599,6 +1599,15 @@ pub const MADV = switch (native_os) {
         pub const SEQUENTIAL = 0x5;
         pub const RANDOM = 0x6;
     },
+    .netbsd, .openbsd => struct {
+        pub const NORMAL = 0;
+        pub const RANDOM = 1;
+        pub const SEQUENTIAL = 2;
+        pub const WILLNEED = 3;
+        pub const DONTNEED = 4;
+        pub const SPACEAVAIL = 5;
+        pub const FREE = 6;
+    },
     else => void,
 };
 pub const MCL = switch (native_os) {
@@ -1631,7 +1640,17 @@ pub const MSF = switch (native_os) {
         pub const DEACTIVATE = 0x8;
         pub const SYNC = 0x10;
     },
-    .openbsd, .haiku, .dragonfly, .netbsd, .illumos, .freebsd => struct {
+    .freebsd, .dragonfly => struct {
+        pub const SYNC = 0;
+        pub const ASYNC = 1;
+        pub const INVALIDATE = 2;
+    },
+    .openbsd => struct {
+        pub const ASYNC = 1;
+        pub const SYNC = 2;
+        pub const INVALIDATE = 4;
+    },
+    .haiku, .netbsd, .illumos => struct {
         pub const ASYNC = 1;
         pub const INVALIDATE = 2;
         pub const SYNC = 4;
@@ -4446,6 +4465,28 @@ pub const rusage = switch (native_os) {
 
         pub const SELF = 1;
         pub const CHILDREN = 2;
+    },
+    .freebsd => extern struct {
+        utime: timeval,
+        stime: timeval,
+        maxrss: c_long,
+        ixrss: c_long,
+        idrss: c_long,
+        isrss: c_long,
+        minflt: c_long,
+        majflt: c_long,
+        nswap: c_long,
+        inblock: c_long,
+        oublock: c_long,
+        msgsnd: c_long,
+        msgrcv: c_long,
+        nsignals: c_long,
+        nvcsw: c_long,
+        nivcsw: c_long,
+
+        pub const SELF = 0;
+        pub const CHILDREN = -1;
+        pub const THREAD = 1;
     },
     else => void,
 };

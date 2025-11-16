@@ -118,6 +118,7 @@ pub const MakeOptions = struct {
         // it currently breaks because `std.net.Address` doesn't work there. Work around for now.
         .wasm32 => void,
     },
+    ttyconf: std.Io.tty.Config,
     /// If set, this is a timeout to enforce on all individual unit tests, in nanoseconds.
     unit_test_timeout_ns: ?u64,
     /// Not to be confused with `Build.allocator`, which is an alias of `Build.graph.arena`.
