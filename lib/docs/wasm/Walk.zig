@@ -15,6 +15,7 @@ pub var decls: std.ArrayListUnmanaged(Decl) = .empty;
 pub var modules: std.StringArrayHashMapUnmanaged(File.Index) = .empty;
 
 file: File.Index,
+suppress_new_decls: u32 = 0,
 
 /// keep in sync with "CAT_" constants in main.js
 pub const Category = union(enum(u8)) {
@@ -53,6 +54,27 @@ pub const File = struct {
     /// struct/union/enum/opaque decl node => its namespace scope
     /// local var decl node => its local variable scope
     scopes: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, *Scope) = .empty,
+    /// Last decl in the file (exclusive).
+    decl_end: Decl.Index = .none,
+
+    pub const DeclIter = struct {
+        idx: DeclIndexTagType,
+        end: DeclIndexTagType,
+
+        const DeclIndexTagType = @typeInfo(Decl.Index).@"enum".tag_type;
+
+        pub fn next(iter: *DeclIter) ?Decl.Index {
+            if (iter.idx >= iter.end) return null;
+            const decl_idx = iter.idx;
+            iter.idx += 1;
+            return @enumFromInt(decl_idx);
+        }
+
+        pub fn remaining(iter: DeclIter) usize {
+            if (iter.idx >= iter.end) return 0;
+            return iter.end - iter.idx;
+        }
+    };
 
     pub fn lookup_token(file: *File, token: Ast.TokenIndex) Decl.Index {
         const decl_node = file.ident_decls.get(token) orelse return .none;
@@ -63,6 +85,7 @@ pub const File = struct {
         _,
 
         fn add_decl(i: Index, node: Ast.Node.Index, parent_decl: Decl.Index) Oom!Decl.Index {
+            assert(node == .root or parent_decl != .none);
             try decls.append(gpa, .{
                 .ast_node = node,
                 .file = i,
@@ -87,6 +110,18 @@ pub const File = struct {
 
         pub fn findRootDecl(file_index: File.Index) Decl.Index {
             return file_index.get().node_decls.values()[0];
+        }
+
+        /// Excludes the root decl.
+        /// Only valid after `Walk.add_file()`.
+        pub fn iterDecls(file_index: File.Index) DeclIter {
+            const root_idx = @intFromEnum(file_index.findRootDecl());
+            const end_idx = file_index.get().decl_end;
+            assert(end_idx != .none);
+            return DeclIter{
+                .idx = root_idx + 1,
+                .end = @intFromEnum(end_idx),
+            };
         }
 
         pub fn categorize_decl(file_index: File.Index, node: Ast.Node.Index) Category {
@@ -315,23 +350,9 @@ pub const File = struct {
             if (std.mem.eql(u8, builtin_name, "@import")) {
                 const str_lit_token = ast.nodeMainToken(params[0]);
                 const str_bytes = ast.tokenSlice(str_lit_token);
-                const file_path = std.zig.string_literal.parseAlloc(gpa, str_bytes) catch @panic("OOM");
-                defer gpa.free(file_path);
-                if (modules.get(file_path)) |imported_file_index| {
-                    return .{ .alias = File.Index.findRootDecl(imported_file_index) };
-                }
-                const base_path = file_index.path();
-                const resolved_path = std.fs.path.resolvePosix(gpa, &.{
-                    base_path, "..", file_path,
-                }) catch @panic("OOM");
-                defer gpa.free(resolved_path);
-                log.debug("from '{s}' @import '{s}' resolved='{s}'", .{
-                    base_path, file_path, resolved_path,
-                });
-                if (files.getIndex(resolved_path)) |imported_file_index| {
-                    return .{ .alias = File.Index.findRootDecl(@enumFromInt(imported_file_index)) };
-                } else {
-                    log.warn("import target '{s}' did not resolve to any file", .{resolved_path});
+                switch (file_index.resolve_import(str_bytes)) {
+                    .none => {},
+                    else => |decl_index| return .{ .alias = decl_index },
                 }
             } else if (std.mem.eql(u8, builtin_name, "@This")) {
                 if (file_index.get().node_decls.get(node)) |decl_index| {
@@ -342,6 +363,28 @@ pub const File = struct {
             }
 
             return .{ .global_const = node };
+        }
+
+        pub fn resolve_import(file_index: File.Index, str_bytes: []const u8) Decl.Index {
+            const file_path = std.zig.string_literal.parseAlloc(gpa, str_bytes) catch @panic("OOM");
+            defer gpa.free(file_path);
+            if (modules.get(file_path)) |imported_file_index| {
+                return File.Index.findRootDecl(imported_file_index);
+            }
+            const base_path = file_index.path();
+            const resolved_path = std.fs.path.resolvePosix(gpa, &.{
+                base_path, "..", file_path,
+            }) catch @panic("OOM");
+            defer gpa.free(resolved_path);
+            log.debug("from '{s}' @import '{s}' resolved='{s}'", .{
+                base_path, file_path, resolved_path,
+            });
+            if (files.getIndex(resolved_path)) |imported_file_index| {
+                return File.Index.findRootDecl(@enumFromInt(imported_file_index));
+            } else {
+                log.warn("import target '{s}' did not resolve to any file", .{resolved_path});
+                return .none;
+            }
         }
 
         fn categorize_switch(file_index: File.Index, node: Ast.Node.Index) Category {
@@ -401,6 +444,7 @@ pub fn add_file(file_name: []const u8, bytes: []u8) !File.Index {
     try struct_decl(&w, scope, decl_index, .root, ast.containerDeclRoot());
 
     const file = file_index.get();
+    file.decl_end = @enumFromInt(decls.items.len);
     shrinkToFit(&file.ident_decls);
     shrinkToFit(&file.token_parents);
     shrinkToFit(&file.node_decls);
@@ -480,6 +524,7 @@ pub const Scope = struct {
             },
             .namespace => {
                 const namespace: *Namespace = @alignCast(@fieldParentPtr("base", it));
+                assert(namespace.decl_index != .none);
                 return namespace.decl_index;
             },
         };
@@ -556,7 +601,8 @@ fn struct_decl(
             if (namespace.doctests.get(fn_name)) |doctest_node| {
                 try w.file.get().doctests.put(gpa, member, doctest_node);
             }
-            const decl_index = try w.file.add_decl(member, parent_decl);
+            const decl_index =
+                if (w.suppress_new_decls > 0) Decl.Index.none else try w.file.add_decl(member, parent_decl);
             const body = if (ast.nodeTag(member) == .fn_decl) ast.nodeData(member).node_and_node[1].toOptional() else .none;
             try w.fn_decl(&namespace.base, decl_index, body, full);
         },
@@ -566,14 +612,22 @@ fn struct_decl(
         .simple_var_decl,
         .aligned_var_decl,
         => {
-            const decl_index = try w.file.add_decl(member, parent_decl);
+            const decl_index =
+                if (w.suppress_new_decls > 0) Decl.Index.none else try w.file.add_decl(member, parent_decl);
             try w.global_var_decl(&namespace.base, decl_index, ast.fullVarDecl(member).?);
         },
 
         .@"comptime",
         => try w.expr(&namespace.base, parent_decl, ast.nodeData(member).node),
 
-        .test_decl => try w.expr(&namespace.base, parent_decl, ast.nodeData(member).opt_token_and_node[1]),
+        .test_decl => {
+            // We're not interested in autodoc search within test declarations. It clutters the
+            // search with irrelevant results; and the FQN of decls in the test block can
+            // shadow other decls in the file, so we often can't even navigate to the results.
+            w.suppress_new_decls += 1;
+            try w.expr(&namespace.base, parent_decl, ast.nodeData(member).opt_token_and_node[1]);
+            w.suppress_new_decls -= 1;
+        },
 
         else => unreachable,
     };
@@ -973,7 +1027,7 @@ fn builtin_call(
     const ast = w.file.get_ast();
     const builtin_token = ast.nodeMainToken(node);
     const builtin_name = ast.tokenSlice(builtin_token);
-    if (std.mem.eql(u8, builtin_name, "@This")) {
+    if (w.suppress_new_decls == 0 and std.mem.eql(u8, builtin_name, "@This")) {
         try w.file.get().node_decls.put(gpa, node, scope.getNamespaceDecl());
     }
 

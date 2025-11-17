@@ -168,7 +168,7 @@ pub fn get_type_fn_return_expr(decl: *const Decl) ?Ast.Node.Index {
 
             for (statements) |stmt| {
                 if (ast.nodeTag(stmt) == .@"return") {
-                    return ast.nodeData(stmt).node;
+                    if (ast.nodeData(stmt).opt_node.unwrap()) |expr_node| return expr_node;
                 }
             }
             return null;
