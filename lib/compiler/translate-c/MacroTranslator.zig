@@ -252,7 +252,7 @@ fn parseCNumLit(mt: *MacroTranslator) ParseError!ZigNode {
     const lit_bytes = mt.tokSlice();
     mt.i += 1;
 
-    var bytes = try std.ArrayListUnmanaged(u8).initCapacity(arena, lit_bytes.len + 3);
+    var bytes = try std.ArrayList(u8).initCapacity(arena, lit_bytes.len + 3);
 
     const prefix = aro.Tree.Token.NumberPrefix.fromString(lit_bytes);
     switch (prefix) {

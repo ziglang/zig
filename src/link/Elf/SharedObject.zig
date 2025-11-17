@@ -3,11 +3,11 @@ index: File.Index,
 
 parsed: Parsed,
 
-symbols: std.ArrayListUnmanaged(Symbol),
-symbols_extra: std.ArrayListUnmanaged(u32),
-symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index),
+symbols: std.ArrayList(Symbol),
+symbols_extra: std.ArrayList(u32),
+symbols_resolver: std.ArrayList(Elf.SymbolResolver.Index),
 
-aliases: ?std.ArrayListUnmanaged(u32),
+aliases: ?std.ArrayList(u32),
 
 needed: bool,
 alive: bool,
@@ -35,7 +35,7 @@ pub const Header = struct {
     verdef_sect_index: ?u32,
 
     stat: Stat,
-    strtab: std.ArrayListUnmanaged(u8),
+    strtab: std.ArrayList(u8),
 
     pub fn deinit(header: *Header, gpa: Allocator) void {
         gpa.free(header.sections);
@@ -149,7 +149,7 @@ pub fn parseHeader(
     } else &.{};
     errdefer gpa.free(dynamic_table);
 
-    var strtab: std.ArrayListUnmanaged(u8) = .empty;
+    var strtab: std.ArrayList(u8) = .empty;
     errdefer strtab.deinit(gpa);
 
     if (dynsym_sect_index) |index| {
@@ -206,7 +206,7 @@ pub fn parse(
     } else &.{};
     defer gpa.free(symtab);
 
-    var verstrings: std.ArrayListUnmanaged(u32) = .empty;
+    var verstrings: std.ArrayList(u32) = .empty;
     defer verstrings.deinit(gpa);
 
     if (header.verdef_sect_index) |shndx| {
@@ -243,13 +243,13 @@ pub fn parse(
     } else &.{};
     defer gpa.free(versyms);
 
-    var nonlocal_esyms: std.ArrayListUnmanaged(elf.Elf64_Sym) = .empty;
+    var nonlocal_esyms: std.ArrayList(elf.Elf64_Sym) = .empty;
     defer nonlocal_esyms.deinit(gpa);
 
-    var nonlocal_versyms: std.ArrayListUnmanaged(elf.Versym) = .empty;
+    var nonlocal_versyms: std.ArrayList(elf.Versym) = .empty;
     defer nonlocal_versyms.deinit(gpa);
 
-    var nonlocal_symbols: std.ArrayListUnmanaged(Parsed.Symbol) = .empty;
+    var nonlocal_symbols: std.ArrayList(Parsed.Symbol) = .empty;
     defer nonlocal_symbols.deinit(gpa);
 
     var strtab = header.strtab;

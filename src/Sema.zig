@@ -46,7 +46,7 @@ gpa: Allocator,
 arena: Allocator,
 code: Zir,
 air_instructions: std.MultiArrayList(Air.Inst) = .{},
-air_extra: std.ArrayListUnmanaged(u32) = .empty,
+air_extra: std.ArrayList(u32) = .empty,
 /// Maps ZIR to AIR.
 inst_map: InstMap = .{},
 /// The "owner" of a `Sema` represents the root "thing" that is being analyzed.
@@ -111,11 +111,11 @@ maybe_comptime_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, MaybeComptimeAll
 /// stored as elements of this array.
 /// Pointers to such memory are represented via an index into this array.
 /// Backed by gpa.
-comptime_allocs: std.ArrayListUnmanaged(ComptimeAlloc) = .empty,
+comptime_allocs: std.ArrayList(ComptimeAlloc) = .empty,
 
 /// A list of exports performed by this analysis. After this `Sema` terminates,
 /// these are flushed to `Zcu.single_exports` or `Zcu.multi_exports`.
-exports: std.ArrayListUnmanaged(Zcu.Export) = .empty,
+exports: std.ArrayList(Zcu.Export) = .empty,
 
 /// All references registered so far by this `Sema`. This is a temporary duplicate
 /// of data stored in `Zcu.all_references`. It exists to avoid adding references to
@@ -343,7 +343,7 @@ pub const Block = struct {
     /// The namespace to use for lookups from this source block
     namespace: InternPool.NamespaceIndex,
     /// The AIR instructions generated for this block.
-    instructions: std.ArrayListUnmanaged(Air.Inst.Index),
+    instructions: std.ArrayList(Air.Inst.Index),
     // `param` instructions are collected here to be used by the `func` instruction.
     /// When doing a generic function instantiation, this array collects a type
     /// for each *runtime-known* parameter. This array corresponds to the instance
@@ -475,23 +475,23 @@ pub const Block = struct {
         block_inst: Air.Inst.Index,
         /// Separate array list from break_inst_list so that it can be passed directly
         /// to resolvePeerTypes.
-        results: std.ArrayListUnmanaged(Air.Inst.Ref),
+        results: std.ArrayList(Air.Inst.Ref),
         /// Keeps track of the break instructions so that the operand can be replaced
         /// if we need to add type coercion at the end of block analysis.
         /// Same indexes, capacity, length as `results`.
-        br_list: std.ArrayListUnmanaged(Air.Inst.Index),
+        br_list: std.ArrayList(Air.Inst.Index),
         /// Keeps the source location of the rhs operand of the break instruction,
         /// to enable more precise compile errors.
         /// Same indexes, capacity, length as `results`.
-        src_locs: std.ArrayListUnmanaged(?LazySrcLoc),
+        src_locs: std.ArrayList(?LazySrcLoc),
         /// Most blocks do not utilize this field. When it is used, its use is
         /// contextual. The possible uses are as follows:
         /// * for a `switch_block[_ref]`, this refers to dummy `br` instructions
         ///   which correspond to `switch_continue` ZIR. The switch logic will
         ///   rewrite these to appropriate AIR switch dispatches.
-        extra_insts: std.ArrayListUnmanaged(Air.Inst.Index) = .empty,
+        extra_insts: std.ArrayList(Air.Inst.Index) = .empty,
         /// Same indexes, capacity, length as `extra_insts`.
-        extra_src_locs: std.ArrayListUnmanaged(LazySrcLoc) = .empty,
+        extra_src_locs: std.ArrayList(LazySrcLoc) = .empty,
 
         pub fn deinit(merges: *@This(), allocator: Allocator) void {
             merges.results.deinit(allocator);
@@ -985,7 +985,7 @@ const InferredAlloc = struct {
     /// is known. These should be rewritten to perform any required coercions
     /// when the type is resolved.
     /// Allocated from `sema.arena`.
-    prongs: std.ArrayListUnmanaged(Air.Inst.Index) = .empty,
+    prongs: std.ArrayList(Air.Inst.Index) = .empty,
 };
 
 pub fn deinit(sema: *Sema) void {
@@ -7547,8 +7547,8 @@ fn analyzeCall(
 
             // This may be an overestimate, but it's definitely sufficient.
             const max_runtime_args = args_info.count() - @popCount(func_ty_info.comptime_bits);
-            var runtime_args: std.ArrayListUnmanaged(Air.Inst.Ref) = try .initCapacity(arena, max_runtime_args);
-            var runtime_param_tys: std.ArrayListUnmanaged(InternPool.Index) = try .initCapacity(arena, max_runtime_args);
+            var runtime_args: std.ArrayList(Air.Inst.Ref) = try .initCapacity(arena, max_runtime_args);
+            var runtime_param_tys: std.ArrayList(InternPool.Index) = try .initCapacity(arena, max_runtime_args);
 
             const comptime_args = try arena.alloc(InternPool.Index, args_info.count());
 
@@ -11107,7 +11107,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
         break :blk err_capture_inst;
     } else undefined;
 
-    var case_vals = try std.ArrayListUnmanaged(Air.Inst.Ref).initCapacity(gpa, scalar_cases_len + 2 * multi_cases_len);
+    var case_vals = try std.ArrayList(Air.Inst.Ref).initCapacity(gpa, scalar_cases_len + 2 * multi_cases_len);
     defer case_vals.deinit(gpa);
 
     const NonError = struct {
@@ -11490,7 +11490,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         break :blk tag_capture_inst;
     } else undefined;
 
-    var case_vals = try std.ArrayListUnmanaged(Air.Inst.Ref).initCapacity(gpa, scalar_cases_len + 2 * multi_cases_len);
+    var case_vals = try std.ArrayList(Air.Inst.Ref).initCapacity(gpa, scalar_cases_len + 2 * multi_cases_len);
     defer case_vals.deinit(gpa);
 
     var single_absorbed_item: Zir.Inst.Ref = .none;
@@ -12144,8 +12144,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
     }
 
     var extra_case_vals: struct {
-        items: std.ArrayListUnmanaged(Air.Inst.Ref),
-        ranges: std.ArrayListUnmanaged([2]Air.Inst.Ref),
+        items: std.ArrayList(Air.Inst.Ref),
+        ranges: std.ArrayList([2]Air.Inst.Ref),
     } = .{ .items = .empty, .ranges = .empty };
     defer {
         extra_case_vals.items.deinit(gpa);
@@ -12337,7 +12337,7 @@ fn analyzeSwitchRuntimeBlock(
     operand: Air.Inst.Ref,
     operand_ty: Type,
     operand_src: LazySrcLoc,
-    case_vals: std.ArrayListUnmanaged(Air.Inst.Ref),
+    case_vals: std.ArrayList(Air.Inst.Ref),
     else_prong: SpecialProng,
     scalar_cases_len: usize,
     multi_cases_len: usize,
@@ -12369,10 +12369,10 @@ fn analyzeSwitchRuntimeBlock(
 
     const estimated_cases_extra = (scalar_cases_len + multi_cases_len) *
         @typeInfo(Air.SwitchBr.Case).@"struct".fields.len + 2;
-    var cases_extra = try std.ArrayListUnmanaged(u32).initCapacity(gpa, estimated_cases_extra);
+    var cases_extra = try std.ArrayList(u32).initCapacity(gpa, estimated_cases_extra);
     defer cases_extra.deinit(gpa);
 
-    var branch_hints = try std.ArrayListUnmanaged(std.builtin.BranchHint).initCapacity(gpa, scalar_cases_len);
+    var branch_hints = try std.ArrayList(std.builtin.BranchHint).initCapacity(gpa, scalar_cases_len);
     defer branch_hints.deinit(gpa);
 
     var case_block = child_block.makeSubBlock();
@@ -13022,7 +13022,7 @@ fn resolveSwitchComptimeLoop(
     special_members_only: ?SpecialProng,
     special_generic: SpecialProng,
     special_generic_is_under: bool,
-    case_vals: std.ArrayListUnmanaged(Air.Inst.Ref),
+    case_vals: std.ArrayList(Air.Inst.Ref),
     scalar_cases_len: u32,
     multi_cases_len: u32,
     err_set: bool,
@@ -13094,7 +13094,7 @@ fn resolveSwitchComptime(
     special_members_only: ?SpecialProng,
     special_generic: SpecialProng,
     special_generic_is_under: bool,
-    case_vals: std.ArrayListUnmanaged(Air.Inst.Ref),
+    case_vals: std.ArrayList(Air.Inst.Ref),
     scalar_cases_len: u32,
     multi_cases_len: u32,
     err_set: bool,
@@ -13350,7 +13350,7 @@ fn validateErrSetSwitch(
     sema: *Sema,
     block: *Block,
     seen_errors: *SwitchErrorSet,
-    case_vals: *std.ArrayListUnmanaged(Air.Inst.Ref),
+    case_vals: *std.ArrayList(Air.Inst.Ref),
     operand_ty: Type,
     inst_data: @FieldType(Zir.Inst.Data, "pl_node"),
     scalar_cases_len: u32,
@@ -35678,8 +35678,8 @@ fn unionFields(
         enum_field_names = try sema.arena.alloc(InternPool.NullTerminatedString, fields_len);
     }
 
-    var field_types: std.ArrayListUnmanaged(InternPool.Index) = .empty;
-    var field_aligns: std.ArrayListUnmanaged(InternPool.Alignment) = .empty;
+    var field_types: std.ArrayList(InternPool.Index) = .empty;
+    var field_aligns: std.ArrayList(InternPool.Alignment) = .empty;
 
     try field_types.ensureTotalCapacityPrecise(sema.arena, fields_len);
     if (small.any_aligned_fields)
@@ -37056,7 +37056,7 @@ fn notePathToComptimeAllocPtr(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
-    var first_path: std.ArrayListUnmanaged(u8) = .empty;
+    var first_path: std.ArrayList(u8) = .empty;
     if (intermediate_value_count == 0) {
         try first_path.print(arena, "{f}", .{start_value_name.fmt(ip)});
     } else {
@@ -37127,7 +37127,7 @@ fn notePathToComptimeAllocPtr(
     }
 }
 
-fn notePathToComptimeAllocPtrInner(sema: *Sema, val: Value, path: *std.ArrayListUnmanaged(u8)) Allocator.Error!Value {
+fn notePathToComptimeAllocPtrInner(sema: *Sema, val: Value, path: *std.ArrayList(u8)) Allocator.Error!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;

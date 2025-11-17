@@ -284,7 +284,7 @@ fn buildWasmBinary(
 ) !Cache.Path {
     const gpa = context.gpa;
 
-    var argv: std.ArrayListUnmanaged([]const u8) = .empty;
+    var argv: std.ArrayList([]const u8) = .empty;
 
     try argv.appendSlice(arena, &.{
         context.zig_exe_path, //

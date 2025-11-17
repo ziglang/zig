@@ -431,7 +431,7 @@ pub const Function = struct {
     lazy_fns: LazyFnMap,
     func_index: InternPool.Index,
     /// All the locals, to be emitted at the top of the function.
-    locals: std.ArrayListUnmanaged(Local) = .empty,
+    locals: std.ArrayList(Local) = .empty,
     /// Which locals are available for reuse, based on Type.
     free_locals_map: LocalsMap = .{},
     /// Locals which will not be freed by Liveness. This is used after a
@@ -752,7 +752,7 @@ pub const DeclGen = struct {
     fwd_decl: Writer.Allocating,
     error_msg: ?*Zcu.ErrorMsg,
     ctype_pool: CType.Pool,
-    scratch: std.ArrayListUnmanaged(u32),
+    scratch: std.ArrayList(u32),
     /// This map contains all the UAVs we saw generating this function.
     /// `link.C` will merge them into its `uavs`/`aligned_uavs` fields.
     /// Key is the value of the UAV; value is the UAV's alignment, or

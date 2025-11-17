@@ -669,7 +669,7 @@ pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.* = undefined;
 }
 
-pub fn lower(mir: *const Mir, wasm: *Wasm, code: *std.ArrayListUnmanaged(u8)) std.mem.Allocator.Error!void {
+pub fn lower(mir: *const Mir, wasm: *Wasm, code: *std.ArrayList(u8)) std.mem.Allocator.Error!void {
     const gpa = wasm.base.comp.gpa;
 
     // Write the locals in the prologue of the function body.

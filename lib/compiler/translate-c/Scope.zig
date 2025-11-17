@@ -8,7 +8,7 @@ const Translator = @import("Translator.zig");
 const Scope = @This();
 
 pub const SymbolTable = std.StringArrayHashMapUnmanaged(ast.Node);
-pub const AliasList = std.ArrayListUnmanaged(struct {
+pub const AliasList = std.ArrayList(struct {
     alias: []const u8,
     name: []const u8,
 });
@@ -16,7 +16,7 @@ pub const AliasList = std.ArrayListUnmanaged(struct {
 /// Associates a container (structure or union) with its relevant member functions.
 pub const ContainerMemberFns = struct {
     container_decl_ptr: *ast.Node,
-    member_fns: std.ArrayListUnmanaged(*ast.Payload.Func) = .empty,
+    member_fns: std.ArrayList(*ast.Payload.Func) = .empty,
 };
 pub const ContainerMemberFnsHashMap = std.AutoArrayHashMapUnmanaged(aro.QualType, ContainerMemberFns);
 
@@ -55,7 +55,7 @@ pub const Condition = struct {
 pub const Block = struct {
     base: Scope,
     translator: *Translator,
-    statements: std.ArrayListUnmanaged(ast.Node),
+    statements: std.ArrayList(ast.Node),
     variables: AliasList,
     mangle_count: u32 = 0,
     label: ?[]const u8 = null,
@@ -195,7 +195,7 @@ pub const Root = struct {
     translator: *Translator,
     sym_table: SymbolTable,
     blank_macros: std.StringArrayHashMapUnmanaged(void),
-    nodes: std.ArrayListUnmanaged(ast.Node),
+    nodes: std.ArrayList(ast.Node),
     container_member_fns_map: ContainerMemberFnsHashMap,
 
     pub fn init(t: *Translator) Root {

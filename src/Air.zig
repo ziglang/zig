@@ -22,7 +22,7 @@ pub const Liveness = @import("Air/Liveness.zig");
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
 /// The first few indexes are reserved. See `ExtraIndex` for the values.
-extra: std.ArrayListUnmanaged(u32),
+extra: std.ArrayList(u32),
 
 pub const ExtraIndex = enum(u32) {
     /// Payload index of the main `Block` in the `extra` array.

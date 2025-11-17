@@ -104,7 +104,7 @@ fn mainServer() !void {
                     @panic("internal test runner memory leak");
                 };
 
-                var string_bytes: std.ArrayListUnmanaged(u8) = .empty;
+                var string_bytes: std.ArrayList(u8) = .empty;
                 defer string_bytes.deinit(testing.allocator);
                 try string_bytes.append(testing.allocator, 0); // Reserve 0 for null.
 

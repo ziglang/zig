@@ -1,5 +1,5 @@
 mutex: std.Thread.Mutex,
-modules: std.ArrayListUnmanaged(Module),
+modules: std.ArrayList(Module),
 module_name_arena: std.heap.ArenaAllocator.State,
 
 pub const init: SelfInfo = .{

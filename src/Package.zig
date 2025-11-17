@@ -105,7 +105,7 @@ pub const Hash = struct {
         assert(name.len <= 32);
         assert(ver.len <= 32);
         var result: Hash = undefined;
-        var buf: std.ArrayListUnmanaged(u8) = .initBuffer(&result.bytes);
+        var buf: std.ArrayList(u8) = .initBuffer(&result.bytes);
         buf.appendSliceAssumeCapacity(name);
         buf.appendAssumeCapacity('-');
         buf.appendSliceAssumeCapacity(ver);

@@ -505,7 +505,7 @@ pub fn ArrayHashMapWithAllocator(
 /// A hash table of keys and values, each stored sequentially.
 ///
 /// Insertion order is preserved. In general, this data structure supports the same
-/// operations as `std.ArrayListUnmanaged`.
+/// operations as `std.ArrayList`.
 ///
 /// Deletion operations:
 /// * `swapRemove` - O(1)

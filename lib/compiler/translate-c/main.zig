@@ -149,7 +149,7 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: [][:0]u8, zig_integration
         break :args args[0..i];
     };
     const user_macros = macros: {
-        var macro_buf: std.ArrayListUnmanaged(u8) = .empty;
+        var macro_buf: std.ArrayList(u8) = .empty;
         defer macro_buf.deinit(gpa);
 
         var discard_buf: [256]u8 = undefined;

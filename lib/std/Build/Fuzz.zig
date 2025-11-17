@@ -33,7 +33,7 @@ coverage_files: std.AutoArrayHashMapUnmanaged(u64, CoverageMap),
 
 queue_mutex: std.Thread.Mutex,
 queue_cond: std.Thread.Condition,
-msg_queue: std.ArrayListUnmanaged(Msg),
+msg_queue: std.ArrayList(Msg),
 
 pub const Mode = union(enum) {
     forever: struct { ws: *Build.WebServer },
@@ -65,7 +65,7 @@ const CoverageMap = struct {
     coverage: Coverage,
     source_locations: []Coverage.SourceLocation,
     /// Elements are indexes into `source_locations` pointing to the unit tests that are being fuzz tested.
-    entry_points: std.ArrayListUnmanaged(u32),
+    entry_points: std.ArrayList(u32),
     start_timestamp: i64,
 
     fn deinit(cm: *CoverageMap, gpa: Allocator) void {
@@ -85,7 +85,7 @@ pub fn init(
     mode: Mode,
 ) Allocator.Error!Fuzz {
     const run_steps: []const *Step.Run = steps: {
-        var steps: std.ArrayListUnmanaged(*Step.Run) = .empty;
+        var steps: std.ArrayList(*Step.Run) = .empty;
         defer steps.deinit(gpa);
         const rebuild_node = root_prog_node.start("Rebuilding Unit Tests", 0);
         defer rebuild_node.end();

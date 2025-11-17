@@ -860,7 +860,7 @@ const Context = struct {
     gpa: Allocator,
     buf: std.ArrayList(u8) = .empty,
     nodes: std.zig.Ast.NodeList = .empty,
-    extra_data: std.ArrayListUnmanaged(u32) = .empty,
+    extra_data: std.ArrayList(u32) = .empty,
     tokens: std.zig.Ast.TokenList = .empty,
 
     fn addTokenFmt(c: *Context, tag: TokenTag, comptime format: []const u8, args: anytype) Allocator.Error!TokenIndex {

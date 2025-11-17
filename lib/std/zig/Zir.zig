@@ -4093,8 +4093,8 @@ pub const DeclContents = struct {
     /// This is a simple optional because ZIR guarantees that a `func`/`func_inferred`/`func_fancy` instruction
     /// can only occur once per `declaration`.
     func_decl: ?Inst.Index,
-    explicit_types: std.ArrayListUnmanaged(Inst.Index),
-    other: std.ArrayListUnmanaged(Inst.Index),
+    explicit_types: std.ArrayList(Inst.Index),
+    other: std.ArrayList(Inst.Index),
 
     pub const init: DeclContents = .{
         .func_decl = null,
@@ -4118,7 +4118,7 @@ pub const DeclContents = struct {
 /// nested declarations; to find all declarations, call this function recursively on the type declarations discovered
 /// in `contents.explicit_types`.
 ///
-/// This populates an `ArrayListUnmanaged` because an iterator would need to allocate memory anyway.
+/// This populates an `ArrayList` because an iterator would need to allocate memory anyway.
 pub fn findTrackable(zir: Zir, gpa: Allocator, contents: *DeclContents, decl_inst: Zir.Inst.Index) !void {
     contents.clear();
 

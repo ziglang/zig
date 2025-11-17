@@ -32,7 +32,7 @@ prev_di_pc: usize,
 branch_types: std.AutoHashMapUnmanaged(Mir.Inst.Index, BranchType) = .empty,
 /// For every forward branch, maps the target instruction to a list of
 /// branches which branch to this target instruction
-branch_forward_origins: std.AutoHashMapUnmanaged(Mir.Inst.Index, std.ArrayListUnmanaged(Mir.Inst.Index)) = .empty,
+branch_forward_origins: std.AutoHashMapUnmanaged(Mir.Inst.Index, std.ArrayList(Mir.Inst.Index)) = .empty,
 /// For backward branches: stores the code offset of the target
 /// instruction
 ///
@@ -568,7 +568,7 @@ fn lowerBranches(emit: *Emit) !void {
                 if (emit.branch_forward_origins.getPtr(target_inst)) |origin_list| {
                     try origin_list.append(gpa, inst);
                 } else {
-                    var origin_list: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty;
+                    var origin_list: std.ArrayList(Mir.Inst.Index) = .empty;
                     try origin_list.append(gpa, inst);
                     try emit.branch_forward_origins.put(gpa, target_inst, origin_list);
                 }

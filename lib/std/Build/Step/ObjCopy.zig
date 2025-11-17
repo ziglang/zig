@@ -3,7 +3,6 @@ const ObjCopy = @This();
 
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const File = std.fs.File;
 const InstallDir = std.Build.InstallDir;
 const Step = std.Build.Step;

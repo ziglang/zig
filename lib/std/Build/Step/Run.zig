@@ -16,7 +16,7 @@ pub const base_id: Step.Id = .run;
 step: Step,
 
 /// See also addArg and addArgs to modifying this directly
-argv: std.ArrayListUnmanaged(Arg),
+argv: std.ArrayList(Arg),
 
 /// Use `setCwd` to set the initial current working directory
 cwd: ?Build.LazyPath,
@@ -63,7 +63,7 @@ stdin: StdIn,
 /// If the Run step is determined to have side-effects, the Run step is always
 /// executed when it appears in the build graph, regardless of whether these
 /// files have been modified.
-file_inputs: std.ArrayListUnmanaged(std.Build.LazyPath),
+file_inputs: std.ArrayList(std.Build.LazyPath),
 
 /// After adding an output argument, this step will by default rename itself
 /// for a better display name in the build summary.
@@ -104,7 +104,7 @@ has_side_effects: bool,
 
 /// If this is a Zig unit test binary, this tracks the indexes of the unit
 /// tests that are also fuzz tests.
-fuzz_tests: std.ArrayListUnmanaged(u32),
+fuzz_tests: std.ArrayList(u32),
 cached_test_metadata: ?CachedTestMetadata = null,
 
 /// Populated during the fuzz phase if this run step corresponds to a unit test
@@ -139,7 +139,7 @@ pub const StdIo = union(enum) {
     /// conditions.
     /// Note that an explicit check for exit code 0 needs to be added to this
     /// list if such a check is desirable.
-    check: std.ArrayListUnmanaged(Check),
+    check: std.ArrayList(Check),
     /// This Run step is running a zig unit test binary and will communicate
     /// extra metadata over the IPC protocol.
     zig_test,

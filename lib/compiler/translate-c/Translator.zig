@@ -3551,7 +3551,7 @@ fn transArrayInit(
     const array_item_qt = array_init.container_qt.childType(t.comp);
     const array_item_type = try t.transType(scope, array_item_qt, array_init.l_brace_tok);
     var maybe_lhs: ?ZigNode = null;
-    var val_list: std.ArrayListUnmanaged(ZigNode) = .empty;
+    var val_list: std.ArrayList(ZigNode) = .empty;
     defer val_list.deinit(t.gpa);
     var i: usize = 0;
     while (i < array_init.items.len) {

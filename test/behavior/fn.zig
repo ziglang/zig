@@ -407,8 +407,8 @@ test "import passed byref to function in return type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
-        fn get() @import("std").ArrayListUnmanaged(i32) {
-            const x: @import("std").ArrayListUnmanaged(i32) = .empty;
+        fn get() @import("std").ArrayList(i32) {
+            const x: @import("std").ArrayList(i32) = .empty;
             return x;
         }
     };

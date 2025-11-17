@@ -15,23 +15,23 @@ strip: bool,
 source_filename: String,
 data_layout: String,
 target_triple: String,
-module_asm: std.ArrayListUnmanaged(u8),
+module_asm: std.ArrayList(u8),
 
 string_map: std.AutoArrayHashMapUnmanaged(void, void),
-string_indices: std.ArrayListUnmanaged(u32),
-string_bytes: std.ArrayListUnmanaged(u8),
+string_indices: std.ArrayList(u32),
+string_bytes: std.ArrayList(u8),
 
 types: std.AutoArrayHashMapUnmanaged(String, Type),
 next_unnamed_type: String,
 next_unique_type_id: std.AutoHashMapUnmanaged(String, u32),
 type_map: std.AutoArrayHashMapUnmanaged(void, void),
-type_items: std.ArrayListUnmanaged(Type.Item),
-type_extra: std.ArrayListUnmanaged(u32),
+type_items: std.ArrayList(Type.Item),
+type_extra: std.ArrayList(u32),
 
 attributes: std.AutoArrayHashMapUnmanaged(Attribute.Storage, void),
 attributes_map: std.AutoArrayHashMapUnmanaged(void, void),
-attributes_indices: std.ArrayListUnmanaged(u32),
-attributes_extra: std.ArrayListUnmanaged(u32),
+attributes_indices: std.ArrayList(u32),
+attributes_extra: std.ArrayList(u32),
 
 function_attributes_set: std.AutoArrayHashMapUnmanaged(FunctionAttributes, void),
 
@@ -39,32 +39,32 @@ globals: std.AutoArrayHashMapUnmanaged(StrtabString, Global),
 next_unnamed_global: StrtabString,
 next_replaced_global: StrtabString,
 next_unique_global_id: std.AutoHashMapUnmanaged(StrtabString, u32),
-aliases: std.ArrayListUnmanaged(Alias),
-variables: std.ArrayListUnmanaged(Variable),
-functions: std.ArrayListUnmanaged(Function),
+aliases: std.ArrayList(Alias),
+variables: std.ArrayList(Variable),
+functions: std.ArrayList(Function),
 
 strtab_string_map: std.AutoArrayHashMapUnmanaged(void, void),
-strtab_string_indices: std.ArrayListUnmanaged(u32),
-strtab_string_bytes: std.ArrayListUnmanaged(u8),
+strtab_string_indices: std.ArrayList(u32),
+strtab_string_bytes: std.ArrayList(u8),
 
 constant_map: std.AutoArrayHashMapUnmanaged(void, void),
 constant_items: std.MultiArrayList(Constant.Item),
-constant_extra: std.ArrayListUnmanaged(u32),
-constant_limbs: std.ArrayListUnmanaged(std.math.big.Limb),
+constant_extra: std.ArrayList(u32),
+constant_limbs: std.ArrayList(std.math.big.Limb),
 
 metadata_map: std.AutoArrayHashMapUnmanaged(void, void),
 metadata_items: std.MultiArrayList(Metadata.Item),
-metadata_extra: std.ArrayListUnmanaged(u32),
-metadata_limbs: std.ArrayListUnmanaged(std.math.big.Limb),
-metadata_forward_references: std.ArrayListUnmanaged(Metadata.Optional),
+metadata_extra: std.ArrayList(u32),
+metadata_limbs: std.ArrayList(std.math.big.Limb),
+metadata_forward_references: std.ArrayList(Metadata.Optional),
 metadata_named: std.AutoArrayHashMapUnmanaged(String, struct {
     len: u32,
     index: Metadata.Item.ExtraIndex,
 }),
 
 metadata_string_map: std.AutoArrayHashMapUnmanaged(void, void),
-metadata_string_indices: std.ArrayListUnmanaged(u32),
-metadata_string_bytes: std.ArrayListUnmanaged(u8),
+metadata_string_indices: std.ArrayList(u32),
+metadata_string_bytes: std.ArrayList(u8),
 
 pub const expected_args_len = 16;
 pub const expected_attrs_len = 16;
@@ -1627,7 +1627,7 @@ pub const FunctionAttributes = enum(u32) {
         maps: Maps = .{},
 
         const Map = std.AutoArrayHashMapUnmanaged(Attribute.Kind, Attribute.Index);
-        const Maps = std.ArrayListUnmanaged(Map);
+        const Maps = std.ArrayList(Map);
 
         pub fn deinit(self: *Wip, builder: *const Builder) void {
             for (self.maps.items) |*map| map.deinit(builder.gpa);
@@ -5173,13 +5173,13 @@ pub const WipFunction = struct {
     prev_debug_location: DebugLocation,
     debug_location: DebugLocation,
     cursor: Cursor,
-    blocks: std.ArrayListUnmanaged(Block),
+    blocks: std.ArrayList(Block),
     instructions: std.MultiArrayList(Instruction),
-    names: std.ArrayListUnmanaged(String),
+    names: std.ArrayList(String),
     strip: bool,
     debug_locations: std.AutoArrayHashMapUnmanaged(Instruction.Index, DebugLocation),
     debug_values: std.AutoArrayHashMapUnmanaged(Instruction.Index, void),
-    extra: std.ArrayListUnmanaged(u32),
+    extra: std.ArrayList(u32),
 
     pub const Cursor = struct { block: Block.Index, instruction: u32 = 0 };
 
@@ -5187,7 +5187,7 @@ pub const WipFunction = struct {
         name: String,
         incoming: u32,
         branches: u32 = 0,
-        instructions: std.ArrayListUnmanaged(Instruction.Index),
+        instructions: std.ArrayList(Instruction.Index),
 
         const Index = enum(u32) {
             entry,
@@ -13193,7 +13193,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator, producer: Producer) bitco
     // Write LLVM IR magic
     try bitcode.writeBits(ir.MAGIC, 32);
 
-    var record: std.ArrayListUnmanaged(u64) = .empty;
+    var record: std.ArrayList(u64) = .empty;
     defer record.deinit(self.gpa);
 
     // IDENTIFICATION_BLOCK

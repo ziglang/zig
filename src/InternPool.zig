@@ -79,10 +79,10 @@ first_dependency: std.AutoArrayHashMapUnmanaged(AnalUnit, DepEntry.Index),
 /// up entries in this list as required. This is not stored in `extra` so that
 /// we can use `free_dep_entries` to track free indices, since dependencies are
 /// removed frequently.
-dep_entries: std.ArrayListUnmanaged(DepEntry),
+dep_entries: std.ArrayList(DepEntry),
 /// Stores unused indices in `dep_entries` which can be reused without a full
 /// garbage collection pass.
-free_dep_entries: std.ArrayListUnmanaged(DepEntry.Index),
+free_dep_entries: std.ArrayList(DepEntry.Index),
 
 /// Whether a multi-threaded intern pool is useful.
 /// Currently `false` until the intern pool is actually accessed
@@ -11436,7 +11436,7 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    var instances: std.AutoArrayHashMapUnmanaged(Index, std.ArrayListUnmanaged(Index)) = .empty;
+    var instances: std.AutoArrayHashMapUnmanaged(Index, std.ArrayList(Index)) = .empty;
     for (ip.locals, 0..) |*local, tid| {
         const items = local.shared.items.view().slice();
         const extra_list = local.shared.extra;
@@ -11463,7 +11463,7 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     defer std.debug.unlockStderrWriter();
 
     const SortContext = struct {
-        values: []std.ArrayListUnmanaged(Index),
+        values: []std.ArrayList(Index),
         pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
             return ctx.values[a_index].items.len > ctx.values[b_index].items.len;
         }

@@ -4,8 +4,8 @@ file: ?fs.File,
 symtab_cmd: macho.symtab_command = .{},
 uuid_cmd: macho.uuid_command = .{ .uuid = [_]u8{0} ** 16 },
 
-segments: std.ArrayListUnmanaged(macho.segment_command_64) = .empty,
-sections: std.ArrayListUnmanaged(macho.section_64) = .empty,
+segments: std.ArrayList(macho.segment_command_64) = .empty,
+sections: std.ArrayList(macho.section_64) = .empty,
 
 dwarf_segment_cmd_index: ?u8 = null,
 linkedit_segment_cmd_index: ?u8 = null,
@@ -19,11 +19,11 @@ debug_line_str_section_index: ?u8 = null,
 debug_loclists_section_index: ?u8 = null,
 debug_rnglists_section_index: ?u8 = null,
 
-relocs: std.ArrayListUnmanaged(Reloc) = .empty,
+relocs: std.ArrayList(Reloc) = .empty,
 
 /// Output synthetic sections
-symtab: std.ArrayListUnmanaged(macho.nlist_64) = .empty,
-strtab: std.ArrayListUnmanaged(u8) = .empty,
+symtab: std.ArrayList(macho.nlist_64) = .empty,
+strtab: std.ArrayList(u8) = .empty,
 
 pub const Reloc = struct {
     type: enum {

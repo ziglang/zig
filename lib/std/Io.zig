@@ -361,7 +361,7 @@ pub fn Poller(comptime StreamEnum: type) type {
                 r.end = data.len;
             }
             {
-                var list: std.ArrayListUnmanaged(u8) = .{
+                var list: std.ArrayList(u8) = .{
                     .items = r.buffer[0..r.end],
                     .capacity = r.buffer.len,
                 };

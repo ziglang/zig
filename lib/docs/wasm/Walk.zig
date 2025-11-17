@@ -11,7 +11,7 @@ const Oom = error{OutOfMemory};
 pub const Decl = @import("Decl.zig");
 
 pub var files: std.StringArrayHashMapUnmanaged(File) = .empty;
-pub var decls: std.ArrayListUnmanaged(Decl) = .empty;
+pub var decls: std.ArrayList(Decl) = .empty;
 pub var modules: std.StringArrayHashMapUnmanaged(File.Index) = .empty;
 
 file: File.Index,

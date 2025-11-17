@@ -1063,10 +1063,10 @@ pub const Manifest = struct {
         const dep_file_contents = try dir.readFileAlloc(dep_file_sub_path, gpa, .limited(manifest_file_size_max));
         defer gpa.free(dep_file_contents);
 
-        var error_buf: std.ArrayListUnmanaged(u8) = .empty;
+        var error_buf: std.ArrayList(u8) = .empty;
         defer error_buf.deinit(gpa);
 
-        var resolve_buf: std.ArrayListUnmanaged(u8) = .empty;
+        var resolve_buf: std.ArrayList(u8) = .empty;
         defer resolve_buf.deinit(gpa);
 
         var it: DepTokenizer = .{ .bytes = dep_file_contents };
@@ -1217,7 +1217,7 @@ pub const Manifest = struct {
         self.files.deinit(self.cache.gpa);
     }
 
-    pub fn populateFileSystemInputs(man: *Manifest, buf: *std.ArrayListUnmanaged(u8)) Allocator.Error!void {
+    pub fn populateFileSystemInputs(man: *Manifest, buf: *std.ArrayList(u8)) Allocator.Error!void {
         assert(@typeInfo(std.zig.Server.Message.PathPrefix).@"enum".fields.len == man.cache.prefixes_len);
         buf.clearRetainingCapacity();
         const gpa = man.cache.gpa;

@@ -1,5 +1,5 @@
-entries: std.ArrayListUnmanaged(Entry) = .empty,
-buffer: std.ArrayListUnmanaged(u8) = .empty,
+entries: std.ArrayList(Entry) = .empty,
+buffer: std.ArrayList(u8) = .empty,
 
 pub const Entry = struct {
     offset: u64,
