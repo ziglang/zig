@@ -3651,35 +3651,22 @@ pub const Object = struct {
             .opt => {}, // pointer like optional expected
             else => unreachable,
         }
-        const bits = ty.bitSize(zcu);
-        const bytes: usize = @intCast(std.mem.alignForward(u64, bits, 8) / 8);
-
         var stack = std.heap.stackFallback(32, o.gpa);
         const allocator = stack.get();
 
-        const limbs = try allocator.alloc(
-            std.math.big.Limb,
-            std.mem.alignForward(usize, bytes, @sizeOf(std.math.big.Limb)) /
-                @sizeOf(std.math.big.Limb),
-        );
+        const bits: usize = @intCast(ty.bitSize(zcu));
+
+        const buffer = try allocator.alloc(u8, (bits + 7) / 8);
+        defer allocator.free(buffer);
+        const limbs = try allocator.alloc(std.math.big.Limb, std.math.big.int.calcTwosCompLimbCount(bits));
         defer allocator.free(limbs);
-        @memset(limbs, 0);
 
-        val.writeToPackedMemory(ty, pt, std.mem.sliceAsBytes(limbs)[0..bytes], 0) catch unreachable;
+        val.writeToPackedMemory(ty, pt, buffer, 0) catch unreachable;
 
-        if (builtin.target.cpu.arch.endian() == .little) {
-            if (target.cpu.arch.endian() == .big)
-                std.mem.reverse(u8, std.mem.sliceAsBytes(limbs)[0..bytes]);
-        } else if (target.cpu.arch.endian() == .little) {
-            for (limbs) |*limb| {
-                limb.* = std.mem.nativeToLittle(usize, limb.*);
-            }
-        }
+        var big: std.math.big.int.Mutable = .init(limbs, 0);
+        big.readTwosComplement(buffer, bits, target.cpu.arch.endian(), .unsigned);
 
-        return o.builder.bigIntConst(llvm_int_ty, .{
-            .limbs = limbs,
-            .positive = true,
-        });
+        return o.builder.bigIntConst(llvm_int_ty, big.toConst());
     }
 
     fn lowerValue(o: *Object, pt: Zcu.PerThread, arg_val: InternPool.Index) Error!Builder.Constant {
