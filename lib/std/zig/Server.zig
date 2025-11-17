@@ -238,26 +238,34 @@ pub fn serveErrorBundle(s: *Server, error_bundle: std.zig.ErrorBundle) !void {
     try s.out.flush();
 }
 
-pub fn allocErrorBundle(allocator: std.mem.Allocator, body: []const u8) !std.zig.ErrorBundle {
-    const eb_hdr = @as(*align(1) const OutMessage.ErrorBundle, @ptrCast(body));
-    const extra_bytes =
-        body[@sizeOf(OutMessage.ErrorBundle)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
-    const string_bytes =
-        body[@sizeOf(OutMessage.ErrorBundle) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
-    const unaligned_extra: []align(1) const u32 = @ptrCast(extra_bytes);
+pub fn allocErrorBundle(gpa: std.mem.Allocator, body: []const u8) error{ OutOfMemory, EndOfStream }!std.zig.ErrorBundle {
+    var r: Reader = .fixed(body);
+    const hdr = r.takeStruct(OutMessage.ErrorBundle, .little) catch |err| switch (err) {
+        error.EndOfStream => |e| return e,
+        error.ReadFailed => unreachable,
+    };
 
-    var error_bundle: std.zig.ErrorBundle = .{
+    var eb: std.zig.ErrorBundle = .{
         .string_bytes = &.{},
         .extra = &.{},
     };
-    errdefer error_bundle.deinit(allocator);
+    errdefer eb.deinit(gpa);
 
-    error_bundle.string_bytes = try allocator.dupe(u8, string_bytes);
-    const extra = try allocator.alloc(u32, unaligned_extra.len);
-    @memcpy(extra, unaligned_extra);
-    error_bundle.extra = extra;
+    const extra = try gpa.alloc(u32, hdr.extra_len);
+    eb.extra = extra;
+    const string_bytes = try gpa.alloc(u8, hdr.string_bytes_len);
+    eb.string_bytes = string_bytes;
 
-    return error_bundle;
+    r.readSliceEndian(u32, extra, .little) catch |err| switch (err) {
+        error.EndOfStream => |e| return e,
+        error.ReadFailed => unreachable,
+    };
+    r.readSliceAll(string_bytes) catch |err| switch (err) {
+        error.EndOfStream => |e| return e,
+        error.ReadFailed => unreachable,
+    };
+
+    return eb;
 }
 
 pub const TestMetadata = struct {
