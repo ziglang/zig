@@ -22,6 +22,10 @@ test "defining a variadic function" {
         // https://github.com/ziglang/zig/issues/16961
         return error.SkipZigTest;
     }
+    if (builtin.cpu.arch == .s390x) {
+        // https://github.com/ziglang/zig/issues/21350#issuecomment-3543006475
+        return error.SkipZigTest;
+    }
 
     try std.testing.expectEqual(@as(c_int, 0), add(0));
     try std.testing.expectEqual(@as(c_int, 1), add(1, @as(c_int, 1)));
