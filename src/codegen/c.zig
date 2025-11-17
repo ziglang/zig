@@ -5084,16 +5084,32 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !CVal
     } else operand;
 
     const local = try f.allocLocal(null, dest_ty);
-    try w.writeAll("memcpy(&");
-    try f.writeCValue(w, local, .Other);
-    try w.writeAll(", &");
-    try f.writeCValue(w, operand_lval, .Other);
-    try w.writeAll(", sizeof(");
-    try f.renderType(
-        w,
-        if (dest_ty.abiSize(zcu) <= operand_ty.abiSize(zcu)) dest_ty else operand_ty,
-    );
-    try w.writeAll("));");
+    // On big-endian targets, copying ABI integers with padding bits is awkward, because the padding bits are at the low bytes of the value.
+    // We need to offset the source or destination pointer appropriately and copy the right number of bytes.
+    if (target.cpu.arch.endian() == .big and dest_ty.isAbiInt(zcu) and !operand_ty.isAbiInt(zcu)) {
+        // e.g. [10]u8 -> u80. We need to offset the destination so that we copy to the least significant bits of the integer.
+        const offset = dest_ty.abiSize(zcu) - operand_ty.abiSize(zcu);
+        try w.writeAll("memcpy((char *)&");
+        try f.writeCValue(w, local, .Other);
+        try w.print(" + {d}, &", .{offset});
+        try f.writeCValue(w, operand_lval, .Other);
+        try w.print(", {d});", .{operand_ty.abiSize(zcu)});
+    } else if (target.cpu.arch.endian() == .big and operand_ty.isAbiInt(zcu) and !dest_ty.isAbiInt(zcu)) {
+        // e.g. u80 -> [10]u8. We need to offset the source so that we copy from the least significant bits of the integer.
+        const offset = operand_ty.abiSize(zcu) - dest_ty.abiSize(zcu);
+        try w.writeAll("memcpy(&");
+        try f.writeCValue(w, local, .Other);
+        try w.writeAll(", (const char *)&");
+        try f.writeCValue(w, operand_lval, .Other);
+        try w.print(" + {d}, {d});", .{ offset, dest_ty.abiSize(zcu) });
+    } else {
+        try w.writeAll("memcpy(&");
+        try f.writeCValue(w, local, .Other);
+        try w.writeAll(", &");
+        try f.writeCValue(w, operand_lval, .Other);
+        try w.print(", {d});", .{@min(dest_ty.abiSize(zcu), operand_ty.abiSize(zcu))});
+    }
+
     try f.object.newline();
 
     // Ensure padding bits have the expected value.
