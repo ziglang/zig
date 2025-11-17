@@ -39,6 +39,7 @@ pub fn addCase(self: *ErrorTrace, case: Case) void {
 }
 
 fn shouldTestNonLlvm(target: *const std.Target) bool {
+    if (comptime builtin.cpu.arch.endian() == .big) return false; // https://github.com/ziglang/zig/issues/25961
     return switch (target.cpu.arch) {
         .x86_64 => switch (target.ofmt) {
             .elf => !target.os.tag.isBSD() and target.os.tag != .illumos,
