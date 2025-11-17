@@ -2643,11 +2643,13 @@ pub fn fail(
 }
 
 fn failWithTypeMismatch(sema: *Sema, block: *Block, src: LazySrcLoc, expected: Type, found: Type) CompileError {
-    const err_msg = try sema.typeMismatchErrMsg(src, expected, found);
-    errdefer err_msg.destroy(sema.gpa);
-    try addDeclaredHereNote(sema, err_msg, expected);
-    try addDeclaredHereNote(sema, err_msg, found);
-    return sema.failWithOwnedErrorMsg(block, err_msg);
+    return sema.failWithOwnedErrorMsg(block, msg: {
+        const msg = try sema.typeMismatchErrMsg(src, expected, found);
+        errdefer msg.destroy(sema.gpa);
+        try addDeclaredHereNote(sema, msg, expected);
+        try addDeclaredHereNote(sema, msg, found);
+        break :msg msg;
+    });
 }
 
 pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Zcu.ErrorMsg) error{ AnalysisFail, OutOfMemory } {
