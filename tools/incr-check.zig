@@ -290,9 +290,8 @@ const Eval = struct {
                     return;
                 },
                 .emit_digest => {
-                    const EbpHdr = std.zig.Server.Message.EmitDigest;
-                    const ebp_hdr = @as(*align(1) const EbpHdr, @ptrCast(body));
-                    _ = ebp_hdr;
+                    var r: std.Io.Reader = .fixed(body);
+                    _ = r.takeStruct(std.zig.Server.Message.EmitDigest, .little) catch unreachable;
                     if (stderr.bufferedLen() > 0) {
                         const stderr_data = try poller.toOwnedSlice(.stderr);
                         if (eval.allow_stderr) {
@@ -307,7 +306,7 @@ const Eval = struct {
                         // This message indicates the end of the update.
                     }
 
-                    const digest = body[@sizeOf(EbpHdr)..][0..Cache.bin_digest_len];
+                    const digest = r.takeArray(Cache.bin_digest_len) catch unreachable;
                     const result_dir = ".local-cache" ++ std.fs.path.sep_str ++ "o" ++ std.fs.path.sep_str ++ Cache.binToHex(digest.*);
 
                     const bin_name = try std.zig.EmitArtifact.bin.cacheName(arena, .{
@@ -519,7 +518,10 @@ const Eval = struct {
             .tag = .update,
             .bytes_len = 0,
         };
-        try eval.child.stdin.?.writeAll(std.mem.asBytes(&header));
+        var w = eval.child.stdin.?.writer(&.{});
+        w.interface.writeStruct(header, .little) catch |err| switch (err) {
+            error.WriteFailed => return w.err.?,
+        };
     }
 
     fn end(eval: *Eval, poller: *Poller) !void {
@@ -836,9 +838,12 @@ fn requestExit(child: *std.process.Child, eval: *Eval) void {
         .tag = .exit,
         .bytes_len = 0,
     };
-    child.stdin.?.writeAll(std.mem.asBytes(&header)) catch |err| switch (err) {
-        error.BrokenPipe => {},
-        else => eval.fatal("failed to send exit: {s}", .{@errorName(err)}),
+    var w = eval.child.stdin.?.writer(&.{});
+    w.interface.writeStruct(header, .little) catch |err| switch (err) {
+        error.WriteFailed => switch (w.err.?) {
+            error.BrokenPipe => {},
+            else => |e| eval.fatal("failed to send exit: {s}", .{@errorName(e)}),
+        },
     };
 
     // Send EOF to stdin.
