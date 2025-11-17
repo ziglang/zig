@@ -348,12 +348,12 @@ fn buildWasmBinary(
                 result_error_bundle = try std.zig.Server.allocErrorBundle(arena, body);
             },
             .emit_digest => {
-                const EmitDigest = std.zig.Server.Message.EmitDigest;
-                const emit_digest = @as(*align(1) const EmitDigest, @ptrCast(body));
+                var r: std.Io.Reader = .fixed(body);
+                const emit_digest = r.takeStruct(std.zig.Server.Message.EmitDigest, .little) catch unreachable;
                 if (!emit_digest.flags.cache_hit) {
                     std.log.info("source changes detected; rebuilt wasm component", .{});
                 }
-                const digest = body[@sizeOf(EmitDigest)..][0..Cache.bin_digest_len];
+                const digest = r.takeArray(Cache.bin_digest_len) catch unreachable;
                 result = .{
                     .root_dir = Cache.Directory.cwd(),
                     .sub_path = try std.fs.path.join(arena, &.{
@@ -415,7 +415,10 @@ fn sendMessage(file: std.fs.File, tag: std.zig.Client.Message.Tag) !void {
         .tag = tag,
         .bytes_len = 0,
     };
-    try file.writeAll(std.mem.asBytes(&header));
+    var w = file.writer(&.{});
+    w.interface.writeStruct(header, .little) catch |err| switch (err) {
+        error.WriteFailed => return w.err.?,
+    };
 }
 
 fn openBrowserTab(gpa: Allocator, url: []const u8) !void {
