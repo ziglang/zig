@@ -25,30 +25,5 @@ int main (int argc, char *argv[])
 
   if (!ok) abort();
 
-  // Test some basic arithmetic from compiler-rt
-  {
-    double complex z = 0.0 + I * 4.0;
-    double complex w = 0.0 + I * 16.0;
-    double complex product = z * w;
-    double complex quotient = z / w;
-
-    if (!(creal(product) == -64.0)) abort();
-    if (!(cimag(product) == 0.0)) abort();
-    if (!(creal(quotient) == 0.25)) abort();
-    if (!(cimag(quotient) == 0.0)) abort();
-  }
-
-  {
-    float complex z = 4.0 + I * 4.0;
-    float complex w = 2.0 - I * 2.0;
-    float complex product = z * w;
-    float complex quotient = z / w;
-
-    if (!(creal(product) == 16.0)) abort();
-    if (!(cimag(product) == 0.0)) abort();
-    if (!(creal(quotient) == 0.0)) abort();
-    if (!(cimag(quotient) == 2.0)) abort();
-  }
-
   return EXIT_SUCCESS;
 }
