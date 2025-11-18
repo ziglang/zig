@@ -3821,7 +3821,7 @@ fn netAcceptPosix(userdata: ?*anyopaque, listen_fd: net.Socket.Handle) net.Serve
             .BADF => |err| return errnoBug(err), // File descriptor used after closed.
             .CONNABORTED => return error.ConnectionAborted,
             .FAULT => |err| return errnoBug(err),
-            .INVAL => |err| return errnoBug(err),
+            .INVAL => return error.SocketNotListening,
             .NOTSOCK => |err| return errnoBug(err),
             .MFILE => return error.ProcessFdQuotaExceeded,
             .NFILE => return error.SystemFdQuotaExceeded,

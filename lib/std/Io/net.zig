@@ -1333,6 +1333,9 @@ pub const Server = struct {
         /// Not enough free memory. This often means that the memory allocation is limited
         /// by the socket buffer limits, not by the system memory.
         SystemResources,
+        /// Socket was concurrently terminated by a `shutdown` call from a signal or another thread.
+        /// This is typically normal behavior during a graceful shutdown or dynamic reconfiguration.
+        SocketNotListening,
         /// The network subsystem has failed.
         NetworkDown,
         /// No connection is already queued and ready to be accepted, and
