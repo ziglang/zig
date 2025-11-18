@@ -304,6 +304,20 @@ test "self-referential struct through a slice of optional" {
     try expect(n.data == null);
 }
 
+test "assigning to an unwrapped optional" {
+    var foo: ?u8 = 10;
+    foo.? = 12;
+    try expect(foo.? == 12);
+}
+
+test "assigning to an unwrapped optional in comptime context" {
+    comptime {
+        var foo: ?u8 = 10;
+        foo.? = 12;
+        try expect(foo.? == 12);
+    }
+}
+
 test "assigning to an unwrapped optional field in an inline loop" {
     comptime var maybe_pos_arg: ?comptime_int = null;
     inline for ("ab") |x| {
