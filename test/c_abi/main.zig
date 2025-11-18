@@ -12,7 +12,8 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const have_i128 = builtin.cpu.arch != .x86 and !builtin.cpu.arch.isArm() and
     !builtin.cpu.arch.isMIPS() and !builtin.cpu.arch.isPowerPC32() and builtin.cpu.arch != .riscv32 and
-    builtin.cpu.arch != .hexagon;
+    builtin.cpu.arch != .hexagon and
+    builtin.cpu.arch != .s390x; // https://github.com/llvm/llvm-project/issues/168460
 
 const have_f128 = builtin.cpu.arch.isWasm() or (builtin.cpu.arch.isX86() and !builtin.os.tag.isDarwin());
 const have_f80 = builtin.cpu.arch.isX86();
