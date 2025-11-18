@@ -1299,7 +1299,7 @@ fn dirStatPathLinux(
             dir.handle,
             sub_path_posix,
             flags,
-            linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
+            linux.STATX_INO | linux.STATX_SIZE | linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
             &statx,
         );
         switch (linux.E.init(rc)) {
@@ -1446,7 +1446,7 @@ fn fileStatLinux(userdata: ?*anyopaque, file: Io.File) Io.File.StatError!Io.File
             file.handle,
             "",
             linux.AT.EMPTY_PATH,
-            linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
+            linux.STATX_INO | linux.STATX_SIZE | linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
             &statx,
         );
         switch (linux.E.init(rc)) {
