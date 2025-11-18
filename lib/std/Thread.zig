@@ -922,11 +922,6 @@ const WasiThreadImpl = struct {
         /// function upon thread spawn. The above mentioned pointer will be passed
         /// to this function pointer as its argument.
         call_back: *const fn (usize) void,
-        /// When a thread is in `detached` state, we must free all of its memory
-        /// upon thread completion. However, as this is done while still within
-        /// the thread, we must first jump back to the main thread's stack or else
-        /// we end up freeing the stack that we're currently using.
-        original_stack_pointer: [*]u8,
     };
 
     const State = std.atomic.Value(enum(u8) { running, completed, detached });
@@ -1070,7 +1065,6 @@ const WasiThreadImpl = struct {
             .stack_offset = stack_offset,
             .raw_ptr = @intFromPtr(wrapper),
             .call_back = &Wrapper.entry,
-            .original_stack_pointer = __get_stack_pointer(),
         };
 
         const tid = spawnWasiThread(instance);
@@ -1125,6 +1119,7 @@ const WasiThreadImpl = struct {
                     .completed => unreachable,
                     .detached => {
                         // use free in the vtable so the stack doesn't get set to undefined when optimize = Debug
+                        // the allocator field will eventually be removed per #19383
                         const free = arg.thread.allocator.vtable.free;
                         const ptr = arg.thread.allocator.ptr;
                         free(ptr, arg.thread.memory, std.mem.Alignment.@"1", 0);
@@ -1188,25 +1183,6 @@ const WasiThreadImpl = struct {
             \\ global.get __tls_align
             \\ local.set %[ret]
             : [ret] "=r" (-> u32),
-        );
-    }
-
-    /// Allows for setting the stack pointer in the WebAssembly module.
-    inline fn __set_stack_pointer(addr: [*]u8) void {
-        asm volatile (
-            \\ local.get %[ptr]
-            \\ global.set __stack_pointer
-            :
-            : [ptr] "r" (addr),
-        );
-    }
-
-    /// Returns the current value of the stack pointer
-    inline fn __get_stack_pointer() [*]u8 {
-        return asm (
-            \\ global.get __stack_pointer
-            \\ local.set %[stack_ptr]
-            : [stack_ptr] "=r" (-> [*]u8),
         );
     }
 };
