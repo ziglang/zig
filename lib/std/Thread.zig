@@ -1086,73 +1086,69 @@ const WasiThreadImpl = struct {
 
     comptime {
         if (!builtin.single_threaded) {
-            switch (builtin.mode) {
-                .Debug => {
-                    @export(&wasi_thread_start_debug, .{ .name = "wasi_thread_start" });
-                    @export(&wasi_thread_start, .{ .name = "wasi_thread_start_cont", .visibility = .hidden });
-                },
-                else => @export(&wasi_thread_start, .{ .name = "wasi_thread_start" }),
-            }
+            @export(&wasi_thread_start, .{ .name = "wasi_thread_start" });
         }
-    }
-
-    /// Set the stack pointer then call wasi_thread_start
-    fn wasi_thread_start_debug(_: i32, _: *Instance) callconv(.naked) void {
-        const arg = asm (
-            \\ local.get 1
-            \\ local.set %[ret]
-            : [ret] "=r" (-> *Instance)
-        );
-        __set_stack_pointer(arg.thread.memory.ptr + arg.stack_offset);
-        asm volatile (
-            \\ local.get 0
-            \\ local.get 1
-            \\ call wasi_thread_start_cont
-            \\ return
-        );
     }
 
     /// Called by the host environment after thread creation.
-    fn wasi_thread_start(tid: i32, arg: *Instance) callconv(.c) void {
+    fn wasi_thread_start(_: i32, _: *Instance) callconv(.naked) void {
         comptime assert(!builtin.single_threaded);
-        if (builtin.mode != .Debug) {
-            __set_stack_pointer(arg.thread.memory.ptr + arg.stack_offset);
-        }
-        __wasm_init_tls(arg.thread.memory.ptr + arg.tls_offset);
-        @atomicStore(u32, &WasiThreadImpl.tls_thread_id, @intCast(tid), .seq_cst);
+        const clothed = struct {
+            fn run(tid: i32, arg: *Instance) callconv(.c) void {
+                __wasm_init_tls(arg.thread.memory.ptr + arg.tls_offset);
+                @atomicStore(u32, &WasiThreadImpl.tls_thread_id, @intCast(tid), .seq_cst);
 
-        // Finished bootstrapping, call user's procedure.
-        arg.call_back(arg.raw_ptr);
+                // Finished bootstrapping, call user's procedure.
+                arg.call_back(arg.raw_ptr);
 
-        switch (arg.thread.state.swap(.completed, .seq_cst)) {
-            .running => {
-                // reset the Thread ID
-                asm volatile (
-                    \\ local.get %[ptr]
-                    \\ i32.const 0
-                    \\ i32.atomic.store 0
-                    :
-                    : [ptr] "r" (&arg.thread.tid.raw),
-                );
+                switch (arg.thread.state.swap(.completed, .seq_cst)) {
+                    .running => {
+                        // reset the Thread ID
+                        asm volatile (
+                            \\ local.get %[ptr]
+                            \\ i32.const 0
+                            \\ i32.atomic.store 0
+                            :
+                            : [ptr] "r" (&arg.thread.tid.raw),
+                        );
 
-                // Wake the main thread listening to this thread
-                asm volatile (
-                    \\ local.get %[ptr]
-                    \\ i32.const 1 # waiters
-                    \\ memory.atomic.notify 0
-                    \\ drop # no need to know the waiters
-                    :
-                    : [ptr] "r" (&arg.thread.tid.raw),
-                );
-            },
-            .completed => unreachable,
-            .detached => {
-                // use free in the vtable so the stack doesn't get set to undefined when optimize = Debug
-                const free = arg.thread.allocator.vtable.free;
-                const ptr = arg.thread.allocator.ptr;
-                free(ptr, arg.thread.memory, std.mem.Alignment.@"1", 0);
-            },
-        }
+                        // Wake the main thread listening to this thread
+                        asm volatile (
+                            \\ local.get %[ptr]
+                            \\ i32.const 1 # waiters
+                            \\ memory.atomic.notify 0
+                            \\ drop # no need to know the waiters
+                            :
+                            : [ptr] "r" (&arg.thread.tid.raw),
+                        );
+                    },
+                    .completed => unreachable,
+                    .detached => {
+                        // use free in the vtable so the stack doesn't get set to undefined when optimize = Debug
+                        const free = arg.thread.allocator.vtable.free;
+                        const ptr = arg.thread.allocator.ptr;
+                        free(ptr, arg.thread.memory, std.mem.Alignment.@"1", 0);
+                    },
+                }
+            }
+        };
+        // Set the stack pointer then jump to the "clothed" portion of the function.
+        asm volatile (
+            \\ local.get 1
+            \\ i32.load %[thread_memory]
+            \\ local.get 1
+            \\ i32.load %[stack_offset]
+            \\ i32.add
+            \\ global.set __stack_pointer
+            \\ local.get 0
+            \\ local.get 1
+            \\ call %[cont]
+            \\ return
+            :
+            : [thread_memory] "X" (@offsetOf(Instance, "thread") + @offsetOf(WasiThread, "memory")),
+              [stack_offset] "X" (@offsetOf(Instance, "stack_offset")),
+              [cont] "X" (&clothed.run),
+        );
     }
 
     /// Asks the host to create a new thread for us.
