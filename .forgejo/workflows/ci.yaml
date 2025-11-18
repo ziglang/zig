@@ -73,6 +73,26 @@ jobs:
       - name: Build and Test
         run: sh ci/riscv64-linux-release.sh
         timeout-minutes: 420
+  s390x-linux-debug:
+    runs-on: [self-hosted, s390x-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/s390x-linux-debug.sh
+        timeout-minutes: 240
+  s390x-linux-release:
+    runs-on: [self-hosted, s390x-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/s390x-linux-release.sh
+        timeout-minutes: 180
   x86_64-freebsd-debug:
     runs-on: [self-hosted, x86_64-freebsd]
     steps:
