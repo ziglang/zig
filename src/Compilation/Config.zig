@@ -369,7 +369,7 @@ pub fn resolve(options: Options) ResolveError!Config {
 
         // load_dynamic_library standalone test not passing on this combination
         // https://github.com/ziglang/zig/issues/24080
-        if (target.os.tag == .macos and is_dyn_lib) break :b true;
+        if (target.os.tag.isDarwin() and is_dyn_lib) break :b true;
 
         // At this point we would prefer to use our own self-hosted backend,
         // because the compilation speed is better than LLVM. But only do it if

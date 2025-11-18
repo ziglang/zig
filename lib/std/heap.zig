@@ -25,10 +25,20 @@ pub const GeneralPurposeAllocatorConfig = DebugAllocatorConfig;
 /// Deprecated; to be removed after 0.14.0 is tagged.
 pub const GeneralPurposeAllocator = DebugAllocator;
 
-const memory_pool = @import("heap/memory_pool.zig");
-pub const MemoryPool = memory_pool.MemoryPool;
-pub const MemoryPoolAligned = memory_pool.MemoryPoolAligned;
-pub const MemoryPoolExtra = memory_pool.MemoryPoolExtra;
+/// A memory pool that can allocate objects of a single type very quickly.
+/// Use this when you need to allocate a lot of objects of the same type,
+/// because it outperforms general purpose allocators.
+/// Functions that potentially allocate memory accept an `Allocator` parameter.
+pub fn MemoryPool(comptime Item: type) type {
+    return memory_pool.Extra(Item, .{ .alignment = null });
+}
+pub const memory_pool = @import("heap/memory_pool.zig");
+
+/// Deprecated; use `memory_pool.Aligned`.
+pub const MemoryPoolAligned = memory_pool.Aligned;
+/// Deprecated; use `memory_pool.Extra`.
+pub const MemoryPoolExtra = memory_pool.Extra;
+/// Deprecated; use `memory_pool.Options`.
 pub const MemoryPoolOptions = memory_pool.Options;
 
 /// TODO Utilize this on Windows.
@@ -83,7 +93,7 @@ pub fn defaultQueryPageSize() usize {
             @max(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)), 0)
         else
             std.os.linux.getauxval(std.elf.AT_PAGESZ),
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             const task_port = std.c.mach_task_self();
             // mach_task_self may fail "if there are any resource failures or other errors".
             if (task_port == std.c.TASK.NULL) break :size 0;
@@ -155,7 +165,7 @@ const CAllocator = struct {
     else {};
 
     pub const supports_posix_memalign = switch (builtin.os.tag) {
-        .dragonfly, .netbsd, .freebsd, .illumos, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos, .serenity => true,
+        .dragonfly, .netbsd, .freebsd, .illumos, .openbsd, .linux, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .serenity => true,
         else => false,
     };
 
@@ -703,7 +713,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
 }
 
 const page_size_min_default: ?usize = switch (builtin.os.tag) {
-    .driverkit, .ios, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
+    .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
         .x86_64 => 4 << 10,
         .aarch64 => 16 << 10,
         else => null,
@@ -862,7 +872,7 @@ const page_size_min_default: ?usize = switch (builtin.os.tag) {
 };
 
 const page_size_max_default: ?usize = switch (builtin.os.tag) {
-    .driverkit, .ios, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
+    .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
         .x86_64 => 4 << 10,
         .aarch64 => 16 << 10,
         else => null,

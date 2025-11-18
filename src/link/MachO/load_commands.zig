@@ -281,7 +281,7 @@ pub fn writeRpathLC(rpath: []const u8, writer: *Writer) !void {
 pub fn writeVersionMinLC(platform: MachO.Platform, sdk_version: ?std.SemanticVersion, writer: *Writer) !void {
     const cmd: macho.LC = switch (platform.os_tag) {
         .macos => .VERSION_MIN_MACOSX,
-        .ios => .VERSION_MIN_IPHONEOS,
+        .ios, .maccatalyst => .VERSION_MIN_IPHONEOS,
         .tvos => .VERSION_MIN_TVOS,
         .watchos => .VERSION_MIN_WATCHOS,
         else => unreachable,

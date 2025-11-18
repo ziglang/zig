@@ -29,6 +29,7 @@ pub fn libCNeedsLibUnwind(target: *const std.Target, link_mode: std.builtin.Link
 
 pub fn libCxxNeedsLibUnwind(target: *const std.Target) bool {
     return switch (target.os.tag) {
+        .maccatalyst,
         .macos,
         .ios,
         .watchos,
@@ -63,7 +64,7 @@ pub fn supports_fpic(target: *const std.Target) bool {
     return switch (target.os.tag) {
         .windows,
         .uefi,
-        => target.abi == .gnu or target.abi == .cygnus,
+        => target.abi == .gnu,
         else => true,
     };
 }
@@ -93,7 +94,6 @@ pub fn useEmulatedTls(target: *const std.Target) bool {
     if (target.abi.isOpenHarmony()) return true;
     return switch (target.os.tag) {
         .openbsd => true,
-        .windows => target.abi == .cygnus,
         else => false,
     };
 }
@@ -219,6 +219,7 @@ pub fn hasLlvmSupport(target: *const std.Target, ofmt: std.Target.ObjectFormat) 
         .hppa,
         .hppa64,
         .kalimba,
+        .kvx,
         .microblaze,
         .microblazeel,
         .or1k,
@@ -755,6 +756,7 @@ pub fn minFunctionAlignment(target: *const std.Target) Alignment {
         => .@"4",
         .bpfeb,
         .bpfel,
+        .kvx,
         .mips64,
         .mips64el,
         => .@"8",
@@ -840,7 +842,7 @@ pub fn compilerRtIntAbbrev(bits: u16) []const u8 {
         32 => "s",
         64 => "d",
         128 => "t",
-        else => "o", // Non-standard
+        else => unreachable,
     };
 }
 

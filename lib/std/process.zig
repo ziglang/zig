@@ -206,6 +206,22 @@ pub const EnvMap = struct {
         return self.hash_map.iterator();
     }
 
+    /// Returns a full copy of `em` allocated with `gpa`, which is not necessarily
+    /// the same allocator used to allocate `em`.
+    pub fn clone(em: *const EnvMap, gpa: Allocator) Allocator.Error!EnvMap {
+        var new: EnvMap = .init(gpa);
+        errdefer new.deinit();
+        // Since we need to dupe the keys and values, the only way for error handling to not be a
+        // nightmare is to add keys to an empty map one-by-one. This could be avoided if this
+        // abstraction were a bit less... OOP-esque.
+        try new.hash_map.ensureUnusedCapacity(em.hash_map.count());
+        var it = em.hash_map.iterator();
+        while (it.next()) |entry| {
+            try new.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+        return new;
+    }
+
     fn free(self: EnvMap, value: []const u8) void {
         self.hash_map.allocator.free(value);
     }
@@ -1530,11 +1546,13 @@ pub const UserInfo = struct {
 pub fn getUserInfo(name: []const u8) !UserInfo {
     return switch (native_os) {
         .linux,
-        .macos,
-        .watchos,
-        .visionos,
-        .tvos,
+        .driverkit,
         .ios,
+        .maccatalyst,
+        .macos,
+        .tvos,
+        .visionos,
+        .watchos,
         .freebsd,
         .netbsd,
         .openbsd,
@@ -1666,7 +1684,7 @@ pub fn getBaseAddress() usize {
                 else => {},
             } else unreachable;
         },
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             return @intFromPtr(&std.c._mh_execute_header);
         },
         .windows => return @intFromPtr(windows.kernel32.GetModuleHandleW(null)),
@@ -1682,7 +1700,7 @@ pub const can_execv = switch (native_os) {
 
 /// Tells whether spawning child processes is supported (e.g. via Child)
 pub const can_spawn = switch (native_os) {
-    .wasi, .watchos, .tvos, .visionos => false,
+    .wasi, .ios, .tvos, .visionos, .watchos => false,
     else => true,
 };
 
@@ -1770,7 +1788,7 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
             return @as(u64, @intCast(physmem));
         },
         // whole Darwin family
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             // "hw.memsize" returns uint64_t
             var physmem: u64 = undefined;
             var len: usize = @sizeOf(u64);

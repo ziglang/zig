@@ -189,7 +189,7 @@ pub fn updateFile(
                 // disambiguates by returning EEXIST, indicating original
                 // failure was a race, or ENOENT, indicating deletion of the
                 // directory of our open handle.
-                if (builtin.os.tag != .macos) {
+                if (!builtin.os.tag.isDarwin()) {
                     std.process.fatal("cache directory '{f}' unexpectedly removed during compiler execution", .{
                         cache_directory,
                     });
@@ -3512,7 +3512,6 @@ pub fn ptrType(pt: Zcu.PerThread, info: InternPool.Key.PtrType) Allocator.Error!
                 canon_info.packed_offset.host_size = 0;
             }
         },
-        .runtime => {},
         _ => assert(@intFromEnum(info.flags.vector_index) < info.packed_offset.host_size),
     }
 
@@ -3663,21 +3662,40 @@ pub fn intRef(pt: Zcu.PerThread, ty: Type, x: anytype) Allocator.Error!Air.Inst.
 }
 
 pub fn intValue_big(pt: Zcu.PerThread, ty: Type, x: BigIntConst) Allocator.Error!Value {
-    return Value.fromInterned(try pt.intern(.{ .int = .{
+    if (ty.toIntern() != .comptime_int_type) {
+        const int_info = ty.intInfo(pt.zcu);
+        assert(x.fitsInTwosComp(int_info.signedness, int_info.bits));
+    }
+    return .fromInterned(try pt.intern(.{ .int = .{
         .ty = ty.toIntern(),
         .storage = .{ .big_int = x },
     } }));
 }
 
 pub fn intValue_u64(pt: Zcu.PerThread, ty: Type, x: u64) Allocator.Error!Value {
-    return Value.fromInterned(try pt.intern(.{ .int = .{
+    if (ty.toIntern() != .comptime_int_type and x != 0) {
+        const int_info = ty.intInfo(pt.zcu);
+        const unsigned_bits = int_info.bits - @intFromBool(int_info.signedness == .signed);
+        assert(unsigned_bits >= std.math.log2(x) + 1);
+    }
+    return .fromInterned(try pt.intern(.{ .int = .{
         .ty = ty.toIntern(),
         .storage = .{ .u64 = x },
     } }));
 }
 
 pub fn intValue_i64(pt: Zcu.PerThread, ty: Type, x: i64) Allocator.Error!Value {
-    return Value.fromInterned(try pt.intern(.{ .int = .{
+    if (ty.toIntern() != .comptime_int_type and x != 0) {
+        const int_info = ty.intInfo(pt.zcu);
+        const unsigned_bits = int_info.bits - @intFromBool(int_info.signedness == .signed);
+        if (x > 0) {
+            assert(unsigned_bits >= std.math.log2(x) + 1);
+        } else {
+            assert(int_info.signedness == .signed);
+            assert(unsigned_bits >= std.math.log2_int_ceil(u64, @abs(x)));
+        }
+    }
+    return .fromInterned(try pt.intern(.{ .int = .{
         .ty = ty.toIntern(),
         .storage = .{ .i64 = x },
     } }));

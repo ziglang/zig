@@ -39,6 +39,7 @@ pub const Os = struct {
 
         driverkit,
         ios,
+        maccatalyst,
         macos,
         tvos,
         visionos,
@@ -78,6 +79,7 @@ pub const Os = struct {
             return switch (tag) {
                 .driverkit,
                 .ios,
+                .maccatalyst,
                 .macos,
                 .tvos,
                 .visionos,
@@ -121,6 +123,7 @@ pub const Os = struct {
                 .windows, .uefi => ".dll",
                 .driverkit,
                 .ios,
+                .maccatalyst,
                 .macos,
                 .tvos,
                 .visionos,
@@ -180,8 +183,9 @@ pub const Os = struct {
                 .openbsd,
 
                 .driverkit,
-                .macos,
                 .ios,
+                .maccatalyst,
+                .macos,
                 .tvos,
                 .visionos,
                 .watchos,
@@ -546,7 +550,7 @@ pub const Os = struct {
                         .max = .{ .major = 15, .minor = 6, .patch = 0 },
                     },
                 },
-                .ios => .{
+                .ios, .maccatalyst => .{
                     .semver = .{
                         .min = .{ .major = 15, .minor = 0, .patch = 0 },
                         .max = .{ .major = 18, .minor = 6, .patch = 0 },
@@ -700,7 +704,7 @@ pub const Os = struct {
 };
 
 pub const aarch64 = @import("Target/aarch64.zig");
-pub const alpha = @import("Target/generic.zig");
+pub const alpha = @import("Target/alpha.zig");
 pub const amdgcn = @import("Target/amdgcn.zig");
 pub const arc = @import("Target/arc.zig");
 pub const arm = @import("Target/arm.zig");
@@ -708,8 +712,9 @@ pub const avr = @import("Target/avr.zig");
 pub const bpf = @import("Target/bpf.zig");
 pub const csky = @import("Target/csky.zig");
 pub const hexagon = @import("Target/hexagon.zig");
-pub const hppa = @import("Target/generic.zig");
+pub const hppa = @import("Target/hppa.zig");
 pub const kalimba = @import("Target/generic.zig");
+pub const kvx = @import("Target/kvx.zig");
 pub const lanai = @import("Target/lanai.zig");
 pub const loongarch = @import("Target/loongarch.zig");
 pub const m68k = @import("Target/m68k.zig");
@@ -757,9 +762,7 @@ pub const Abi = enum {
     muslx32,
     msvc,
     itanium,
-    cygnus,
     simulator,
-    macabi,
     ohos,
     ohoseabi,
 
@@ -885,8 +888,6 @@ pub const Abi = enum {
                 => .eabihf,
                 else => .none,
             },
-            .ios => if (arch == .x86_64) .macabi else .none,
-            .tvos, .visionos, .watchos => if (arch == .x86_64) .simulator else .none,
             .windows => .gnu,
             .uefi => .msvc,
             .@"3ds" => .eabihf,
@@ -902,7 +903,12 @@ pub const Abi = enum {
             .serenity,
             .dragonfly,
             .driverkit,
+            .ios,
+            .maccatalyst,
             .macos,
+            .tvos,
+            .visionos,
+            .watchos,
             .ps3,
             .ps4,
             .ps5,
@@ -1018,7 +1024,7 @@ pub const ObjectFormat = enum {
 
     pub fn default(os_tag: Os.Tag, arch: Cpu.Arch) ObjectFormat {
         return switch (os_tag) {
-            .driverkit, .ios, .macos, .tvos, .visionos, .watchos => .macho,
+            .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => .macho,
             .plan9 => .plan9,
             .uefi, .windows => .coff,
             else => switch (arch) {
@@ -1035,7 +1041,7 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
         .aarch64, .aarch64_be => .AARCH64,
         .alpha => .ALPHA,
         .amdgcn => .AMDGPU,
-        .arc, .arceb => .ARC_COMPACT,
+        .arc, .arceb => .ARC_COMPACT2,
         .arm, .armeb, .thumb, .thumbeb => .ARM,
         .avr => .AVR,
         .bpfeb, .bpfel => .BPF,
@@ -1043,6 +1049,7 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
         .hexagon => .QDSP6,
         .hppa, .hppa64 => .PARISC,
         .kalimba => .CSR_KALIMBA,
+        .kvx => .KVX,
         .lanai => .LANAI,
         .loongarch32, .loongarch64 => .LOONGARCH,
         .m68k => .@"68K",
@@ -1105,6 +1112,7 @@ pub fn toCoffMachine(target: *const Target) std.coff.IMAGE.FILE.MACHINE {
         .hppa,
         .hppa64,
         .kalimba,
+        .kvx,
         .lanai,
         .m68k,
         .microblaze,
@@ -1310,6 +1318,7 @@ pub const Cpu = struct {
         hppa,
         hppa64,
         kalimba,
+        kvx,
         lanai,
         loongarch32,
         loongarch64,
@@ -1385,6 +1394,7 @@ pub const Cpu = struct {
             hexagon,
             hppa,
             kalimba,
+            kvx,
             lanai,
             loongarch,
             m68k,
@@ -1420,6 +1430,7 @@ pub const Cpu = struct {
                 .hexagon => .hexagon,
                 .hppa, .hppa64 => .hppa,
                 .kalimba => .kalimba,
+                .kvx => .kvx,
                 .lanai => .lanai,
                 .loongarch32, .loongarch64 => .loongarch,
                 .m68k => .m68k,
@@ -1623,6 +1634,7 @@ pub const Cpu = struct {
                 .csky,
                 .hexagon,
                 .kalimba,
+                .kvx,
                 .loongarch32,
                 .loongarch64,
                 .microblazeel,
@@ -1847,6 +1859,10 @@ pub const Cpu = struct {
                 .hppa64_elf,
                 => &.{.hppa64},
 
+                .kvx_lp64,
+                .kvx_ilp32,
+                => &.{.kvx},
+
                 .lanai_sysv,
                 => &.{.lanai},
 
@@ -1934,8 +1950,12 @@ pub const Cpu = struct {
         /// Clang compatibility is important, consider using `baseline` instead.
         pub fn generic(arch: Arch) *const Model {
             return switch (arch) {
+                .alpha => &alpha.cpu.ev4,
                 .amdgcn => &amdgcn.cpu.gfx600,
                 .avr => &avr.cpu.avr1,
+                .hppa => &hppa.cpu.ts_1,
+                .hppa64 => &hppa.cpu.pa_8000,
+                .kvx => &kvx.cpu.coolidge_v1,
                 .loongarch32 => &loongarch.cpu.generic_la32,
                 .loongarch64 => &loongarch.cpu.generic_la64,
                 .mips, .mipsel => &mips.cpu.mips32,
@@ -1965,6 +1985,7 @@ pub const Cpu = struct {
         /// `Os.Tag.freestanding`.
         pub fn baseline(arch: Arch, os: Os) *const Model {
             return switch (arch) {
+                .alpha => &alpha.cpu.ev6,
                 .amdgcn => &amdgcn.cpu.gfx906,
                 .arm => switch (os.tag) {
                     .@"3ds" => &arm.cpu.mpcore,
@@ -1977,7 +1998,7 @@ pub const Cpu = struct {
                 },
                 .armeb, .thumbeb => &arm.cpu.baseline,
                 .aarch64 => switch (os.tag) {
-                    .driverkit, .macos => &aarch64.cpu.apple_m1,
+                    .driverkit, .maccatalyst, .macos => &aarch64.cpu.apple_m1,
                     .ios, .tvos => &aarch64.cpu.apple_a7,
                     .visionos => &aarch64.cpu.apple_m2,
                     .watchos => &aarch64.cpu.apple_s4,
@@ -1987,6 +2008,8 @@ pub const Cpu = struct {
                 .bpfel, .bpfeb => &bpf.cpu.v3,
                 .csky => &csky.cpu.ck810, // gcc/clang do not have a generic csky model.
                 .hexagon => &hexagon.cpu.hexagonv68, // gcc/clang do not have a generic hexagon model.
+                .hppa => &hppa.cpu.pa_7300lc,
+                .kvx => &kvx.cpu.coolidge_v2,
                 .lanai => &lanai.cpu.v11, // clang does not have a generic lanai model.
                 .loongarch64 => &loongarch.cpu.la64v1_0,
                 .m68k => &m68k.cpu.M68000,
@@ -2002,8 +2025,8 @@ pub const Cpu = struct {
                 .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
                 .x86 => &x86.cpu.pentium4,
                 .x86_64 => switch (os.tag) {
-                    .driverkit => &x86.cpu.nehalem,
-                    .ios, .macos, .tvos, .visionos, .watchos => &x86.cpu.core2,
+                    .driverkit, .maccatalyst => &x86.cpu.nehalem,
+                    .macos => &x86.cpu.core2,
                     .ps4 => &x86.cpu.btver2,
                     .ps5 => &x86.cpu.znver2,
                     else => generic(arch),
@@ -2100,7 +2123,7 @@ pub inline fn isMuslLibC(target: *const Target) bool {
 
 pub inline fn isDarwinLibC(target: *const Target) bool {
     return switch (target.abi) {
-        .none, .macabi, .simulator => target.os.tag.isDarwin(),
+        .none, .simulator => target.os.tag.isDarwin(),
         else => false,
     };
 }
@@ -2129,8 +2152,9 @@ pub fn requiresLibC(target: *const Target) bool {
     return switch (target.os.tag) {
         .illumos,
         .driverkit,
-        .macos,
         .ios,
+        .maccatalyst,
+        .macos,
         .tvos,
         .watchos,
         .visionos,
@@ -2295,6 +2319,7 @@ pub const DynamicLinker = struct {
 
             .driverkit,
             .ios,
+            .maccatalyst,
             .macos,
             .tvos,
             .visionos,
@@ -2440,6 +2465,7 @@ pub const DynamicLinker = struct {
                     .aarch64,
                     .aarch64_be,
                     .hexagon,
+                    .kvx,
                     .m68k,
                     .microblaze,
                     .microblazeel,
@@ -2666,16 +2692,20 @@ pub const DynamicLinker = struct {
             },
 
             .netbsd => switch (cpu.arch) {
+                .alpha,
                 .arm,
                 .armeb,
                 .aarch64,
                 .aarch64_be,
+                .hppa,
                 .m68k,
                 .mips,
                 .mipsel,
                 .mips64,
                 .mips64el,
                 .powerpc,
+                .sh,
+                .sheb,
                 .sparc,
                 .sparc64,
                 .x86,
@@ -2685,13 +2715,17 @@ pub const DynamicLinker = struct {
             },
 
             .openbsd => switch (cpu.arch) {
+                .alpha,
                 .arm,
                 .aarch64,
+                .hppa,
                 .mips64,
                 .mips64el,
                 .powerpc,
                 .powerpc64,
                 .riscv64,
+                .sh,
+                .sheb,
                 .sparc64,
                 .x86,
                 .x86_64,
@@ -2701,6 +2735,7 @@ pub const DynamicLinker = struct {
 
             .driverkit,
             .ios,
+            .maccatalyst,
             .macos,
             .tvos,
             .visionos,
@@ -2817,6 +2852,7 @@ pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
         .bpfeb,
         .bpfel,
         .hppa64,
+        .kvx,
         .loongarch64,
         .mips64,
         .mips64el,
@@ -2870,6 +2906,7 @@ pub fn stackAlignment(target: *const Target) u16 {
         .ve,
         .wasm32,
         .wasm64,
+        .x86_64,
         => return 16,
         // Some of the following prongs should really be testing the ABI, but our current `Abi` enum
         // can't handle that level of nuance yet.
@@ -2882,7 +2919,7 @@ pub fn stackAlignment(target: *const Target) u16 {
         .riscv64be,
         => if (!target.cpu.has(.riscv, .e)) return 16,
         .x86 => if (target.os.tag != .windows and target.os.tag != .uefi) return 16,
-        .x86_64 => return 16,
+        .kvx => return 32,
         else => {},
     }
 
@@ -3184,7 +3221,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                 .long, .ulong => return 32,
                 .longlong, .ulonglong, .double => return 64,
                 .longdouble => switch (target.abi) {
-                    .gnu, .ilp32, .cygnus => return 80,
+                    .gnu, .ilp32 => return 80,
                     else => return 64,
                 },
             },
@@ -3192,13 +3229,10 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                 .char => return 8,
                 .short, .ushort => return 16,
                 .int, .uint, .float => return 32,
-                .long, .ulong => switch (target.abi) {
-                    .cygnus => return 64,
-                    else => return 32,
-                },
+                .long, .ulong => return 32,
                 .longlong, .ulonglong, .double => return 64,
                 .longdouble => switch (target.abi) {
-                    .gnu, .ilp32, .cygnus => return 80,
+                    .gnu, .ilp32 => return 80,
                     else => return 64,
                 },
             },
@@ -3214,6 +3248,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
 
         .driverkit,
         .ios,
+        .maccatalyst,
         .macos,
         .tvos,
         .visionos,
@@ -3307,7 +3342,7 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
             .windows, .uefi => switch (c_type) {
                 .longlong, .ulonglong, .double => return 8,
                 .longdouble => switch (target.abi) {
-                    .gnu, .ilp32, .cygnus => return 4,
+                    .gnu, .ilp32 => return 4,
                     else => return 8,
                 },
                 else => {},
@@ -3375,6 +3410,7 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
             .aarch64_be,
             .alpha,
             .hppa64,
+            .kvx,
             .loongarch32,
             .loongarch64,
             .mips64,
@@ -3413,7 +3449,7 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
         .x86 => switch (target.os.tag) {
             .windows, .uefi => switch (c_type) {
                 .longdouble => switch (target.abi) {
-                    .gnu, .ilp32, .cygnus => return 4,
+                    .gnu, .ilp32 => return 4,
                     else => return 8,
                 },
                 else => {},
@@ -3482,6 +3518,7 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
             .aarch64_be,
             .alpha,
             .hppa64,
+            .kvx,
             .loongarch32,
             .loongarch64,
             .mips64,
@@ -3557,6 +3594,7 @@ pub fn cMaxIntAlignment(target: *const Target) u16 {
         .bpfel,
         .bpfeb,
         .hppa64,
+        .kvx,
         .loongarch64,
         .mips64,
         .mips64el,
@@ -3626,6 +3664,10 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
         .hppa => .{ .hppa_elf = .{} },
         .hppa64 => .{ .hppa64_elf = .{} },
         .kalimba => null,
+        .kvx => switch (target.abi) {
+            .ilp32 => .{ .kvx_ilp32 = .{} },
+            else => .{ .kvx_lp64 = .{} },
+        },
         .lanai => .{ .lanai_sysv = .{} },
         .loongarch64 => .{ .loongarch64_lp64 = .{} },
         .loongarch32 => .{ .loongarch32_ilp32 = .{} },

@@ -861,7 +861,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
     // Prevents EINVAL.
     const max_count = switch (native_os) {
         .linux => 0x7ffff000,
-        .macos, .ios, .watchos, .tvos, .visionos => maxInt(i32),
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => maxInt(i32),
         else => maxInt(isize),
     };
     while (true) {
@@ -1002,7 +1002,7 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
     // Prevent EINVAL.
     const max_count = switch (native_os) {
         .linux => 0x7ffff000,
-        .macos, .ios, .watchos, .tvos, .visionos => maxInt(i32),
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => maxInt(i32),
         else => maxInt(isize),
     };
 
@@ -1115,7 +1115,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
 /// On these systems, the read races with concurrent writes to the same file descriptor.
 pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
     const have_pread_but_not_preadv = switch (native_os) {
-        .windows, .macos, .ios, .watchos, .tvos, .visionos, .haiku => true,
+        .windows, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .haiku => true,
         else => false,
     };
     if (have_pread_but_not_preadv) {
@@ -1269,7 +1269,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
 
     const max_count = switch (native_os) {
         .linux => 0x7ffff000,
-        .macos, .ios, .watchos, .tvos, .visionos => maxInt(i32),
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => maxInt(i32),
         else => maxInt(isize),
     };
     while (true) {
@@ -1433,7 +1433,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
     // Prevent EINVAL.
     const max_count = switch (native_os) {
         .linux => 0x7ffff000,
-        .macos, .ios, .watchos, .tvos, .visionos => maxInt(i32),
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => maxInt(i32),
         else => maxInt(isize),
     };
 
@@ -1487,7 +1487,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
 /// If `iov.len` is larger than `IOV_MAX`, a partial write will occur.
 pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usize {
     const have_pwrite_but_not_pwritev = switch (native_os) {
-        .windows, .macos, .ios, .watchos, .tvos, .visionos, .haiku => true,
+        .windows, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .haiku => true,
         else => false,
     };
 
@@ -1747,7 +1747,7 @@ pub fn execveZ(
         .NOTDIR => return error.NotDir,
         .TXTBSY => return error.FileBusy,
         else => |err| switch (native_os) {
-            .macos, .ios, .tvos, .watchos, .visionos => switch (err) {
+            .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => switch (err) {
                 .BADEXEC => return error.InvalidExe,
                 .BADARCH => return error.InvalidExe,
                 else => return unexpectedErrno(err),
@@ -3001,6 +3001,12 @@ pub const ReadLinkError = error{
     UnsupportedReparsePointType,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    /// On Windows, antivirus software is enabled by default. It can be
+    /// disabled, but Windows Update sometimes ignores the user's preference
+    /// and re-enables it. When enabled, antivirus software on Windows
+    /// intercepts file system operations and makes them significantly slower
+    /// in addition to possibly failing with this error code.
+    AntivirusInterference,
 } || UnexpectedError;
 
 /// Read value of a symbolic link.
@@ -3015,26 +3021,42 @@ pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (native_os == .wasi and !builtin.link_libc) {
         return readlinkat(AT.FDCWD, file_path, out_buffer);
     } else if (native_os == .windows) {
-        const file_path_w = try windows.sliceToPrefixedFileW(null, file_path);
-        return readlinkW(file_path_w.span(), out_buffer);
+        var file_path_w = try windows.sliceToPrefixedFileW(null, file_path);
+        const result_w = try readlinkW(file_path_w.span(), &file_path_w.data);
+
+        const len = std.unicode.calcWtf8Len(result_w);
+        if (len > out_buffer.len) return error.NameTooLong;
+
+        const end_index = std.unicode.wtf16LeToWtf8(out_buffer, result_w);
+        return out_buffer[0..end_index];
     } else {
         const file_path_c = try toPosixPath(file_path);
         return readlinkZ(&file_path_c, out_buffer);
     }
 }
 
-/// Windows-only. Same as `readlink` except `file_path` is WTF16 LE encoded.
-/// The result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
+/// Windows-only. Same as `readlink` except `file_path` is WTF-16 LE encoded, NT-prefixed.
+/// The result is encoded as WTF-16 LE.
+///
+/// `file_path` will never be accessed after `out_buffer` has been written to, so it
+/// is safe to reuse a single buffer for both.
+///
 /// See also `readlinkZ`.
-pub fn readlinkW(file_path: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
+pub fn readlinkW(file_path: []const u16, out_buffer: []u16) ReadLinkError![]u16 {
     return windows.ReadLink(fs.cwd().fd, file_path, out_buffer);
 }
 
 /// Same as `readlink` except `file_path` is null-terminated.
 pub fn readlinkZ(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (native_os == .windows) {
-        const file_path_w = try windows.cStrToPrefixedFileW(null, file_path);
-        return readlinkW(file_path_w.span(), out_buffer);
+        var file_path_w = try windows.cStrToPrefixedFileW(null, file_path);
+        const result_w = try readlinkW(file_path_w.span(), &file_path_w.data);
+
+        const len = std.unicode.calcWtf8Len(result_w);
+        if (len > out_buffer.len) return error.NameTooLong;
+
+        const end_index = std.unicode.wtf16LeToWtf8(out_buffer, result_w);
+        return out_buffer[0..end_index];
     } else if (native_os == .wasi and !builtin.link_libc) {
         return readlink(mem.sliceTo(file_path, 0), out_buffer);
     }
@@ -3069,8 +3091,14 @@ pub fn readlinkat(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) ReadLink
         return readlinkatWasi(dirfd, file_path, out_buffer);
     }
     if (native_os == .windows) {
-        const file_path_w = try windows.sliceToPrefixedFileW(dirfd, file_path);
-        return readlinkatW(dirfd, file_path_w.span(), out_buffer);
+        var file_path_w = try windows.sliceToPrefixedFileW(dirfd, file_path);
+        const result_w = try readlinkatW(dirfd, file_path_w.span(), &file_path_w.data);
+
+        const len = std.unicode.calcWtf8Len(result_w);
+        if (len > out_buffer.len) return error.NameTooLong;
+
+        const end_index = std.unicode.wtf16LeToWtf8(out_buffer, result_w);
+        return out_buffer[0..end_index];
     }
     const file_path_c = try toPosixPath(file_path);
     return readlinkatZ(dirfd, &file_path_c, out_buffer);
@@ -3097,10 +3125,14 @@ pub fn readlinkatWasi(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) Read
     }
 }
 
-/// Windows-only. Same as `readlinkat` except `file_path` is null-terminated, WTF16 LE encoded.
-/// The result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
+/// Windows-only. Same as `readlinkat` except `file_path` WTF16 LE encoded, NT-prefixed.
+/// The result is encoded as WTF-16 LE.
+///
+/// `file_path` will never be accessed after `out_buffer` has been written to, so it
+/// is safe to reuse a single buffer for both.
+///
 /// See also `readlinkat`.
-pub fn readlinkatW(dirfd: fd_t, file_path: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
+pub fn readlinkatW(dirfd: fd_t, file_path: []const u16, out_buffer: []u16) ReadLinkError![]u16 {
     return windows.ReadLink(dirfd, file_path, out_buffer);
 }
 
@@ -3108,8 +3140,14 @@ pub fn readlinkatW(dirfd: fd_t, file_path: []const u16, out_buffer: []u8) ReadLi
 /// See also `readlinkat`.
 pub fn readlinkatZ(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (native_os == .windows) {
-        const file_path_w = try windows.cStrToPrefixedFileW(dirfd, file_path);
-        return readlinkatW(dirfd, file_path_w.span(), out_buffer);
+        var file_path_w = try windows.cStrToPrefixedFileW(dirfd, file_path);
+        const result_w = try readlinkatW(dirfd, file_path_w.span(), &file_path_w.data);
+
+        const len = std.unicode.calcWtf8Len(result_w);
+        if (len > out_buffer.len) return error.NameTooLong;
+
+        const end_index = std.unicode.wtf16LeToWtf8(out_buffer, result_w);
+        return out_buffer[0..end_index];
     } else if (native_os == .wasi and !builtin.link_libc) {
         return readlinkat(dirfd, mem.sliceTo(file_path, 0), out_buffer);
     }
@@ -6570,7 +6608,7 @@ pub fn ptrace(request: u32, pid: pid_t, addr: usize, data: usize) PtraceError!vo
             else => |err| return unexpectedErrno(err),
         },
 
-        .macos, .ios, .tvos, .watchos, .visionos => switch (errno(std.c.ptrace(
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => switch (errno(std.c.ptrace(
             @enumFromInt(request),
             pid,
             @ptrFromInt(addr),

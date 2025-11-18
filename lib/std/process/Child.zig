@@ -136,7 +136,7 @@ pub const ResourceUsageStatistics = struct {
                     return null;
                 }
             },
-            .macos, .ios => {
+            .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
                 if (rus.rusage) |ru| {
                     // Darwin oddly reports in bytes instead of kilobytes.
                     return @as(usize, @intCast(ru.maxrss));
@@ -149,7 +149,7 @@ pub const ResourceUsageStatistics = struct {
     }
 
     const rusage_init = switch (native_os) {
-        .linux, .macos, .ios => @as(?posix.rusage, null),
+        .linux, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => @as(?posix.rusage, null),
         .windows => @as(?windows.VM_COUNTERS, null),
         else => {},
     };
@@ -486,7 +486,7 @@ fn waitUnwrappedPosix(self: *ChildProcess) void {
     const res: posix.WaitPidResult = res: {
         if (self.request_resource_usage_statistics) {
             switch (native_os) {
-                .linux, .macos, .ios => {
+                .linux, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
                     var ru: posix.rusage = undefined;
                     const res = posix.wait4(self.id, 0, &ru);
                     self.resource_usage_statistics.rusage = ru;

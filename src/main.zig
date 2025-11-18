@@ -155,11 +155,8 @@ pub fn log(
         } else return;
     }
 
-    const prefix1 = comptime level.asText();
-    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-
-    // Print the message to stderr, silently ignoring any errors
-    std.debug.print(prefix1 ++ prefix2 ++ format ++ "\n", args);
+    // Otherwise, use the default implementation.
+    std.log.defaultLog(level, scope, format, args);
 }
 
 var debug_allocator: std.heap.DebugAllocator(.{
@@ -3363,6 +3360,10 @@ fn buildOutputType(
         fatal("--debug-incremental requires -fincremental", .{});
     }
 
+    if (incremental and create_module.resolved_options.use_llvm) {
+        warn("-fincremental is currently unsupported by the LLVM backend; crashes or miscompilations are likely", .{});
+    }
+
     const cache_mode: Compilation.CacheMode = b: {
         // Once incremental compilation is the default, we'll want some smarter logic here,
         // considering things like the backend in use and whether there's a ZCU.
@@ -4486,7 +4487,7 @@ fn runOrTestHotSwap(
     }
 
     switch (builtin.target.os.tag) {
-        .macos, .ios, .tvos, .watchos, .visionos => {
+        .macos => {
             const PosixSpawn = @import("DarwinPosixSpawn.zig");
 
             var attr = try PosixSpawn.Attr.init();

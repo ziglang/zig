@@ -211,10 +211,10 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/absvti2.zig
     lib/compiler_rt/adddf3.zig
     lib/compiler_rt/addf3.zig
-    lib/compiler_rt/addo.zig
     lib/compiler_rt/addsf3.zig
     lib/compiler_rt/addtf3.zig
     lib/compiler_rt/addvsi3.zig
+    lib/compiler_rt/addvdi3.zig
     lib/compiler_rt/addxf3.zig
     lib/compiler_rt/arm.zig
     lib/compiler_rt/atomics.zig
@@ -354,7 +354,6 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/sqrt.zig
     lib/compiler_rt/stack_probe.zig
     lib/compiler_rt/subdf3.zig
-    lib/compiler_rt/subo.zig
     lib/compiler_rt/subsf3.zig
     lib/compiler_rt/subtf3.zig
     lib/compiler_rt/subvdi3.zig
@@ -732,8 +731,15 @@ endforeach()
 include(CheckSymbolExists)
 
 string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" ZIG_HOST_TARGET_OS)
-if(ZIG_HOST_TARGET_OS STREQUAL "darwin")
+if(ZIG_HOST_TARGET_OS STREQUAL "android")
+  set(ZIG_HOST_TARGET_OS "linux")
+  set(ZIG_HOST_TARGET_IS_ANDROID TRUE)
+elseif(ZIG_HOST_TARGET_OS STREQUAL "darwin")
   set(ZIG_HOST_TARGET_OS "macos")
+elseif(ZIG_HOST_TARGET_OS STREQUAL "gnu")
+  set(ZIG_HOST_TARGET_OS "hurd")
+elseif(ZIG_HOST_TARGET_OS STREQUAL "serenityos")
+  set(ZIG_HOST_TARGET_OS "serenity")
 elseif(ZIG_HOST_TARGET_OS STREQUAL "sunos")
   set(ZIG_HOST_TARGET_OS "illumos")
 endif()
@@ -762,15 +768,17 @@ if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(eb)?$")
 endif()
 string(REGEX REPLACE "^ppc((64)?(le)?)$" "powerpc\\1" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
 
+set(ZIG_HOST_TARGET_ABI "")
 if(MSVC)
   set(ZIG_HOST_TARGET_ABI "-msvc")
 elseif(MINGW)
   set(ZIG_HOST_TARGET_ABI "-gnu")
-elseif(ZIG_HOST_TARGET_ARCH MATCHES "^(arm|thumb)hf?(eb)?$")
-  string(REGEX REPLACE "^(arm|thumb)hf?((eb)?)$" "\\1\\2" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
-  set(ZIG_HOST_TARGET_ABI "-eabihf")
-else()
-  set(ZIG_HOST_TARGET_ABI "")
+elseif(ZIG_HOST_TARGET_IS_ANDROID)
+  if(ZIG_HOST_TARGET_ARCH STREQUAL "arm")
+    set(ZIG_HOST_TARGET_ABI "-androideabi")
+  else()
+    set(ZIG_HOST_TARGET_ABI "-android")
+  endif()
 endif()
 
 set(ZIG_HOST_TARGET_TRIPLE "${ZIG_HOST_TARGET_ARCH}-${ZIG_HOST_TARGET_OS}${ZIG_HOST_TARGET_ABI}" CACHE STRING "Host zig target triple.")

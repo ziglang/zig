@@ -9,7 +9,7 @@ test "thread local variable" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .macos) {
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag.isDarwin()) {
         // Fails due to register hazards.
         return error.SkipZigTest;
     }

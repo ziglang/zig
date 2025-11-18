@@ -171,6 +171,7 @@ const Writer = struct {
             .memmove,
             .memset,
             .memset_safe,
+            .legalize_vec_elem_val,
             => try w.writeBinOp(s, inst),
 
             .is_null,
@@ -330,8 +331,9 @@ const Writer = struct {
             .shuffle_two => try w.writeShuffleTwo(s, inst),
             .reduce, .reduce_optimized => try w.writeReduce(s, inst),
             .cmp_vector, .cmp_vector_optimized => try w.writeCmpVector(s, inst),
-            .vector_store_elem => try w.writeVectorStoreElem(s, inst),
             .runtime_nav_ptr => try w.writeRuntimeNavPtr(s, inst),
+            .legalize_vec_store_elem => try w.writeLegalizeVecStoreElem(s, inst),
+            .legalize_compiler_rt_call => try w.writeLegalizeCompilerRtCall(s, inst),
 
             .work_item_id,
             .work_group_size,
@@ -361,7 +363,7 @@ const Writer = struct {
     }
 
     fn writeType(w: *Writer, s: *std.Io.Writer, ty: Type) !void {
-        return ty.print(s, w.pt);
+        return ty.print(s, w.pt, null);
     }
 
     fn writeTy(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {
@@ -509,6 +511,31 @@ const Writer = struct {
         try w.writeOperand(s, inst, 2, pl_op.operand);
     }
 
+    fn writeLegalizeVecStoreElem(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {
+        const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
+        const bin = w.air.extraData(Air.Bin, pl_op.payload).data;
+
+        try w.writeOperand(s, inst, 0, pl_op.operand);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 1, bin.lhs);
+        try s.writeAll(", ");
+        try w.writeOperand(s, inst, 2, bin.rhs);
+        try s.writeAll(", ");
+    }
+
+    fn writeLegalizeCompilerRtCall(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {
+        const inst_data = w.air.instructions.items(.data)[@intFromEnum(inst)].legalize_compiler_rt_call;
+        const extra = w.air.extraData(Air.Call, inst_data.payload);
+        const args: []const Air.Inst.Ref = @ptrCast(w.air.extra.items[extra.end..][0..extra.data.args_len]);
+
+        try s.print("{t}, [", .{inst_data.func});
+        for (args, 0..) |arg, i| {
+            if (i != 0) try s.writeAll(", ");
+            try w.writeOperand(s, inst, i, arg);
+        }
+        try s.writeByte(']');
+    }
+
     fn writeShuffleOne(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {
         const unwrapped = w.air.unwrapShuffleOne(w.pt.zcu, inst);
         try w.writeType(s, unwrapped.result_ty);
@@ -574,17 +601,6 @@ const Writer = struct {
         try w.writeOperand(s, inst, 0, extra.lhs);
         try s.writeAll(", ");
         try w.writeOperand(s, inst, 1, extra.rhs);
-    }
-
-    fn writeVectorStoreElem(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {
-        const data = w.air.instructions.items(.data)[@intFromEnum(inst)].vector_store_elem;
-        const extra = w.air.extraData(Air.VectorCmp, data.payload).data;
-
-        try w.writeOperand(s, inst, 0, data.vector_ptr);
-        try s.writeAll(", ");
-        try w.writeOperand(s, inst, 1, extra.lhs);
-        try s.writeAll(", ");
-        try w.writeOperand(s, inst, 2, extra.rhs);
     }
 
     fn writeRuntimeNavPtr(w: *Writer, s: *std.Io.Writer, inst: Air.Inst.Index) Error!void {

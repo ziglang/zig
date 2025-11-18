@@ -2104,7 +2104,6 @@ pub const Key = union(enum) {
 
         pub const VectorIndex = enum(u16) {
             none = std.math.maxInt(u16),
-            runtime = std.math.maxInt(u16) - 1,
             _,
         };
 
@@ -3739,10 +3738,8 @@ pub const LoadedStructType = struct {
         return s.field_inits.get(ip)[i];
     }
 
-    /// Returns `none` in the case the struct is a tuple.
-    pub fn fieldName(s: LoadedStructType, ip: *const InternPool, i: usize) OptionalNullTerminatedString {
-        if (s.field_names.len == 0) return .none;
-        return s.field_names.get(ip)[i].toOptional();
+    pub fn fieldName(s: LoadedStructType, ip: *const InternPool, i: usize) NullTerminatedString {
+        return s.field_names.get(ip)[i];
     }
 
     pub fn fieldIsComptime(s: LoadedStructType, ip: *const InternPool, i: usize) bool {

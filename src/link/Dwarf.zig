@@ -3158,11 +3158,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
                                     .struct_field
                             else
                                 .struct_field);
-                            if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
-                                var field_name_buf: [std.fmt.count("{d}", .{std.math.maxInt(u32)})]u8 = undefined;
-                                const field_name = std.fmt.bufPrint(&field_name_buf, "{d}", .{field_index}) catch unreachable;
-                                try wip_nav.strp(field_name);
-                            }
+                            try wip_nav.strp(loaded_struct.fieldName(ip, field_index).toSlice(ip));
                             try wip_nav.refType(field_type);
                             if (!is_comptime) {
                                 try diw.writeUleb128(loaded_struct.offsets.get(ip)[field_index]);
@@ -3187,7 +3183,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
                     var field_bit_offset: u16 = 0;
                     for (0..loaded_struct.field_types.len) |field_index| {
                         try wip_nav.abbrevCode(.packed_struct_field);
-                        try wip_nav.strp(loaded_struct.fieldName(ip, field_index).unwrap().?.toSlice(ip));
+                        try wip_nav.strp(loaded_struct.fieldName(ip, field_index).toSlice(ip));
                         const field_type: Type = .fromInterned(loaded_struct.field_types.get(ip)[field_index]);
                         try wip_nav.refType(field_type);
                         try diw.writeUleb128(field_bit_offset);
@@ -4269,11 +4265,7 @@ fn updateLazyValue(
                             .comptime_value_field_runtime_bits
                         else
                             continue);
-                        if (loaded_struct_type.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
-                            var field_name_buf: [std.fmt.count("{d}", .{std.math.maxInt(u32)})]u8 = undefined;
-                            const field_name = std.fmt.bufPrint(&field_name_buf, "{d}", .{field_index}) catch unreachable;
-                            try wip_nav.strp(field_name);
-                        }
+                        try wip_nav.strp(loaded_struct_type.fieldName(ip, field_index).toSlice(ip));
                         const field_value: Value = .fromInterned(switch (aggregate.storage) {
                             .bytes => unreachable,
                             .elems => |elems| elems[field_index],
@@ -4467,11 +4459,7 @@ fn updateContainerTypeWriterError(
                         .struct_field
                 else
                     .struct_field);
-                if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
-                    var field_name_buf: [std.fmt.count("{d}", .{std.math.maxInt(u32)})]u8 = undefined;
-                    const field_name = std.fmt.bufPrint(&field_name_buf, "{d}", .{field_index}) catch unreachable;
-                    try wip_nav.strp(field_name);
-                }
+                try wip_nav.strp(loaded_struct.fieldName(ip, field_index).toSlice(ip));
                 try wip_nav.refType(field_type);
                 if (!is_comptime) {
                     try diw.writeUleb128(loaded_struct.offsets.get(ip)[field_index]);
@@ -4573,11 +4561,7 @@ fn updateContainerTypeWriterError(
                                         .struct_field
                                 else
                                     .struct_field);
-                                if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
-                                    var field_name_buf: [std.fmt.count("{d}", .{std.math.maxInt(u32)})]u8 = undefined;
-                                    const field_name = std.fmt.bufPrint(&field_name_buf, "{d}", .{field_index}) catch unreachable;
-                                    try wip_nav.strp(field_name);
-                                }
+                                try wip_nav.strp(loaded_struct.fieldName(ip, field_index).toSlice(ip));
                                 try wip_nav.refType(field_type);
                                 if (!is_comptime) {
                                     try diw.writeUleb128(loaded_struct.offsets.get(ip)[field_index]);
@@ -4600,7 +4584,7 @@ fn updateContainerTypeWriterError(
                         var field_bit_offset: u16 = 0;
                         for (0..loaded_struct.field_types.len) |field_index| {
                             try wip_nav.abbrevCode(.packed_struct_field);
-                            try wip_nav.strp(loaded_struct.fieldName(ip, field_index).unwrap().?.toSlice(ip));
+                            try wip_nav.strp(loaded_struct.fieldName(ip, field_index).toSlice(ip));
                             const field_type: Type = .fromInterned(loaded_struct.field_types.get(ip)[field_index]);
                             try wip_nav.refType(field_type);
                             try diw.writeUleb128(field_bit_offset);

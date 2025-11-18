@@ -23,7 +23,7 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
             defer allocator.free(local_app_data_dir);
             return fs.path.join(allocator, &[_][]const u8{ local_app_data_dir, appname });
         },
-        .macos => {
+        .maccatalyst, .macos => {
             const home_dir = posix.getenv("HOME") orelse {
                 // TODO look in /etc/passwd
                 return error.AppDataDirUnavailable;

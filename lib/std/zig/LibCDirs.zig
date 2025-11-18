@@ -154,7 +154,7 @@ pub fn detectFromBuilding(
         const list = try arena.alloc([]const u8, 1);
         list[0] = try std.fmt.allocPrint(
             arena,
-            "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-macos-any",
+            "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-darwin-any",
             .{zig_lib_dir},
         );
         return .{
@@ -227,7 +227,7 @@ pub fn detectFromBuilding(
 fn libCGenericName(target: *const std.Target) [:0]const u8 {
     switch (target.os.tag) {
         .windows => return "mingw",
-        .macos, .ios, .tvos, .watchos, .visionos => return "darwin",
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => return "darwin",
         .freebsd => return "freebsd",
         .netbsd => return "netbsd",
         else => {},
@@ -262,9 +262,7 @@ fn libCGenericName(target: *const std.Target) [:0]const u8 {
         .androideabi,
         .msvc,
         .itanium,
-        .cygnus,
         .simulator,
-        .macabi,
         => unreachable,
     }
 }

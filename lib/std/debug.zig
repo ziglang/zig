@@ -617,7 +617,7 @@ pub const StackUnwindOptions = struct {
 pub noinline fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: []usize) StackTrace {
     const empty_trace: StackTrace = .{ .index = 0, .instruction_addresses = &.{} };
     if (!std.options.allow_stack_tracing) return empty_trace;
-    var it = StackIterator.init(options.context) catch return empty_trace;
+    var it: StackIterator = .init(options.context);
     defer it.deinit();
     if (!it.stratOk(options.allow_unsafe_unwind)) return empty_trace;
     var total_frames: usize = 0;
@@ -671,14 +671,7 @@ pub noinline fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Wri
             return;
         },
     };
-    var it = StackIterator.init(options.context) catch |err| switch (err) {
-        error.CannotUnwindFromContext => {
-            tty_config.setColor(writer, .dim) catch {};
-            try writer.print("Cannot print stack trace: context unwind unavailable for target\n", .{});
-            tty_config.setColor(writer, .reset) catch {};
-            return;
-        },
-    };
+    var it: StackIterator = .init(options.context);
     defer it.deinit();
     if (!it.stratOk(options.allow_unsafe_unwind)) {
         tty_config.setColor(writer, .dim) catch {};
@@ -821,22 +814,32 @@ pub fn dumpStackTrace(st: *const StackTrace) void {
 }
 
 const StackIterator = union(enum) {
+    /// We will first report the current PC of this `CpuContextPtr`, then we will switch to a
+    /// different strategy to actually unwind.
+    ctx_first: CpuContextPtr,
     /// Unwinding using debug info (e.g. DWARF CFI).
-    di: if (SelfInfo != void and SelfInfo.can_unwind) SelfInfo.UnwindContext else noreturn,
-    /// We will first report the *current* PC of this `UnwindContext`, then we will switch to `di`.
-    di_first: if (SelfInfo != void and SelfInfo.can_unwind) SelfInfo.UnwindContext else noreturn,
+    di: if (SelfInfo != void and SelfInfo.can_unwind and fp_usability != .ideal)
+        SelfInfo.UnwindContext
+    else
+        noreturn,
     /// Naive frame-pointer-based unwinding. Very simple, but typically unreliable.
     fp: usize,
 
     /// It is important that this function is marked `inline` so that it can safely use
     /// `@frameAddress` and `cpu_context.Native.current` as the caller's stack frame and
     /// our own are one and the same.
-    inline fn init(opt_context_ptr: ?CpuContextPtr) error{CannotUnwindFromContext}!StackIterator {
+    ///
+    /// `opt_context_ptr` must remain valid while the `StackIterator` is used.
+    inline fn init(opt_context_ptr: ?CpuContextPtr) StackIterator {
         if (opt_context_ptr) |context_ptr| {
-            if (SelfInfo == void or !SelfInfo.can_unwind) return error.CannotUnwindFromContext;
-            // Use `di_first` here so we report the PC in the context before unwinding any further.
-            return .{ .di_first = .init(context_ptr) };
+            // Use `ctx_first` here so we report the PC in the context before unwinding any further.
+            return .{ .ctx_first = context_ptr };
         }
+
+        // Otherwise, we're going to capture the current context or frame address, so we don't need
+        // `ctx_first`, because the first PC is in `std.debug` and we need to unwind before reaching
+        // a frame we want to report.
+
         // Workaround the C backend being unable to use inline assembly on MSVC by disabling the
         // call to `current`. This effectively constrains stack trace collection and dumping to FP
         // unwinding when building with CBE for MSVC.
@@ -846,8 +849,6 @@ const StackIterator = union(enum) {
             cpu_context.Native != noreturn and
             fp_usability != .ideal)
         {
-            // We don't need `di_first` here, because our PC is in `std.debug`; we're only interested
-            // in our caller's frame and above.
             return .{ .di = .init(&.current()) };
         }
         return .{
@@ -866,8 +867,9 @@ const StackIterator = union(enum) {
     }
     fn deinit(si: *StackIterator) void {
         switch (si.*) {
+            .ctx_first => {},
             .fp => {},
-            .di, .di_first => |*unwind_context| unwind_context.deinit(getDebugInfoAllocator()),
+            .di => |*unwind_context| unwind_context.deinit(getDebugInfoAllocator()),
         }
     }
 
@@ -931,7 +933,7 @@ const StackIterator = union(enum) {
     /// Whether the current unwind strategy is allowed given `allow_unsafe`.
     fn stratOk(it: *const StackIterator, allow_unsafe: bool) bool {
         return switch (it.*) {
-            .di, .di_first => true,
+            .ctx_first, .di => true,
             // If we omitted frame pointers from *this* compilation, FP unwinding would crash
             // immediately regardless of anything. But FPs could also be omitted from a different
             // linked object, so it's not guaranteed to be safe, unless the target specifically
@@ -959,13 +961,16 @@ const StackIterator = union(enum) {
 
     fn next(it: *StackIterator) Result {
         switch (it.*) {
-            .di_first => |unwind_context| {
-                const first_pc = unwind_context.pc;
-                if (first_pc == 0) return .end;
-                it.* = .{ .di = unwind_context };
+            .ctx_first => |context_ptr| {
+                // After the first frame, start actually unwinding.
+                it.* = if (SelfInfo != void and SelfInfo.can_unwind and fp_usability != .ideal)
+                    .{ .di = .init(context_ptr) }
+                else
+                    .{ .fp = context_ptr.getFp() };
+
                 // The caller expects *return* addresses, where they will subtract 1 to find the address of the call.
                 // However, we have the actual current PC, which should not be adjusted. Compensate by adding 1.
-                return .{ .frame = first_pc +| 1 };
+                return .{ .frame = context_ptr.getPc() +| 1 };
             },
             .di => |*unwind_context| {
                 const di = getSelfDebugInfo() catch unreachable;
@@ -1387,6 +1392,7 @@ pub const have_segfault_handling_support = switch (native_os) {
 
     .driverkit,
     .ios,
+    .maccatalyst,
     .macos,
     .tvos,
     .visionos,
@@ -1482,6 +1488,7 @@ fn handleSegfaultPosix(sig: posix.SIG, info: *const posix.siginfo_t, ctx_ptr: ?*
             .freebsd,
             .driverkit,
             .ios,
+            .maccatalyst,
             .macos,
             .tvos,
             .visionos,

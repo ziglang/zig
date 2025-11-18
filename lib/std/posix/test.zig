@@ -521,7 +521,7 @@ test "getrlimit and setrlimit" {
 }
 
 test "sigrtmin/max" {
-    if (native_os == .wasi or native_os == .windows or native_os == .macos) {
+    if (native_os == .wasi or native_os == .windows or native_os.isDarwin()) {
         return error.SkipZigTest;
     }
 
@@ -550,7 +550,7 @@ test "sigset empty/full" {
 // Some signals (i.e., 32 - 34 on glibc/musl) are not allowed to be added to a
 // sigset by the C library, so avoid testing them.
 fn reserved_signo(i: usize) bool {
-    if (native_os == .macos) return false;
+    if (native_os.isDarwin()) return false;
     if (!builtin.link_libc) return false;
     const max = if (native_os == .netbsd) 32 else 31;
     return i > max and i < posix.sigrtmin();

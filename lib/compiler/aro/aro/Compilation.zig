@@ -292,16 +292,9 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
                 }
                 try define(w, "__MSVCRT__");
                 try define(w, "__MINGW32__");
-            } else if (comp.target.abi == .cygnus) {
-                try define(w, "__CYGWIN__");
-                if (ptr_width == 64) {
-                    try define(w, "__CYGWIN64__");
-                } else {
-                    try define(w, "__CYGWIN32__");
-                }
             }
 
-            if (comp.target.abi.isGnu() or comp.target.abi == .cygnus) {
+            if (comp.target.abi.isGnu()) {
                 // MinGW and Cygwin define __declspec(a) to __attribute((a)).
                 // Like Clang we make the define no op if -fdeclspec is enabled.
                 if (comp.langopts.declspec_attrs) {
@@ -342,6 +335,7 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
         .openbsd => try define(w, "__OpenBSD__"),
         .dragonfly => try define(w, "__DragonFly__"),
         .illumos => try defineStd(w, "sun", is_gnu),
+        .maccatalyst,
         .macos,
         .tvos,
         .ios,
@@ -370,7 +364,7 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
         .ps4,
         .ps5,
         => try defineStd(w, "unix", is_gnu),
-        .windows => if (comp.target.abi.isGnu() or comp.target.abi == .cygnus) {
+        .windows => if (comp.target.abi.isGnu()) {
             try defineStd(w, "unix", is_gnu);
         },
         else => {},
@@ -642,7 +636,7 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
         },
         .aarch64, .aarch64_be => {
             try define(w, "__aarch64__");
-            if (comp.target.os.tag == .macos) {
+            if (comp.target.os.tag.isDarwin()) {
                 try define(w, "__AARCH64_SIMD__");
                 if (ptr_width == 32) {
                     try define(w, "__ARM64_ARCH_8_32__");
@@ -999,7 +993,7 @@ fn writeBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefinesMode
         \\
     );
     if (comp.langopts.standard.atLeast(.c11)) switch (comp.target.os.tag) {
-        .openbsd, .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
+        .openbsd, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             try w.writeAll("#define __STDC_NO_THREADS__ 1\n");
         },
         .ps4, .ps5 => {

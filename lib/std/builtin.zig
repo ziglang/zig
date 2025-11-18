@@ -274,6 +274,9 @@ pub const CallingConvention = union(enum(u8)) {
     /// The standard `hppa64` calling convention.
     hppa64_elf: CommonOptions,
 
+    kvx_lp64: CommonOptions,
+    kvx_ilp32: CommonOptions,
+
     /// The standard `lanai` calling convention.
     lanai_sysv: CommonOptions,
 
@@ -959,6 +962,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .csky,
     .hppa,
     .hppa64,
+    .kvx,
     .lanai,
     .loongarch32,
     .loongarch64,
@@ -983,7 +987,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .xcore,
     => *anyopaque,
     .aarch64, .aarch64_be => switch (builtin.os.tag) {
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos, .windows => *u8,
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .windows => *u8,
         else => switch (builtin.zig_backend) {
             else => VaListAarch64,
             .stage2_llvm => @compileError("disabled due to miscompilations"),
