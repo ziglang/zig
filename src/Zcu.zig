@@ -925,8 +925,11 @@ pub const File = struct {
     /// allocated into `gpa`.
     path: Compilation.Path,
 
+    /// Populated only when emitting error messages; see `getSource`.
     source: ?[:0]const u8,
+    /// Populated only when emitting error messages; see `getTree`.
     tree: ?Ast,
+
     zir: ?Zir,
     zoir: ?Zoir,
 
@@ -1033,25 +1036,27 @@ pub const File = struct {
         }
     }
 
-    pub const Source = struct {
-        bytes: [:0]const u8,
-        stat: Cache.File.Stat,
-    };
-
     pub const GetSourceError = error{
         OutOfMemory,
-        FileTooBig,
-        Streaming,
-    } || std.fs.File.OpenError || std.fs.File.ReadError;
+        FileChanged,
+    } || std.Io.File.OpenError || std.Io.File.Reader.Error;
 
-    pub fn getSource(file: *File, zcu: *const Zcu) GetSourceError!Source {
+    /// This must only be called in error conditions where `stat` *is* populated. It returns the
+    /// contents of the source file, assuming the stat has not changed since it was originally
+    /// loaded.
+    pub fn getSource(file: *File, zcu: *const Zcu) GetSourceError![:0]const u8 {
         const gpa = zcu.gpa;
         const io = zcu.comp.io;
 
-        if (file.source) |source| return .{
-            .bytes = source,
-            .stat = file.stat,
-        };
+        if (file.source) |source| return source;
+
+        switch (file.status) {
+            .never_loaded => unreachable, // stat must be populated
+            .retryable_failure => unreachable, // stat must be populated
+            .astgen_failure, .success => {},
+        }
+
+        assert(file.stat.size <= std.math.maxInt(u32)); // `PerThread.updateFile` checks this
 
         var f = f: {
             const dir, const sub_path = file.path.openInfo(zcu.comp.dirs);
@@ -1059,40 +1064,43 @@ pub const File = struct {
         };
         defer f.close();
 
-        const stat = try f.stat();
+        const stat = f.stat() catch |err| switch (err) {
+            error.Streaming => {
+                // Since `file.stat` is populated, this was previously a file stream; since it is
+                // now not a file stream, it must have changed.
+                return error.FileChanged;
+            },
+            else => |e| return e,
+        };
 
-        if (stat.size > std.math.maxInt(u32))
-            return error.FileTooBig;
+        if (stat.inode != file.stat.inode or
+            stat.size != file.stat.size or
+            stat.mtime.nanoseconds != file.stat.mtime.nanoseconds)
+        {
+            return error.FileChanged;
+        }
 
-        const source = try gpa.allocSentinel(u8, @intCast(stat.size), 0);
+        const source = try gpa.allocSentinel(u8, @intCast(file.stat.size), 0);
         errdefer gpa.free(source);
 
         var file_reader = f.reader(io, &.{});
         file_reader.size = stat.size;
         file_reader.interface.readSliceAll(source) catch return file_reader.err.?;
 
-        // Here we do not modify stat fields because this function is the one
-        // used for error reporting. We need to keep the stat fields stale so that
-        // updateFile can know to regenerate ZIR.
-
         file.source = source;
         errdefer comptime unreachable; // don't error after populating `source`
 
-        return .{
-            .bytes = source,
-            .stat = .{
-                .size = stat.size,
-                .inode = stat.inode,
-                .mtime = stat.mtime,
-            },
-        };
+        return source;
     }
 
+    /// This must only be called in error conditions where `stat` *is* populated. It returns the
+    /// parsed AST of the source file, assuming the stat has not changed since it was originally
+    /// loaded.
     pub fn getTree(file: *File, zcu: *const Zcu) GetSourceError!*const Ast {
         if (file.tree) |*tree| return tree;
 
         const source = try file.getSource(zcu);
-        file.tree = try .parse(zcu.gpa, source.bytes, file.getMode());
+        file.tree = try .parse(zcu.gpa, source, file.getMode());
         return &file.tree.?;
     }
 

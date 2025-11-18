@@ -3935,17 +3935,13 @@ pub fn getAllErrorsAlloc(comp: *Compilation) error{OutOfMemory}!ErrorBundle {
         for (zcu.failed_imports.items) |failed| {
             assert(zcu.alive_files.contains(failed.file_index)); // otherwise it wouldn't have been added
             const file = zcu.fileByIndex(failed.file_index);
-            const source = file.getSource(zcu) catch |err| {
-                try unableToLoadZcuFile(zcu, &bundle, file, err);
-                continue;
-            };
             const tree = file.getTree(zcu) catch |err| {
                 try unableToLoadZcuFile(zcu, &bundle, file, err);
                 continue;
             };
             const start = tree.tokenStart(failed.import_token);
             const end = start + tree.tokenSlice(failed.import_token).len;
-            const loc = std.zig.findLineColumn(source.bytes, start);
+            const loc = std.zig.findLineColumn(tree.source, start);
             try bundle.addRootErrorMessage(.{
                 .msg = switch (failed.kind) {
                     .file_outside_module_root => try bundle.addString("import of file outside module path"),
@@ -4338,7 +4334,7 @@ pub fn addModuleErrorMsg(
     const err_span = err_src_loc.span(zcu) catch |err| {
         return unableToLoadZcuFile(zcu, eb, err_src_loc.file_scope, err);
     };
-    const err_loc = std.zig.findLineColumn(err_source.bytes, err_span.main);
+    const err_loc = std.zig.findLineColumn(err_source, err_span.main);
 
     var ref_traces: std.ArrayListUnmanaged(ErrorBundle.ReferenceTrace) = .empty;
     defer ref_traces.deinit(gpa);
@@ -4434,7 +4430,7 @@ pub fn addModuleErrorMsg(
         const span = note_src_loc.span(zcu) catch |err| {
             return unableToLoadZcuFile(zcu, eb, note_src_loc.file_scope, err);
         };
-        const loc = std.zig.findLineColumn(source.bytes, span.main);
+        const loc = std.zig.findLineColumn(source, span.main);
 
         const omit_source_line = loc.eql(err_loc) or (last_note_loc != null and loc.eql(last_note_loc.?));
         last_note_loc = loc;
@@ -4489,7 +4485,7 @@ fn addReferenceTraceFrame(
         try unableToLoadZcuFile(zcu, eb, src.file_scope, err);
         return error.AlreadyReported;
     };
-    const loc = std.zig.findLineColumn(source.bytes, span.main);
+    const loc = std.zig.findLineColumn(source, span.main);
     try ref_traces.append(gpa, .{
         .decl_name = try eb.printString("{s}{s}", .{ name, if (inlined) " [inlined]" else "" }),
         .src_loc = try eb.addSourceLocation(.{
@@ -4545,8 +4541,13 @@ pub fn unableToLoadZcuFile(
     file: *Zcu.File,
     err: Zcu.File.GetSourceError,
 ) Allocator.Error!void {
+    const msg = switch (err) {
+        error.OutOfMemory => |e| return e,
+        error.FileChanged => try eb.addString("file contents changed during update"),
+        else => |e| try eb.printString("unable to load: {t}", .{e}),
+    };
     try eb.addRootErrorMessage(.{
-        .msg = try eb.printString("unable to load: {t}", .{err}),
+        .msg = msg,
         .src_loc = try file.errorBundleWholeFileSrc(zcu, eb),
     });
 }
