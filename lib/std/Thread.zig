@@ -904,10 +904,42 @@ const WasiThreadImpl = struct {
         allocator: std.mem.Allocator,
         /// The current state of the thread.
         state: State = State.init(.running),
+
+        pub fn finalize(self: *@This(), state: @FieldType(State, "raw")) void {
+            switch (self.state.swap(state, .seq_cst)) {
+                .running => {
+                    // reset the Thread ID
+                    asm volatile (
+                        \\ local.get %[ptr]
+                        \\ i32.const 0
+                        \\ i32.atomic.store 0
+                        :
+                        : [ptr] "r" (&self.tid.raw),
+                    );
+
+                    // Wake the main thread listening to this thread
+                    asm volatile (
+                        \\ local.get %[ptr]
+                        \\ i32.const 1 # waiters
+                        \\ memory.atomic.notify 0
+                        \\ drop # no need to know the waiters
+                        :
+                        : [ptr] "r" (&self.tid.raw),
+                    );
+                },
+                .completed => unreachable,
+                .detached => {
+                    // use free in the vtable so the stack doesn't get set to undefined when optimize = Debug
+                    const free = self.allocator.vtable.free;
+                    const ptr = self.allocator.ptr;
+                    free(ptr, self.memory, std.mem.Alignment.@"1", 0);
+                },
+            }
+        }
     };
 
     /// A meta-data structure used to bootstrap a thread
-    const Instance = struct {
+    pub const Instance = struct {
         thread: WasiThread,
         /// Contains the offset to the new __tls_base.
         /// The offset starting from the memory's base.
@@ -1095,36 +1127,8 @@ const WasiThreadImpl = struct {
                 // Finished bootstrapping, call user's procedure.
                 arg.call_back(arg.raw_ptr);
 
-                switch (arg.thread.state.swap(.completed, .seq_cst)) {
-                    .running => {
-                        // reset the Thread ID
-                        asm volatile (
-                            \\ local.get %[ptr]
-                            \\ i32.const 0
-                            \\ i32.atomic.store 0
-                            :
-                            : [ptr] "r" (&arg.thread.tid.raw),
-                        );
-
-                        // Wake the main thread listening to this thread
-                        asm volatile (
-                            \\ local.get %[ptr]
-                            \\ i32.const 1 # waiters
-                            \\ memory.atomic.notify 0
-                            \\ drop # no need to know the waiters
-                            :
-                            : [ptr] "r" (&arg.thread.tid.raw),
-                        );
-                    },
-                    .completed => unreachable,
-                    .detached => {
-                        // use free in the vtable so the stack doesn't get set to undefined when optimize = Debug
-                        // the allocator field will eventually be removed per #19383
-                        const free = arg.thread.allocator.vtable.free;
-                        const ptr = arg.thread.allocator.ptr;
-                        free(ptr, arg.thread.memory, std.mem.Alignment.@"1", 0);
-                    },
-                }
+                // Set thread state and free memory allocated for thread.
+                arg.thread.finalize(.completed);
             }
         };
         // Set the stack pointer then jump to the "clothed" portion of the function.
