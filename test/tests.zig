@@ -1756,14 +1756,13 @@ const c_abi_targets = blk: {
             },
         },
 
-        // Clang explodes when parsing `cfuncs.c`.
-        // .{
-        //     .target = .{
-        //         .cpu_arch = .s390x,
-        //         .os_tag = .linux,
-        //         .abi = .musl,
-        //     },
-        // },
+        .{
+            .target = .{
+                .cpu_arch = .s390x,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+        },
 
         .{
             .target = std.Target.Query.parse(.{
