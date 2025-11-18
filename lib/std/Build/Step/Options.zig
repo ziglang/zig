@@ -156,6 +156,36 @@ fn printType(
             }
             return;
         },
+        std.log.Level => {
+            if (name) |some| {
+                try out.print("pub const {}: @import(\"std\").log.Level = .{s};\n", .{
+                    std.zig.fmtId(some),
+                    @tagName(value),
+                });
+            } else {
+                try out.print(".{s},\n", .{@tagName(value)});
+            }
+            return;
+        },
+        std.log.ScopeLevel => {
+            if (name) |some| {
+                try out.print("pub const {}: @import(\"std\").log.ScopeLevel = ", .{std.zig.fmtId(some)});
+            }
+
+            try out.writeAll(".{\n");
+            try out.writeByteNTimes(' ', indent);
+            try out.print("    .scope = .{p_},\n", .{std.zig.fmtId(@tagName(value.scope))});
+            try out.writeByteNTimes(' ', indent);
+            try out.print("    .level = .{s},\n", .{@tagName(value.level)});
+
+            try out.writeByteNTimes(' ', indent);
+            if (name != null) {
+                try out.writeAll("};\n");
+            } else {
+                try out.writeAll("},\n");
+            }
+            return;
+        },
         else => {},
     }
 
@@ -612,6 +642,8 @@ test Options {
     options.addOption(NestedStruct, "nested_struct", NestedStruct{
         .normal_struct = .{ .hello = "bar" },
     });
+    options.addOption(std.log.Level, "log_level", .warn);
+    options.addOption(std.log.ScopeLevel, "scope_level", .{ .scope = .a_scope, .level = .debug });
 
     try std.testing.expectEqualStrings(
         \\pub const option1: usize = 1;
@@ -679,6 +711,11 @@ test Options {
         \\        .world = true,
         \\    },
         \\    .normal_enum = .foo,
+        \\};
+        \\pub const log_level: @import("std").log.Level = .warn;
+        \\pub const scope_level: @import("std").log.ScopeLevel = .{
+        \\    .scope = .a_scope,
+        \\    .level = .debug,
         \\};
         \\
     , options.contents.items);
