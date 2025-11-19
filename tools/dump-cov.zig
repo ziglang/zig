@@ -8,31 +8,50 @@ const assert = std.debug.assert;
 const SeenPcsHeader = std.Build.abi.fuzz.SeenPcsHeader;
 
 pub fn main() !void {
-    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    defer _ = general_purpose_allocator.deinit();
-    const gpa = general_purpose_allocator.allocator();
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_allocator.deinit();
+    const gpa = debug_allocator.allocator();
 
-    var arena_instance = std.heap.ArenaAllocator.init(gpa);
+    var arena_instance: std.heap.ArenaAllocator = .init(gpa);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
+
     const args = try std.process.argsAlloc(arena);
+
+    const target_query_str = switch (args.len) {
+        3 => "native",
+        4 => args[3],
+        else => return fatal(
+            \\usage: {0s} path/to/exe path/to/coverage [target]
+            \\  if omitted, 'target' defaults to 'native'
+            \\  example: {0s} zig-out/test .zig-cache/v/xxxxxxxx x86_64-linux
+        , .{if (args.len == 0) "dump-cov" else args[0]}),
+    };
+
+    const target = std.zig.resolveTargetQueryOrFatal(io, try .parse(.{
+        .arch_os_abi = target_query_str,
+    }));
+
     const exe_file_name = args[1];
     const cov_file_name = args[2];
 
     const exe_path: Path = .{
-        .root_dir = std.Build.Cache.Directory.cwd(),
+        .root_dir = .cwd(),
         .sub_path = exe_file_name,
     };
     const cov_path: Path = .{
-        .root_dir = std.Build.Cache.Directory.cwd(),
+        .root_dir = .cwd(),
         .sub_path = cov_file_name,
     };
 
-    var coverage = std.debug.Coverage.init;
+    var coverage: std.debug.Coverage = .init;
     defer coverage.deinit(gpa);
 
-    var debug_info = std.debug.Info.load(gpa, exe_path, &coverage) catch |err| {
+    var debug_info = std.debug.Info.load(gpa, exe_path, &coverage, target.ofmt, target.cpu.arch) catch |err| {
         fatal("failed to load debug info for {f}: {s}", .{ exe_path, @errorName(err) });
     };
     defer debug_info.deinit(gpa);
