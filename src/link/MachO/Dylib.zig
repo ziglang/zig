@@ -90,11 +90,8 @@ fn parseBinary(self: *Dylib, macho_file: *MachO) !void {
         if (amt != lc_buffer.len) return error.InputOutput;
     }
 
-    var it = LoadCommandIterator{
-        .ncmds = header.ncmds,
-        .buffer = lc_buffer,
-    };
-    while (it.next()) |cmd| switch (cmd.cmd()) {
+    var it = LoadCommandIterator.init(&header, lc_buffer) catch |err| std.debug.panic("bad dylib: {t}", .{err});
+    while (it.next() catch |err| std.debug.panic("bad dylib: {t}", .{err})) |cmd| switch (cmd.hdr.cmd) {
         .ID_DYLIB => {
             self.id = try Id.fromLoadCommand(gpa, cmd.cast(macho.dylib_command).?, cmd.getDylibPathName());
         },

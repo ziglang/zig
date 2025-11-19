@@ -729,10 +729,10 @@ const MachODumper = struct {
         imports: std.ArrayListUnmanaged([]const u8) = .empty,
 
         fn parse(ctx: *ObjectContext) !void {
-            var it = ctx.getLoadCommandIterator();
+            var it = try ctx.getLoadCommandIterator();
             var i: usize = 0;
-            while (it.next()) |cmd| {
-                switch (cmd.cmd()) {
+            while (try it.next()) |cmd| {
+                switch (cmd.hdr.cmd) {
                     .SEGMENT_64 => {
                         const seg = cmd.cast(macho.segment_command_64).?;
                         try ctx.segments.append(ctx.gpa, seg);
@@ -771,14 +771,13 @@ const MachODumper = struct {
             return mem.sliceTo(@as([*:0]const u8, @ptrCast(ctx.strtab.items.ptr + off)), 0);
         }
 
-        fn getLoadCommandIterator(ctx: ObjectContext) macho.LoadCommandIterator {
-            const data = ctx.data[@sizeOf(macho.mach_header_64)..][0..ctx.header.sizeofcmds];
-            return .{ .ncmds = ctx.header.ncmds, .buffer = data };
+        fn getLoadCommandIterator(ctx: ObjectContext) !macho.LoadCommandIterator {
+            return .init(&ctx.header, ctx.data[@sizeOf(macho.mach_header_64)..]);
         }
 
-        fn getLoadCommand(ctx: ObjectContext, cmd: macho.LC) ?macho.LoadCommandIterator.LoadCommand {
-            var it = ctx.getLoadCommandIterator();
-            while (it.next()) |lc| if (lc.cmd() == cmd) {
+        fn getLoadCommand(ctx: ObjectContext, cmd: macho.LC) !?macho.LoadCommandIterator.LoadCommand {
+            var it = try ctx.getLoadCommandIterator();
+            while (try it.next()) |lc| if (lc.hdr.cmd == cmd) {
                 return lc;
             };
             return null;
@@ -872,9 +871,9 @@ const MachODumper = struct {
                 \\LC {d}
                 \\cmd {s}
                 \\cmdsize {d}
-            , .{ index, @tagName(lc.cmd()), lc.cmdsize() });
+            , .{ index, @tagName(lc.hdr.cmd), lc.hdr.cmdsize });
 
-            switch (lc.cmd()) {
+            switch (lc.hdr.cmd) {
                 .SEGMENT_64 => {
                     const seg = lc.cast(macho.segment_command_64).?;
                     try writer.writeByte('\n');
@@ -1592,9 +1591,9 @@ const MachODumper = struct {
             .headers => {
                 try ObjectContext.dumpHeader(ctx.header, writer);
 
-                var it = ctx.getLoadCommandIterator();
+                var it = try ctx.getLoadCommandIterator();
                 var i: usize = 0;
-                while (it.next()) |cmd| {
+                while (try it.next()) |cmd| {
                     try ObjectContext.dumpLoadCommand(cmd, i, writer);
                     try writer.writeByte('\n');
 
@@ -1615,7 +1614,7 @@ const MachODumper = struct {
             .dyld_weak_bind,
             .dyld_lazy_bind,
             => {
-                const cmd = ctx.getLoadCommand(.DYLD_INFO_ONLY) orelse
+                const cmd = try ctx.getLoadCommand(.DYLD_INFO_ONLY) orelse
                     return step.fail("no dyld info found", .{});
                 const lc = cmd.cast(macho.dyld_info_command).?;
 
@@ -1649,7 +1648,7 @@ const MachODumper = struct {
             },
 
             .exports => blk: {
-                if (ctx.getLoadCommand(.DYLD_INFO_ONLY)) |cmd| {
+                if (try ctx.getLoadCommand(.DYLD_INFO_ONLY)) |cmd| {
                     const lc = cmd.cast(macho.dyld_info_command).?;
                     if (lc.export_size > 0) {
                         const data = ctx.data[lc.export_off..][0..lc.export_size];

@@ -4167,7 +4167,7 @@ pub const Platform = struct {
     /// Using Apple's ld64 as our blueprint, `min_version` as well as `sdk_version` are set to
     /// the extracted minimum platform version.
     pub fn fromLoadCommand(lc: macho.LoadCommandIterator.LoadCommand) Platform {
-        switch (lc.cmd()) {
+        switch (lc.hdr.cmd) {
             .BUILD_VERSION => {
                 const cmd = lc.cast(macho.build_version_command).?;
                 return .{
@@ -4200,7 +4200,7 @@ pub const Platform = struct {
                 // We can't distinguish Mac Catalyst here, but this is legacy stuff anyway.
                 const cmd = lc.cast(macho.version_min_command).?;
                 return .{
-                    .os_tag = switch (lc.cmd()) {
+                    .os_tag = switch (lc.hdr.cmd) {
                         .VERSION_MIN_IPHONEOS => .ios,
                         .VERSION_MIN_MACOSX => .macos,
                         .VERSION_MIN_TVOS => .tvos,

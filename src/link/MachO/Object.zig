@@ -109,11 +109,8 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
         if (amt != self.header.?.sizeofcmds) return error.InputOutput;
     }
 
-    var it = LoadCommandIterator{
-        .ncmds = self.header.?.ncmds,
-        .buffer = lc_buffer,
-    };
-    while (it.next()) |lc| switch (lc.cmd()) {
+    var it = LoadCommandIterator.init(&self.header.?, lc_buffer) catch |err| std.debug.panic("bad object: {t}", .{err});
+    while (it.next() catch |err| std.debug.panic("bad object: {t}", .{err})) |lc| switch (lc.hdr.cmd) {
         .SEGMENT_64 => {
             const sections = lc.getSections();
             try self.sections.ensureUnusedCapacity(gpa, sections.len);
@@ -1644,11 +1641,8 @@ pub fn parseAr(self: *Object, macho_file: *MachO) !void {
         if (amt != self.header.?.sizeofcmds) return error.InputOutput;
     }
 
-    var it = LoadCommandIterator{
-        .ncmds = self.header.?.ncmds,
-        .buffer = lc_buffer,
-    };
-    while (it.next()) |lc| switch (lc.cmd()) {
+    var it = LoadCommandIterator.init(&self.header.?, lc_buffer) catch |err| std.debug.panic("bad object: {t}", .{err});
+    while (it.next() catch |err| std.debug.panic("bad object: {t}", .{err})) |lc| switch (lc.hdr.cmd) {
         .SYMTAB => {
             const cmd = lc.cast(macho.symtab_command).?;
             try self.strtab.resize(gpa, cmd.strsize);
