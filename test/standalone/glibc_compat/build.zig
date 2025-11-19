@@ -141,12 +141,14 @@ pub fn build(b: *std.Build) void {
         check.checkInDynamicSymtab();
         check.checkExact("0 0 UND FUNC GLOBAL DEFAULT powf");
 
-        // An atexit local symbol is defined, and depends on undefined dynamic
-        // __cxa_atexit.
-        check.checkInSymtab();
-        check.checkContains("FUNC LOCAL HIDDEN atexit");
-        check.checkInDynamicSymtab();
-        check.checkExact("0 0 UND FUNC GLOBAL DEFAULT __cxa_atexit");
+        if (target.result.cpu.arch != .s390x) {
+            // An atexit local symbol is defined, and depends on undefined dynamic
+            // __cxa_atexit.
+            check.checkInSymtab();
+            check.checkContains("FUNC LOCAL HIDDEN atexit");
+            check.checkInDynamicSymtab();
+            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT __cxa_atexit");
+        }
 
         test_step.dependOn(&check.step);
     }
@@ -250,12 +252,14 @@ pub fn build(b: *std.Build) void {
         check.checkInDynamicSymtab();
         check.checkExact("0 0 UND FUNC GLOBAL DEFAULT exit");
 
-        // An atexit local symbol is defined, and depends on undefined dynamic
-        // __cxa_atexit.
-        check.checkInSymtab();
-        check.checkContains("FUNC LOCAL HIDDEN atexit");
-        check.checkInDynamicSymtab();
-        check.checkExact("0 0 UND FUNC GLOBAL DEFAULT __cxa_atexit");
+        if (target.result.cpu.arch != .s390x) {
+            // An atexit local symbol is defined, and depends on undefined dynamic
+            // __cxa_atexit.
+            check.checkInSymtab();
+            check.checkContains("FUNC LOCAL HIDDEN atexit");
+            check.checkInDynamicSymtab();
+            check.checkExact("0 0 UND FUNC GLOBAL DEFAULT __cxa_atexit");
+        }
 
         test_step.dependOn(&check.step);
     }

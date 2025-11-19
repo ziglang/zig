@@ -7,7 +7,7 @@ pub fn main() void {
     const y = @shrExact(x, 2);
     std.debug.print("value: {}\n", .{y});
 
-    if ((builtin.cpu.arch.isRISCV() or builtin.cpu.arch.isLoongArch()) and builtin.zig_backend == .stage2_llvm) @panic("https://github.com/ziglang/zig/issues/24304");
+    if ((builtin.cpu.arch.isRISCV() or builtin.cpu.arch.isLoongArch() or builtin.cpu.arch == .s390x) and builtin.zig_backend == .stage2_llvm) @panic("https://github.com/ziglang/zig/issues/24304");
 }
 
 // exe=fail

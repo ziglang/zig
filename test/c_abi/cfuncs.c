@@ -77,6 +77,10 @@ static void assert_or_panic(bool ok) {
 #  define ZIG_NO_COMPLEX
 #endif
 
+#ifdef __s390x__
+#  define ZIG_NO_COMPLEX
+#endif
+
 #ifdef __x86_64__
 #define ZIG_NO_RAW_F16
 #endif
@@ -2728,7 +2732,7 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined(ZIG_PPC32) && !defined(__hexagon__)
+#if !defined(ZIG_PPC32) && !defined(__hexagon__) && !defined(__s390x__)
     {
         struct Struct_u64_u64 s = zig_ret_struct_u64_u64();
         assert_or_panic(s.a == 1);
@@ -2807,7 +2811,7 @@ void run_c_tests(void) {
 
 #if !defined __i386__ && !defined __arm__ && !defined __aarch64__ && \
     !defined __powerpc__ && !defined ZIG_RISCV64 && !defined(__loongarch__) && \
-    !defined(__mips64__) && !defined(__hexagon__)
+    !defined(__mips64__) && !defined(__hexagon__) && !defined(__s390x__)
     {
         struct SmallStructInts s = {1, 2, 3, 4};
         zig_small_struct_ints(s);
@@ -2816,7 +2820,7 @@ void run_c_tests(void) {
 
 #if !defined __arm__ && !defined __aarch64__ && \
     !defined __powerpc__ && !defined ZIG_RISCV64 && !defined(__loongarch__) && \
-    !defined(__mips64__) && !defined(__hexagon__)
+    !defined(__mips64__) && !defined(__hexagon__) && !defined(__s390x__)
     {
         struct MedStructInts s = {1, 2, 3};
         zig_med_struct_ints(s);
@@ -2843,7 +2847,7 @@ void run_c_tests(void) {
 
 #if !defined __i386__ && !defined __arm__ && \
     !defined ZIG_PPC32 && !defined _ARCH_PPC64 && !defined(__loongarch__) && \
-    !defined(__mips64__) && !defined(__hexagon__)
+    !defined(__mips64__) && !defined(__hexagon__) && !defined(__s390x__)
     {
         struct SplitStructInts s = {1234, 100, 1337};
         zig_split_struct_ints(s);
@@ -2851,7 +2855,7 @@ void run_c_tests(void) {
 #endif
 
 #if !defined __arm__ && !defined ZIG_PPC32 && !defined _ARCH_PPC64 && !defined(__loongarch__) && \
-    !defined(__mips64__) && !defined(__hexagon__)
+    !defined(__mips64__) && !defined(__hexagon__) && !defined(__s390x__)
     {
         struct MedStructMixed s = {1234, 100.0f, 1337.0f};
         zig_med_struct_mixed(s);
@@ -2860,14 +2864,15 @@ void run_c_tests(void) {
 
 #if !defined __i386__ && !defined __arm__ && \
     !defined ZIG_PPC32 && !defined _ARCH_PPC64 && !defined(__loongarch__) && \
-    !defined(__mips64__) && !defined(__hexagon__)
+    !defined(__mips64__) && !defined(__hexagon__) && !defined(__s390x__)
     {
         struct SplitStructMixed s = {1234, 100, 1337.0f};
         zig_split_struct_mixed(s);
     }
 #endif
 
-#if !defined(__powerpc__) && !defined(__loongarch__) && !defined(__mips64__) && !defined(__hexagon__)
+#if !defined(__powerpc__) && !defined(__loongarch__) && !defined(__mips64__) && !defined(__hexagon__) && \
+    !defined(__s390x__)
     {
         struct BigStruct s = {30, 31, 32, 33, 34};
         struct BigStruct res = zig_big_struct_both(s);
@@ -2880,7 +2885,7 @@ void run_c_tests(void) {
 #endif
 
 #if !defined ZIG_PPC32 && !defined _ARCH_PPC64 && !defined(__loongarch__) && !defined(__mips64__) && \
-    !defined(__hexagon__)
+    !defined(__hexagon__) && !defined(__s390x__)
     {
         struct Rect r1 = {1, 21, 16, 4};
         struct Rect r2 = {178, 189, 21, 15};
@@ -2888,7 +2893,8 @@ void run_c_tests(void) {
     }
 #endif
 
-#if !defined ZIG_PPC32 && !defined(__loongarch__) && !defined(__mips64__) && !defined(__hexagon__)
+#if !defined ZIG_PPC32 && !defined(__loongarch__) && !defined(__mips64__) && !defined(__hexagon__) && \
+    !defined(__s390x__)
     {
         struct FloatRect r1 = {1, 21, 16, 4};
         struct FloatRect r2 = {178, 189, 21, 15};

@@ -1927,6 +1927,7 @@ fn pollZigTest(
             .ns_elapsed = if (timer) |*t| t.read() else 0,
         } };
         const body = stdout.take(header.bytes_len) catch unreachable;
+        var body_r: std.Io.Reader = .fixed(body);
         switch (header.tag) {
             .zig_version => {
                 if (!std.mem.eql(u8, builtin.zig_version_string, body)) return run.step.fail(
@@ -1942,29 +1943,23 @@ fn pollZigTest(
                 // restart the test runner).
                 assert(opt_metadata.* == null);
 
-                const TmHdr = std.zig.Server.Message.TestMetadata;
-                const tm_hdr: *align(1) const TmHdr = @ptrCast(body);
+                const tm_hdr = body_r.takeStruct(std.zig.Server.Message.TestMetadata, .little) catch unreachable;
                 results.test_count = tm_hdr.tests_len;
 
-                const names_bytes = body[@sizeOf(TmHdr)..][0 .. results.test_count * @sizeOf(u32)];
-                const expected_panic_msgs_bytes = body[@sizeOf(TmHdr) + names_bytes.len ..][0 .. results.test_count * @sizeOf(u32)];
-                const string_bytes = body[@sizeOf(TmHdr) + names_bytes.len + expected_panic_msgs_bytes.len ..][0..tm_hdr.string_bytes_len];
+                const names = try arena.alloc(u32, results.test_count);
+                for (names) |*dest| dest.* = body_r.takeInt(u32, .little) catch unreachable;
 
-                const names = std.mem.bytesAsSlice(u32, names_bytes);
-                const expected_panic_msgs = std.mem.bytesAsSlice(u32, expected_panic_msgs_bytes);
+                const expected_panic_msgs = try arena.alloc(u32, results.test_count);
+                for (expected_panic_msgs) |*dest| dest.* = body_r.takeInt(u32, .little) catch unreachable;
 
-                const names_aligned = try arena.alloc(u32, names.len);
-                for (names_aligned, names) |*dest, src| dest.* = src;
-
-                const expected_panic_msgs_aligned = try arena.alloc(u32, expected_panic_msgs.len);
-                for (expected_panic_msgs_aligned, expected_panic_msgs) |*dest, src| dest.* = src;
+                const string_bytes = body_r.take(tm_hdr.string_bytes_len) catch unreachable;
 
                 options.progress_node.setEstimatedTotalItems(names.len);
                 opt_metadata.* = .{
                     .string_bytes = try arena.dupe(u8, string_bytes),
                     .ns_per_test = try arena.alloc(u64, results.test_count),
-                    .names = names_aligned,
-                    .expected_panic_msgs = expected_panic_msgs_aligned,
+                    .names = names,
+                    .expected_panic_msgs = expected_panic_msgs,
                     .next_index = 0,
                     .prog_node = options.progress_node,
                 };
@@ -1983,8 +1978,7 @@ fn pollZigTest(
                 assert(fuzz_context == null);
                 const md = &opt_metadata.*.?;
 
-                const TrHdr = std.zig.Server.Message.TestResults;
-                const tr_hdr: *align(1) const TrHdr = @ptrCast(body);
+                const tr_hdr = body_r.takeStruct(std.zig.Server.Message.TestResults, .little) catch unreachable;
                 assert(tr_hdr.index == active_test_index);
 
                 switch (tr_hdr.flags.status) {
@@ -2026,18 +2020,21 @@ fn pollZigTest(
                 requestNextTest(child.stdin.?, md, &sub_prog_node) catch |err| return .{ .write_failed = err };
             },
             .coverage_id => {
-                const fuzz = fuzz_context.?.fuzz;
-                const msg_ptr: *align(1) const [4]u64 = @ptrCast(body);
-                coverage_id = msg_ptr[0];
+                coverage_id = body_r.takeInt(u64, .little) catch unreachable;
+                const cumulative_runs = body_r.takeInt(u64, .little) catch unreachable;
+                const cumulative_unique = body_r.takeInt(u64, .little) catch unreachable;
+                const cumulative_coverage = body_r.takeInt(u64, .little) catch unreachable;
+
                 {
+                    const fuzz = fuzz_context.?.fuzz;
                     fuzz.queue_mutex.lock();
                     defer fuzz.queue_mutex.unlock();
                     try fuzz.msg_queue.append(fuzz.gpa, .{ .coverage = .{
                         .id = coverage_id.?,
                         .cumulative = .{
-                            .runs = msg_ptr[1],
-                            .unique = msg_ptr[2],
-                            .coverage = msg_ptr[3],
+                            .runs = cumulative_runs,
+                            .unique = cumulative_unique,
+                            .coverage = cumulative_coverage,
                         },
                         .run = run,
                     } });
@@ -2046,8 +2043,7 @@ fn pollZigTest(
             },
             .fuzz_start_addr => {
                 const fuzz = fuzz_context.?.fuzz;
-                const msg_ptr: *align(1) const u64 = @ptrCast(body);
-                const addr = msg_ptr.*;
+                const addr = body_r.takeInt(u64, .little) catch unreachable;
                 {
                     fuzz.queue_mutex.lock();
                     defer fuzz.queue_mutex.unlock();
@@ -2116,7 +2112,10 @@ fn sendMessage(file: std.fs.File, tag: std.zig.Client.Message.Tag) !void {
         .tag = tag,
         .bytes_len = 0,
     };
-    try file.writeAll(@ptrCast(&header));
+    var w = file.writer(&.{});
+    w.interface.writeStruct(header, .little) catch |err| switch (err) {
+        error.WriteFailed => return w.err.?,
+    };
 }
 
 fn sendRunTestMessage(file: std.fs.File, tag: std.zig.Client.Message.Tag, index: u32) !void {
@@ -2124,8 +2123,13 @@ fn sendRunTestMessage(file: std.fs.File, tag: std.zig.Client.Message.Tag, index:
         .tag = tag,
         .bytes_len = 4,
     };
-    const full_msg = std.mem.asBytes(&header) ++ std.mem.asBytes(&index);
-    try file.writeAll(full_msg);
+    var w = file.writer(&.{});
+    w.interface.writeStruct(header, .little) catch |err| switch (err) {
+        error.WriteFailed => return w.err.?,
+    };
+    w.interface.writeInt(u32, index, .little) catch |err| switch (err) {
+        error.WriteFailed => return w.err.?,
+    };
 }
 
 fn sendRunFuzzTestMessage(
@@ -2138,10 +2142,19 @@ fn sendRunFuzzTestMessage(
         .tag = .start_fuzzing,
         .bytes_len = 4 + 1 + 8,
     };
-    const full_msg = std.mem.asBytes(&header) ++ std.mem.asBytes(&index) ++
-        std.mem.asBytes(&kind) ++ std.mem.asBytes(&amount_or_instance);
-
-    try file.writeAll(full_msg);
+    var w = file.writer(&.{});
+    w.interface.writeStruct(header, .little) catch |err| switch (err) {
+        error.WriteFailed => return w.err.?,
+    };
+    w.interface.writeInt(u32, index, .little) catch |err| switch (err) {
+        error.WriteFailed => return w.err.?,
+    };
+    w.interface.writeByte(@intFromEnum(kind)) catch |err| switch (err) {
+        error.WriteFailed => return w.err.?,
+    };
+    w.interface.writeInt(u64, amount_or_instance, .little) catch |err| switch (err) {
+        error.WriteFailed => return w.err.?,
+    };
 }
 
 fn evalGeneric(run: *Run, child: *std.process.Child) !EvalGenericResult {

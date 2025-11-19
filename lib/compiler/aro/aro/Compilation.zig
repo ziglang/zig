@@ -774,6 +774,11 @@ fn generateSystemDefines(comp: *Compilation, w: *Io.Writer) !void {
                 try w.print("#define __wasm_{s}__ 1\n", .{feature.name});
             }
         },
+        .s390x => {
+            try define(w, "__s390__");
+            try define(w, "__s390x__");
+            try define(w, "__zarch__");
+        },
         else => {},
     }
 

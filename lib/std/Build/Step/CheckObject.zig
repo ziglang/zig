@@ -1857,15 +1857,26 @@ const ElfDumper = struct {
 
     fn parseAndDumpObject(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        var reader: std.Io.Reader = .fixed(bytes);
 
-        const hdr = try reader.takeStruct(elf.Elf64_Ehdr, .little);
-        if (!mem.eql(u8, hdr.e_ident[0..4], "\x7fELF")) {
-            return error.InvalidMagicNumber;
+        // `std.elf.Header` takes care of endianness issues for us.
+        var reader: std.Io.Reader = .fixed(bytes);
+        const hdr = try elf.Header.read(&reader);
+
+        var shdrs = try gpa.alloc(elf.Elf64_Shdr, hdr.shnum);
+        defer gpa.free(shdrs);
+        {
+            var shdr_it = hdr.iterateSectionHeadersBuffer(bytes);
+            var shdr_i: usize = 0;
+            while (try shdr_it.next()) |shdr| : (shdr_i += 1) shdrs[shdr_i] = shdr;
         }
 
-        const shdrs = @as([*]align(1) const elf.Elf64_Shdr, @ptrCast(bytes.ptr + hdr.e_shoff))[0..hdr.e_shnum];
-        const phdrs = @as([*]align(1) const elf.Elf64_Phdr, @ptrCast(bytes.ptr + hdr.e_phoff))[0..hdr.e_phnum];
+        var phdrs = try gpa.alloc(elf.Elf64_Phdr, hdr.shnum);
+        defer gpa.free(phdrs);
+        {
+            var phdr_it = hdr.iterateProgramHeadersBuffer(bytes);
+            var phdr_i: usize = 0;
+            while (try phdr_it.next()) |phdr| : (phdr_i += 1) phdrs[phdr_i] = phdr;
+        }
 
         var ctx = ObjectContext{
             .gpa = gpa,
@@ -1875,13 +1886,21 @@ const ElfDumper = struct {
             .phdrs = phdrs,
             .shstrtab = undefined,
         };
-        ctx.shstrtab = ctx.getSectionContents(ctx.hdr.e_shstrndx);
+        ctx.shstrtab = ctx.getSectionContents(ctx.hdr.shstrndx);
+
+        defer gpa.free(ctx.symtab.symbols);
+        defer gpa.free(ctx.dysymtab.symbols);
+        defer gpa.free(ctx.dyns);
 
         for (ctx.shdrs, 0..) |shdr, i| switch (shdr.sh_type) {
             elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
                 const raw = ctx.getSectionContents(i);
                 const nsyms = @divExact(raw.len, @sizeOf(elf.Elf64_Sym));
-                const symbols = @as([*]align(1) const elf.Elf64_Sym, @ptrCast(raw.ptr))[0..nsyms];
+                const symbols = try gpa.alloc(elf.Elf64_Sym, nsyms);
+
+                var r: std.Io.Reader = .fixed(raw);
+                for (0..nsyms) |si| symbols[si] = r.takeStruct(elf.Elf64_Sym, ctx.hdr.endian) catch unreachable;
+
                 const strings = ctx.getSectionContents(shdr.sh_link);
 
                 switch (shdr.sh_type) {
@@ -1899,6 +1918,17 @@ const ElfDumper = struct {
                     },
                     else => unreachable,
                 }
+            },
+            elf.SHT_DYNAMIC => {
+                const raw = ctx.getSectionContents(i);
+                const ndyns = @divExact(raw.len, @sizeOf(elf.Elf64_Dyn));
+                const dyns = try gpa.alloc(elf.Elf64_Dyn, ndyns);
+
+                var r: std.Io.Reader = .fixed(raw);
+                for (0..ndyns) |si| dyns[si] = r.takeStruct(elf.Elf64_Dyn, ctx.hdr.endian) catch unreachable;
+
+                ctx.dyns = dyns;
+                ctx.dyns_strings = ctx.getSectionContents(shdr.sh_link);
             },
 
             else => {},
@@ -1923,9 +1953,9 @@ const ElfDumper = struct {
                 try ctx.dumpSymtab(.dysymtab, writer);
             } else return step.fail("no dynamic symbol table found", .{}),
 
-            .dynamic_section => if (ctx.getSectionByName(".dynamic")) |shndx| {
-                try ctx.dumpDynamicSection(shndx, writer);
-            } else return step.fail("no .dynamic section found", .{}),
+            .dynamic_section => if (ctx.dyns.len > 0) {
+                try ctx.dumpDynamicSection(writer);
+            } else return step.fail("no dynamic section found", .{}),
 
             .dump_section => {
                 const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(check.data.items.ptr + check.payload.dump_section)), 0);
@@ -1942,17 +1972,19 @@ const ElfDumper = struct {
     const ObjectContext = struct {
         gpa: Allocator,
         data: []const u8,
-        hdr: elf.Elf64_Ehdr,
-        shdrs: []align(1) const elf.Elf64_Shdr,
-        phdrs: []align(1) const elf.Elf64_Phdr,
+        hdr: elf.Header,
+        shdrs: []const elf.Elf64_Shdr,
+        phdrs: []const elf.Elf64_Phdr,
         shstrtab: []const u8,
         symtab: Symtab = .{},
         dysymtab: Symtab = .{},
+        dyns: []const elf.Elf64_Dyn = &.{},
+        dyns_strings: []const u8 = &.{},
 
         fn dumpHeader(ctx: ObjectContext, writer: anytype) !void {
             try writer.writeAll("header\n");
-            try writer.print("type {s}\n", .{@tagName(ctx.hdr.e_type)});
-            try writer.print("entry {x}\n", .{ctx.hdr.e_entry});
+            try writer.print("type {s}\n", .{@tagName(ctx.hdr.type)});
+            try writer.print("entry {x}\n", .{ctx.hdr.entry});
         }
 
         fn dumpPhdrs(ctx: ObjectContext, writer: anytype) !void {
@@ -2011,16 +2043,10 @@ const ElfDumper = struct {
             }
         }
 
-        fn dumpDynamicSection(ctx: ObjectContext, shndx: usize, writer: anytype) !void {
-            const shdr = ctx.shdrs[shndx];
-            const strtab = ctx.getSectionContents(shdr.sh_link);
-            const data = ctx.getSectionContents(shndx);
-            const nentries = @divExact(data.len, @sizeOf(elf.Elf64_Dyn));
-            const entries = @as([*]align(1) const elf.Elf64_Dyn, @ptrCast(data.ptr))[0..nentries];
-
+        fn dumpDynamicSection(ctx: ObjectContext, writer: anytype) !void {
             try writer.writeAll(ElfDumper.dynamic_section_label ++ "\n");
 
-            for (entries) |entry| {
+            for (ctx.dyns) |entry| {
                 const key = @as(u64, @bitCast(entry.d_tag));
                 const value = entry.d_val;
 
@@ -2067,7 +2093,7 @@ const ElfDumper = struct {
                     elf.DT_RPATH,
                     elf.DT_RUNPATH,
                     => {
-                        const name = getString(strtab, @intCast(value));
+                        const name = getString(ctx.dyns_strings, @intCast(value));
                         try writer.print(" {s}", .{name});
                     },
 
@@ -2256,8 +2282,8 @@ const ElfDumper = struct {
     };
 
     const Symtab = struct {
-        symbols: []align(1) const elf.Elf64_Sym = &[0]elf.Elf64_Sym{},
-        strings: []const u8 = &[0]u8{},
+        symbols: []const elf.Elf64_Sym = &.{},
+        strings: []const u8 = &.{},
 
         fn get(st: Symtab, index: usize) ?elf.Elf64_Sym {
             if (index >= st.symbols.len) return null;

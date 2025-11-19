@@ -4488,6 +4488,8 @@ test "copy_cqes with wrapping sq.cqes buffer" {
 }
 
 test "bind/listen/connect" {
+    if (builtin.cpu.arch == .s390x) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25956
+
     var ring = IoUring.init(4, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
