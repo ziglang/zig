@@ -270,16 +270,17 @@ fn writeSplatHeaderLimitFinish(
             remaining -= copy_len;
             if (remaining == 0) break :v;
         }
-        for (data[0 .. data.len - 1]) |buf| if (buf.len != 0) {
-            const copy_len = @min(header.len, remaining);
-            vecs[i] = buf;
+        for (data[0 .. data.len - 1]) |buf| {
+            if (buf.len == 0) continue;
+            const copy_len = @min(buf.len, remaining);
+            vecs[i] = buf[0..copy_len];
             i += 1;
             remaining -= copy_len;
             if (remaining == 0) break :v;
             if (vecs.len - i == 0) break :v;
-        };
+        }
         const pattern = data[data.len - 1];
-        if (splat == 1) {
+        if (splat == 1 or remaining < pattern.len) {
             vecs[i] = pattern[0..@min(remaining, pattern.len)];
             i += 1;
             break :v;
@@ -915,7 +916,16 @@ pub fn sendFileHeader(
     if (new_end <= w.buffer.len) {
         @memcpy(w.buffer[w.end..][0..header.len], header);
         w.end = new_end;
-        return header.len + try w.vtable.sendFile(w, file_reader, limit);
+        const file_bytes = w.vtable.sendFile(w, file_reader, limit) catch |err| switch (err) {
+            error.ReadFailed, error.WriteFailed => |e| return e,
+            error.EndOfStream, error.Unimplemented => |e| {
+                // These errors are non-fatal, so if we wrote any header bytes, we will report that
+                // and suppress this error. Only if there was no header may we return the error.
+                if (header.len != 0) return header.len;
+                return e;
+            },
+        };
+        return header.len + file_bytes;
     }
     const buffered_contents = limit.slice(file_reader.interface.buffered());
     const n = try w.vtable.drain(w, &.{ header, buffered_contents }, 1);
