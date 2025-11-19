@@ -228,20 +228,21 @@ fn unpackSourcesInner(tar_bytes: []u8) !void {
                 if (std.mem.endsWith(u8, tar_file.name, ".zig")) {
                     log.debug("found file: '{s}'", .{tar_file.name});
                     const file_name = try gpa.dupe(u8, tar_file.name);
-                    if (std.mem.indexOfScalar(u8, file_name, '/')) |pkg_name_end| {
-                        const pkg_name = file_name[0..pkg_name_end];
-                        const gop = try Walk.modules.getOrPut(gpa, pkg_name);
-                        const file: Walk.File.Index = @enumFromInt(Walk.files.entries.len);
-                        if (!gop.found_existing or
-                            std.mem.eql(u8, file_name[pkg_name_end..], "/root.zig") or
-                            std.mem.eql(u8, file_name[pkg_name_end + 1 .. file_name.len - ".zig".len], pkg_name))
-                        {
-                            gop.value_ptr.* = file;
-                        }
-                        const file_bytes = tar_reader.take(@intCast(tar_file.size)) catch unreachable;
-                        it.unread_file_bytes = 0; // we have read the whole thing
-                        assert(file == try Walk.add_file(file_name, file_bytes));
-                    }
+                    // This is a hack to guess modules from the tar file contents. To handle modules
+                    // properly, the build system will need to change the structure here to have one
+                    // directory per module. This in turn requires compiler enhancements to allow
+                    // the build system to actually discover the required information.
+                    const mod_name, const is_module_root = p: {
+                        if (std.mem.find(u8, file_name, "std/")) |i| break :p .{ "std", std.mem.eql(u8, file_name[i + 4 ..], "std.zig") };
+                        if (std.mem.endsWith(u8, file_name, "/builtin.zig")) break :p .{ "builtin", true };
+                        break :p .{ "root", std.mem.endsWith(u8, file_name, "/root.zig") };
+                    };
+                    const gop = try Walk.modules.getOrPut(gpa, mod_name);
+                    const file: Walk.File.Index = @enumFromInt(Walk.files.entries.len);
+                    if (!gop.found_existing or is_module_root) gop.value_ptr.* = file;
+                    const file_bytes = tar_reader.take(@intCast(tar_file.size)) catch unreachable;
+                    it.unread_file_bytes = 0; // we have read the whole thing
+                    assert(file == try Walk.add_file(file_name, file_bytes));
                 } else {
                     log.warn("skipping: '{s}' - the tar creation should have done that", .{tar_file.name});
                 }
