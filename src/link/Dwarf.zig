@@ -635,7 +635,7 @@ const Unit = struct {
         const available_len = if (unit.prev.unwrap()) |prev_unit| prev_excess: {
             const prev_unit_ptr = sec.getUnit(prev_unit);
             break :prev_excess unit.off - prev_unit_ptr.off - prev_unit_ptr.len;
-        } else 0;
+        } else unit.off;
         if (available_len + unit.header_len < len)
             try unit.resize(sec, dwarf, len - unit.header_len, unit.len - unit.header_len + len);
         if (unit.header_len > len) {
