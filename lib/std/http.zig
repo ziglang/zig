@@ -962,6 +962,7 @@ pub const BodyWriter = struct {
             // have to flush the chunk header before knowing the chunk length.
             return error.Unimplemented;
         };
+        if (data_len == 0) return error.EndOfStream;
         const out = bw.http_protocol_output;
         l: switch (bw.state.chunk_len) {
             0 => {
@@ -975,8 +976,7 @@ pub const BodyWriter = struct {
             2 => {
                 try out.writeAll("\r\n");
                 bw.state.chunk_len = 0;
-                assert(file_reader.atEnd());
-                return error.EndOfStream;
+                continue :l 0;
             },
             else => {
                 const chunk_limit: std.Io.Limit = .limited(bw.state.chunk_len - 2);
@@ -985,8 +985,7 @@ pub const BodyWriter = struct {
                 else
                     try out.write(chunk_limit.slice(w.buffered()));
                 bw.state.chunk_len -= n;
-                const ret = w.consume(n);
-                return ret;
+                return w.consume(n);
             },
         }
     }
