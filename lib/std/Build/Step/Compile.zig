@@ -1932,6 +1932,11 @@ pub fn rebuildInFuzzMode(c: *Compile, gpa: Allocator, progress_node: std.Progres
     c.step.result_error_bundle.deinit(gpa);
     c.step.result_error_bundle = std.zig.ErrorBundle.empty;
 
+    if (c.step.result_failed_command) |cmd| {
+        gpa.free(cmd);
+        c.step.result_failed_command = null;
+    }
+
     const zig_args = try getZigArgs(c, true);
     const maybe_output_bin_path = try c.step.evalZigProcess(zig_args, progress_node, false, null, gpa);
     return maybe_output_bin_path.?;

@@ -1140,6 +1140,12 @@ pub fn rerunInFuzzMode(
             .output_file, .output_directory => unreachable,
         }
     }
+
+    if (run.step.result_failed_command) |cmd| {
+        fuzz.gpa.free(cmd);
+        run.step.result_failed_command = null;
+    }
+
     const has_side_effects = false;
     const rand_int = std.crypto.random.int(u64);
     const tmp_dir_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
@@ -1150,7 +1156,7 @@ pub fn rerunInFuzzMode(
         .web_server = null, // only needed for time reports
         .ttyconf = fuzz.ttyconf,
         .unit_test_timeout_ns = null, // don't time out fuzz tests for now
-        .gpa = undefined, // not used by `runCommand`
+        .gpa = fuzz.gpa,
     }, .{
         .unit_test_index = unit_test_index,
         .fuzz = fuzz,
@@ -1870,7 +1876,10 @@ fn pollZigTest(
     // test. For instance, if the test runner leaves this much time between us requesting a test to
     // start and it acknowledging the test starting, we terminate the child and raise an error. This
     // *should* never happen, but could in theory be caused by some very unlucky IB in a test.
-    const response_timeout_ns = @max(options.unit_test_timeout_ns orelse 0, 60 * std.time.ns_per_s);
+    const response_timeout_ns: ?u64 = ns: {
+        if (fuzz_context != null) break :ns null; // don't timeout fuzz tests
+        break :ns @max(options.unit_test_timeout_ns orelse 0, 60 * std.time.ns_per_s);
+    };
 
     const stdout = poller.reader(.stdout);
     const stderr = poller.reader(.stderr);
