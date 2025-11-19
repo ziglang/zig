@@ -1858,7 +1858,6 @@ fn emitTagNameFunction(
 ) !void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
-    const diags = &comp.link_diags;
     const zcu = comp.zcu.?;
     const ip = &zcu.intern_pool;
     const enum_type = ip.loadEnumType(enum_type_ip);
@@ -1889,52 +1888,74 @@ fn emitTagNameFunction(
         appendReservedUleb32(code, 0);
     } else {
         const int_info = Zcu.Type.intInfo(.fromInterned(enum_type.tag_ty), zcu);
-        const outer_block_type: std.wasm.BlockType = switch (int_info.bits) {
-            0...32 => .i32,
-            33...64 => .i64,
-            else => return diags.fail("wasm linker does not yet implement @tagName for sparse enums with more than 64 bit integer tag types", .{}),
-        };
+        const is_big_int = int_info.bits > 64;
 
         code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_get));
         appendReservedUleb32(code, 0);
 
         // Outer block that computes table offset.
+        // use i32 block type since we're computing a table offset
         code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.block));
-        code.appendAssumeCapacity(@intFromEnum(outer_block_type));
+        code.appendAssumeCapacity(@intFromEnum(std.wasm.BlockType.i32));
 
         for (tag_values, 0..) |tag_value, tag_index| {
             // block for this if case
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.block));
             code.appendAssumeCapacity(@intFromEnum(std.wasm.BlockType.empty));
 
-            // Tag value whose name should be returned.
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_get));
-            appendReservedUleb32(code, 1);
-
             const val: Zcu.Value = .fromInterned(tag_value);
-            switch (outer_block_type) {
-                .i32 => {
+            if (is_big_int) {
+                var val_space: Zcu.Value.BigIntSpace = undefined;
+                const val_bigint = val.toBigInt(&val_space, zcu);
+                const num_limbs = (int_info.bits + 63) / 64;
+
+                const limbs = try gpa.alloc(u64, num_limbs);
+                defer gpa.free(limbs);
+                val_bigint.writeTwosComplement(@ptrCast(limbs), .little);
+
+                try code.ensureUnusedCapacity(gpa, 7 * 5 + 6 + 1 * 6 + 20 * num_limbs);
+
+                for (0..num_limbs) |limb_index| {
+                    // load the limb from memory (local 1 is pointer)
+                    code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_get));
+                    appendReservedUleb32(code, 1);
+
+                    code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i64_load));
+                    appendReservedUleb32(code, @ctz(@as(u32, 8))); // alignment for i64
+                    appendReservedUleb32(code, @intCast(limb_index * 8));
+
+                    appendReservedI64Const(code, limbs[limb_index]);
+                    code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i64_ne));
+
+                    // if not equal, break out of current case block
+                    code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.br_if));
+                    appendReservedUleb32(code, 0);
+                }
+            } else {
+                // Tag value whose name should be returned.
+                code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_get));
+                appendReservedUleb32(code, 1);
+
+                if (int_info.bits <= 32) {
                     const x: u32 = switch (int_info.signedness) {
                         .signed => @bitCast(@as(i32, @intCast(val.toSignedInt(zcu)))),
                         .unsigned => @intCast(val.toUnsignedInt(zcu)),
                     };
                     appendReservedI32Const(code, x);
                     code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_ne));
-                },
-                .i64 => {
+                } else {
                     const x: u64 = switch (int_info.signedness) {
                         .signed => @bitCast(val.toSignedInt(zcu)),
                         .unsigned => val.toUnsignedInt(zcu),
                     };
                     appendReservedI64Const(code, x);
                     code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i64_ne));
-                },
-                else => unreachable,
-            }
+                }
 
-            // if they're not equal, break out of current branch
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.br_if));
-            appendReservedUleb32(code, 0);
+                // if they're not equal, break out of current branch
+                code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.br_if));
+                appendReservedUleb32(code, 0);
+            }
 
             // Put the table offset of the result on the stack.
             appendReservedI32Const(code, @intCast(tag_index * slice_abi_size));
@@ -1967,7 +1988,7 @@ fn appendReservedI32Const(bytes: *ArrayList(u8), val: u32) void {
     bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
     var w: std.Io.Writer = .fromArrayList(bytes);
     defer bytes.* = w.toArrayList();
-    return w.writeSleb128(val) catch |err| switch (err) {
+    return w.writeSleb128(@as(i32, @bitCast(val))) catch |err| switch (err) {
         error.WriteFailed => unreachable,
     };
 }
@@ -1977,7 +1998,7 @@ fn appendReservedI64Const(bytes: *ArrayList(u8), val: u64) void {
     bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i64_const));
     var w: std.Io.Writer = .fromArrayList(bytes);
     defer bytes.* = w.toArrayList();
-    return w.writeSleb128(val) catch |err| switch (err) {
+    return w.writeSleb128(@as(i64, @bitCast(val))) catch |err| switch (err) {
         error.WriteFailed => unreachable,
     };
 }
