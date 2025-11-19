@@ -1,8 +1,7 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
+const builtin = @import("builtin");
 
 fn initStaticArray() [10]i32 {
     var array: [10]i32 = undefined;

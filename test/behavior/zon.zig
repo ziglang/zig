@@ -1,5 +1,4 @@
 const std = @import("std");
-
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualDeep = std.testing.expectEqualDeep;
@@ -7,17 +6,17 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 const expectEqualStrings = std.testing.expectEqualStrings;
 
 test "bool" {
-    try expectEqual(true, @as(bool, @import("zon/true.zon")));
-    try expectEqual(false, @as(bool, @import("zon/false.zon")));
+    try expect(true == @as(bool, @import("zon/true.zon")));
+    try expect(false == @as(bool, @import("zon/false.zon")));
 }
 
 test "optional" {
     const some: ?u32 = @import("zon/some.zon");
     const none: ?u32 = @import("zon/none.zon");
     const @"null": @TypeOf(null) = @import("zon/none.zon");
-    try expectEqual(@as(u32, 10), some);
-    try expectEqual(@as(?u32, null), none);
-    try expectEqual(null, @"null");
+    try expect(@as(u32, 10) == some);
+    try expect(@as(?u32, null) == none);
+    try expect(null == @"null");
 }
 
 test "union" {
@@ -33,9 +32,9 @@ test "union" {
         const union2: Union = @import("zon/union2.zon");
         const union3: Union = @import("zon/union3.zon");
 
-        try expectEqual(1.5, union1.x);
-        try expectEqual(true, union2.y);
-        try expectEqual({}, union3.z);
+        try expect(1.5 == union1.x);
+        try expect(true == union2.y);
+        try expect({} == union3.z);
     }
 
     // Inferred tag
@@ -50,9 +49,9 @@ test "union" {
         const union2: Union = @import("zon/union2.zon");
         const union3: Union = @import("zon/union3.zon");
 
-        try expectEqual(1.5, union1.x);
-        try expectEqual(true, union2.y);
-        try expectEqual({}, union3.z);
+        try expect(1.5 == union1.x);
+        try expect(true == union2.y);
+        try expect({} == union3.z);
     }
 
     // Explicit tag
@@ -72,9 +71,9 @@ test "union" {
         const union2: Union = @import("zon/union2.zon");
         const union3: Union = @import("zon/union3.zon");
 
-        try expectEqual(1.5, union1.x);
-        try expectEqual(true, union2.y);
-        try expectEqual({}, union3.z);
+        try expect(1.5 == union1.x);
+        try expect(true == union2.y);
+        try expect({} == union3.z);
     }
 }
 
@@ -162,17 +161,17 @@ test "comptime fields" {
 }
 
 test "char" {
-    try expectEqual(@as(u8, 'a'), @as(u8, @import("zon/a.zon")));
-    try expectEqual(@as(u8, 'z'), @as(u8, @import("zon/z.zon")));
+    try expect(@as(u8, 'a') == @as(u8, @import("zon/a.zon")));
+    try expect(@as(u8, 'z') == @as(u8, @import("zon/z.zon")));
 }
 
 test "arrays" {
     try expectEqual([0]u8{}, @as([0]u8, @import("zon/vec0.zon")));
     try expectEqual([0:1]u8{}, @as([0:1]u8, @import("zon/vec0.zon")));
-    try expectEqual(1, @as([0:1]u8, @import("zon/vec0.zon"))[0]);
+    try expect(1 == @as([0:1]u8, @import("zon/vec0.zon"))[0]);
     try expectEqual([4]u8{ 'a', 'b', 'c', 'd' }, @as([4]u8, @import("zon/array.zon")));
     try expectEqual([4:2]u8{ 'a', 'b', 'c', 'd' }, @as([4:2]u8, @import("zon/array.zon")));
-    try expectEqual(2, @as([4:2]u8, @import("zon/array.zon"))[4]);
+    try expect(2 == @as([4:2]u8, @import("zon/array.zon"))[4]);
 }
 
 test "slices, arrays, tuples" {
@@ -227,7 +226,7 @@ test "string literals" {
     try expectEqualSlices(u8, "ab\\c", @import("zon/abc-escaped.zon"));
     const zero_terminated: [:0]const u8 = @import("zon/abc.zon");
     try expectEqualDeep(zero_terminated, "abc");
-    try expectEqual(0, zero_terminated[zero_terminated.len]);
+    try expect(0 == zero_terminated[zero_terminated.len]);
     try expectEqualStrings(
         \\Hello, world!
         \\This is a multiline string!
@@ -243,9 +242,9 @@ test "enum literals" {
         baz,
         @"0\na",
     };
-    try expectEqual(Enum.foo, @as(Enum, @import("zon/foo.zon")));
-    try expectEqual(.foo, @as(@TypeOf(.foo), @import("zon/foo.zon")));
-    try expectEqual(Enum.@"0\na", @as(Enum, @import("zon/escaped_enum.zon")));
+    try expect(Enum.foo == @as(Enum, @import("zon/foo.zon")));
+    try expect(.foo == @as(@TypeOf(.foo), @import("zon/foo.zon")));
+    try expect(Enum.@"0\na" == @as(Enum, @import("zon/escaped_enum.zon")));
 }
 
 test "int" {
@@ -467,25 +466,25 @@ test "vector" {
 
 test "pointers" {
     // Primitive with varying levels of pointers
-    try expectEqual(@as(u8, 'a'), @as(*const u8, @import("zon/a.zon")).*);
-    try expectEqual(@as(u8, 'a'), @as(*const *const u8, @import("zon/a.zon")).*.*);
-    try expectEqual(@as(u8, 'a'), @as(*const *const *const u8, @import("zon/a.zon")).*.*.*);
+    try expect(@as(u8, 'a') == @as(*const u8, @import("zon/a.zon")).*);
+    try expect(@as(u8, 'a') == @as(*const *const u8, @import("zon/a.zon")).*.*);
+    try expect(@as(u8, 'a') == @as(*const *const *const u8, @import("zon/a.zon")).*.*.*);
 
     // Primitive optional with varying levels of pointers
-    try expectEqual(@as(u8, 'a'), @as(?*const u8, @import("zon/a.zon")).?.*);
-    try expectEqual(null, @as(?*const u8, @import("zon/none.zon")));
+    try expect(@as(u8, 'a') == @as(?*const u8, @import("zon/a.zon")).?.*);
+    try expect(null == @as(?*const u8, @import("zon/none.zon")));
 
-    try expectEqual(@as(u8, 'a'), @as(*const ?u8, @import("zon/a.zon")).*.?);
-    try expectEqual(null, @as(*const ?u8, @import("zon/none.zon")).*);
+    try expect(@as(u8, 'a') == @as(*const ?u8, @import("zon/a.zon")).*.?);
+    try expect(null == @as(*const ?u8, @import("zon/none.zon")).*);
 
-    try expectEqual(@as(u8, 'a'), @as(?*const *const u8, @import("zon/a.zon")).?.*.*);
-    try expectEqual(null, @as(?*const *const u8, @import("zon/none.zon")));
+    try expect(@as(u8, 'a') == @as(?*const *const u8, @import("zon/a.zon")).?.*.*);
+    try expect(null == @as(?*const *const u8, @import("zon/none.zon")));
 
-    try expectEqual(@as(u8, 'a'), @as(*const ?*const u8, @import("zon/a.zon")).*.?.*);
-    try expectEqual(null, @as(*const ?*const u8, @import("zon/none.zon")).*);
+    try expect(@as(u8, 'a') == @as(*const ?*const u8, @import("zon/a.zon")).*.?.*);
+    try expect(null == @as(*const ?*const u8, @import("zon/none.zon")).*);
 
-    try expectEqual(@as(u8, 'a'), @as(*const *const ?u8, @import("zon/a.zon")).*.*.?);
-    try expectEqual(null, @as(*const *const ?u8, @import("zon/none.zon")).*.*);
+    try expect(@as(u8, 'a') == @as(*const *const ?u8, @import("zon/a.zon")).*.*.?);
+    try expect(null == @as(*const *const ?u8, @import("zon/none.zon")).*.*);
 
     try expectEqual([3]u8{ 2, 4, 6 }, @as(*const [3]u8, @import("zon/vec3_int.zon")).*);
 
@@ -552,22 +551,22 @@ test "anon" {
 test "build.zig.zon" {
     const build = @import("zon/build.zig.zon");
 
-    try expectEqual(4, @typeInfo(@TypeOf(build)).@"struct".fields.len);
+    try expect(4 == @typeInfo(@TypeOf(build)).@"struct".fields.len);
     try expectEqualStrings("temp", build.name);
     try expectEqualStrings("0.0.0", build.version);
 
     const dependencies = build.dependencies;
-    try expectEqual(2, @typeInfo(@TypeOf(dependencies)).@"struct".fields.len);
+    try expect(2 == @typeInfo(@TypeOf(dependencies)).@"struct".fields.len);
 
     const example_0 = dependencies.example_0;
-    try expectEqual(2, @typeInfo(@TypeOf(dependencies)).@"struct".fields.len);
+    try expect(2 == @typeInfo(@TypeOf(dependencies)).@"struct".fields.len);
     try expectEqualStrings("https://example.com/foo.tar.gz", example_0.url);
     try expectEqualStrings("...", example_0.hash);
 
     const example_1 = dependencies.example_1;
-    try expectEqual(2, @typeInfo(@TypeOf(dependencies)).@"struct".fields.len);
+    try expect(2 == @typeInfo(@TypeOf(dependencies)).@"struct".fields.len);
     try expectEqualStrings("../foo", example_1.path);
-    try expectEqual(false, example_1.lazy);
+    try expect(false == example_1.lazy);
 
     try expectEqual(.{ "build.zig", "build.zig.zon", "src" }, build.paths);
 }
