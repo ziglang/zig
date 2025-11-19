@@ -20,7 +20,7 @@ jobs:
           fetch-depth: 0
       - name: Build and Test
         run: sh ci/aarch64-linux-debug.sh
-        timeout-minutes: 120
+        timeout-minutes: 180
   aarch64-linux-release:
     runs-on: [self-hosted, aarch64-linux]
     steps:
