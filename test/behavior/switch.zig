@@ -1118,3 +1118,9 @@ test "switch on non-exhaustive enum" {
     try E.doTheTest(.a);
     try comptime E.doTheTest(.a);
 }
+
+test "switch on void without else prong" {
+    switch ({}) {
+        {} => {},
+    }
+}
