@@ -702,6 +702,7 @@ pub const Type = union(enum) {
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
+    /// `null` is the set of all errors (`@typeInfo(anyerror).error_set`).
     pub const ErrorSet = ?[]const Error;
 
     /// This data structure is used by the Zig language code generation and

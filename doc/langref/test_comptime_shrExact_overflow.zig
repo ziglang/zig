@@ -3,4 +3,4 @@ comptime {
     _ = x;
 }
 
-// test_error=exact shift shifted out 1 bits
+// test_error=exact right shift shifted out 1 bits

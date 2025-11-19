@@ -773,9 +773,9 @@
 
       <p>
       {#syntax#}undefined{#endsyntax#} can be {#link|coerced|Type Coercion#} to any type.
-          Once this happens, it is no longer possible to detect that the value is {#syntax#}undefined{#endsyntax#}.
-              {#syntax#}undefined{#endsyntax#} means the value could be anything, even something that is nonsense
-                  according to the type. Translated into English, {#syntax#}undefined{#endsyntax#} means "Not a meaningful
+      Once this happens, it is no longer possible to detect that the value is {#syntax#}undefined{#endsyntax#}.
+      {#syntax#}undefined{#endsyntax#} means the value could be anything, even something that is nonsense
+      according to the type. Translated into English, {#syntax#}undefined{#endsyntax#} means "Not a meaningful
       value. Using this value would be a bug. The value will be unused, or overwritten before being used."
       </p>
       <p>
@@ -5393,9 +5393,9 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <pre>{#syntax#}@shlExact(value: T, shift_amt: Log2T) T{#endsyntax#}</pre>
       <p>
       Performs the left shift operation ({#syntax#}<<{#endsyntax#}).
-      For unsigned integers, the result is {#link|undefined#} if any 1 bits
-      are shifted out. For signed integers, the result is {#link|undefined#} if
-      any bits that disagree with the resultant sign bit are shifted out.
+      For unsigned integers, shifting out any 1 bits results in safety-checked
+      {#link|Illegal Behavior#}. For signed integers, shifting out any bits
+      that disagree with the resultant sign bit results in safety-checked {#link|Illegal Behavior#}.
       </p>
       <p>
       The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).int.bits){#endsyntax#} bits.
@@ -5424,8 +5424,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@shrExact#}
       <pre>{#syntax#}@shrExact(value: T, shift_amt: Log2T) T{#endsyntax#}</pre>
       <p>
-      Performs the right shift operation ({#syntax#}>>{#endsyntax#}). Caller guarantees
-      that the shift will not shift any 1 bits out.
+      Performs the right shift operation ({#syntax#}>>{#endsyntax#}).
+      Shifting out any 1 bits results in safety-checked {#link|Illegal Behavior#}.
       </p>
       <p>
       The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).int.bits){#endsyntax#} bits.
@@ -5712,7 +5712,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@This#}
       <pre>{#syntax#}@This() type{#endsyntax#}</pre>
       <p>
-      Returns the innermost struct, enum, or union that this function call is inside.
+      Returns the innermost non-tuple struct, enum, or union that this function call is inside.
       This can be useful for an anonymous struct that needs to refer to itself:
       </p>
       {#code|test_this_builtin.zig#}
