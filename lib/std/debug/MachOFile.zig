@@ -356,11 +356,58 @@ test {
     _ = Symbol;
 }
 
-fn loadOFile(gpa: Allocator, o_file_path: []const u8) !OFile {
-    const mapped_mem = try mapDebugInfoFile(o_file_path);
-    errdefer posix.munmap(mapped_mem);
+fn loadOFile(gpa: Allocator, o_file_name: []const u8) !OFile {
+    const all_mapped_memory, const mapped_ofile = map: {
+        const open_paren = paren: {
+            if (std.mem.endsWith(u8, o_file_name, ")")) {
+                if (std.mem.findScalarLast(u8, o_file_name, '(')) |i| {
+                    break :paren i;
+                }
+            }
+            // Not an archive, just a normal path to a .o file
+            const m = try mapDebugInfoFile(o_file_name);
+            break :map .{ m, m };
+        };
 
-    var r: Io.Reader = .fixed(mapped_mem);
+        // We have the form 'path/to/archive.a(entry.o)'. Map the archive and find the object file in question.
+
+        const archive_path = o_file_name[0..open_paren];
+        const target_name_in_archive = o_file_name[open_paren + 1 .. o_file_name.len - 1];
+        const mapped_archive = try mapDebugInfoFile(archive_path);
+        errdefer posix.munmap(mapped_archive);
+
+        var ar_reader: Io.Reader = .fixed(mapped_archive);
+        const ar_magic = ar_reader.take(8) catch return error.InvalidMachO;
+        if (!std.mem.eql(u8, ar_magic, "!<arch>\n")) return error.InvalidMachO;
+        while (true) {
+            if (ar_reader.seek == ar_reader.buffer.len) return error.MissingDebugInfo;
+
+            const raw_name = ar_reader.takeArray(16) catch return error.InvalidMachO;
+            ar_reader.discardAll(12 + 6 + 6 + 8) catch return error.InvalidMachO;
+            const raw_size = ar_reader.takeArray(10) catch return error.InvalidMachO;
+            const file_magic = ar_reader.takeArray(2) catch return error.InvalidMachO;
+            if (!std.mem.eql(u8, file_magic, "`\n")) return error.InvalidMachO;
+
+            const size = std.fmt.parseInt(u32, mem.sliceTo(raw_size, ' '), 10) catch return error.InvalidMachO;
+            const raw_data = ar_reader.take(size) catch return error.InvalidMachO;
+
+            const entry_name: []const u8, const entry_contents: []const u8 = entry: {
+                if (!std.mem.startsWith(u8, raw_name, "#1/")) {
+                    break :entry .{ mem.sliceTo(raw_name, '/'), raw_data };
+                }
+                const len = std.fmt.parseInt(u32, mem.sliceTo(raw_name[3..], ' '), 10) catch return error.InvalidMachO;
+                if (len > size) return error.InvalidMachO;
+                break :entry .{ mem.sliceTo(raw_data[0..len], 0), raw_data[len..] };
+            };
+
+            if (std.mem.eql(u8, entry_name, target_name_in_archive)) {
+                break :map .{ mapped_archive, entry_contents };
+            }
+        }
+    };
+    errdefer posix.munmap(all_mapped_memory);
+
+    var r: Io.Reader = .fixed(mapped_ofile);
     const hdr = r.takeStruct(macho.mach_header_64, .little) catch |err| switch (err) {
         error.ReadFailed => unreachable,
         error.EndOfStream => return error.InvalidMachO,
@@ -370,7 +417,7 @@ fn loadOFile(gpa: Allocator, o_file_path: []const u8) !OFile {
     const seg_cmd: macho.LoadCommandIterator.LoadCommand, const symtab_cmd: macho.symtab_command = cmds: {
         var seg_cmd: ?macho.LoadCommandIterator.LoadCommand = null;
         var symtab_cmd: ?macho.symtab_command = null;
-        var it: macho.LoadCommandIterator = try .init(&hdr, mapped_mem[@sizeOf(macho.mach_header_64)..]);
+        var it: macho.LoadCommandIterator = try .init(&hdr, mapped_ofile[@sizeOf(macho.mach_header_64)..]);
         while (try it.next()) |lc| switch (lc.hdr.cmd) {
             .SEGMENT_64 => seg_cmd = lc,
             .SYMTAB => symtab_cmd = lc.cast(macho.symtab_command) orelse return error.InvalidMachO,
@@ -382,13 +429,13 @@ fn loadOFile(gpa: Allocator, o_file_path: []const u8) !OFile {
         };
     };
 
-    if (mapped_mem.len < symtab_cmd.stroff + symtab_cmd.strsize) return error.InvalidMachO;
-    if (mapped_mem[symtab_cmd.stroff + symtab_cmd.strsize - 1] != 0) return error.InvalidMachO;
-    const strtab = mapped_mem[symtab_cmd.stroff..][0 .. symtab_cmd.strsize - 1];
+    if (mapped_ofile.len < symtab_cmd.stroff + symtab_cmd.strsize) return error.InvalidMachO;
+    if (mapped_ofile[symtab_cmd.stroff + symtab_cmd.strsize - 1] != 0) return error.InvalidMachO;
+    const strtab = mapped_ofile[symtab_cmd.stroff..][0 .. symtab_cmd.strsize - 1];
 
     const n_sym_bytes = symtab_cmd.nsyms * @sizeOf(macho.nlist_64);
-    if (mapped_mem.len < symtab_cmd.symoff + n_sym_bytes) return error.InvalidMachO;
-    const symtab_raw: []align(1) const macho.nlist_64 = @ptrCast(mapped_mem[symtab_cmd.symoff..][0..n_sym_bytes]);
+    if (mapped_ofile.len < symtab_cmd.symoff + n_sym_bytes) return error.InvalidMachO;
+    const symtab_raw: []align(1) const macho.nlist_64 = @ptrCast(mapped_ofile[symtab_cmd.symoff..][0..n_sym_bytes]);
 
     // TODO handle tentative (common) symbols
     var symbols_by_name: std.ArrayHashMapUnmanaged(u32, void, void, true) = .empty;
@@ -423,8 +470,8 @@ fn loadOFile(gpa: Allocator, o_file_path: []const u8) !OFile {
             if (mem.eql(u8, "__" ++ section.name, sect.sectName())) break i;
         } else continue;
 
-        if (mapped_mem.len < sect.offset + sect.size) return error.InvalidMachO;
-        const section_bytes = mapped_mem[sect.offset..][0..sect.size];
+        if (mapped_ofile.len < sect.offset + sect.size) return error.InvalidMachO;
+        const section_bytes = mapped_ofile[sect.offset..][0..sect.size];
         sections[section_index] = .{
             .data = section_bytes,
             .owned = false,
@@ -455,7 +502,7 @@ fn loadOFile(gpa: Allocator, o_file_path: []const u8) !OFile {
     };
 
     return .{
-        .mapped_memory = mapped_mem,
+        .mapped_memory = all_mapped_memory,
         .dwarf = dwarf,
         .strtab = strtab,
         .symtab_raw = symtab_raw,
