@@ -22,16 +22,17 @@ pub const GetCwdError = posix.GetCwdError;
 /// The result is a slice of `out_buffer`, from index `0`.
 /// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
-pub fn getCwd(out_buffer: []u8) ![]u8 {
+pub fn getCwd(out_buffer: []u8) GetCwdError![]u8 {
     return posix.getcwd(out_buffer);
 }
 
-pub const GetCwdAllocError = Allocator.Error || posix.GetCwdError;
+// Same as GetCwdError, minus error.NameTooLong + Allocator.Error
+pub const GetCwdAllocError = Allocator.Error || error{CurrentWorkingDirectoryUnlinked} || posix.UnexpectedError;
 
 /// Caller must free the returned memory.
 /// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
-pub fn getCwdAlloc(allocator: Allocator) ![]u8 {
+pub fn getCwdAlloc(allocator: Allocator) GetCwdAllocError![]u8 {
     // The use of max_path_bytes here is just a heuristic: most paths will fit
     // in stack_buf, avoiding an extra allocation in the common case.
     var stack_buf: [fs.max_path_bytes]u8 = undefined;
