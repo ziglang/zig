@@ -268,6 +268,7 @@ fn testServer(server: *net.Server) anyerror!void {
 test "listen on a unix socket, send bytes, receive bytes" {
     if (builtin.single_threaded) return error.SkipZigTest;
     if (!net.has_unix_sockets) return error.SkipZigTest;
+    if (builtin.os.tag == .windows) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25983
 
     const io = testing.io;
 
