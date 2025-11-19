@@ -40,43 +40,50 @@ project(zig
 set(ZIG_VERSION_MAJOR 0)
 set(ZIG_VERSION_MINOR 16)
 set(ZIG_VERSION_PATCH 0)
-set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
 
-if("${ZIG_VERSION}" STREQUAL "")
-    set(RESOLVED_ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
-    find_program(GIT_EXE NAMES git NAMES_PER_DIR)
-    if(GIT_EXE AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
-        execute_process(
-            COMMAND ${GIT_EXE} -C "${PROJECT_SOURCE_DIR}" describe --match *.*.* --tags --abbrev=9
-            RESULT_VARIABLE EXIT_STATUS
-            OUTPUT_VARIABLE GIT_DESCRIBE
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            ERROR_QUIET)
-        if(EXIT_STATUS EQUAL "0")
-            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/.git/HEAD")
-            if(GIT_DESCRIBE MATCHES "^v?([0-9]+\\.[0-9]+\\.[0-9]+)$")
-                # Tagged release version.
-                set(GIT_TAG ${CMAKE_MATCH_1})
-                if(NOT GIT_TAG VERSION_EQUAL RESOLVED_ZIG_VERSION)
-                    message(SEND_ERROR "Zig version (${RESOLVED_ZIG_VERSION}) does not match Git tag (${GIT_TAG}).")
-                endif()
-            elseif(GIT_DESCRIBE MATCHES "^v?([0-9]+\\.[0-9]+\\.[0-9]+)-([0-9]+)-g(.+)$")
-                # Untagged pre-release. The Zig version is updated to include the number of commits
-                # since the last tagged version and the commit hash. The version is formatted in
-                # accordance with the https://semver.org specification.
-                set(GIT_TAG ${CMAKE_MATCH_1})
-                set(GIT_COMMITS_AFTER_TAG ${CMAKE_MATCH_2})
-                set(GIT_COMMIT ${CMAKE_MATCH_3})
-                if(NOT RESOLVED_ZIG_VERSION VERSION_GREATER GIT_TAG)
-                    message(SEND_ERROR "Zig version (${RESOLVED_ZIG_VERSION}) must be greater than tagged ancestor (${GIT_TAG}).")
-                endif()
-                set(RESOLVED_ZIG_VERSION "${RESOLVED_ZIG_VERSION}-dev.${GIT_COMMITS_AFTER_TAG}+${GIT_COMMIT}")
-            else()
-                message(WARNING "Failed to parse version from output of `git describe`.")
-            endif()
-        endif()
-    endif()
+option(ZIG_VERSION_OVERRIDE "Override the default handling of Zig version string if using git is not desired" OFF)
+if(NOT ZIG_VERSION_OVERRIDE)
+	set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
+
+	if("${ZIG_VERSION}" STREQUAL "")
+		set(RESOLVED_ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
+		find_program(GIT_EXE NAMES git NAMES_PER_DIR)
+		if(GIT_EXE AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
+			execute_process(
+				COMMAND ${GIT_EXE} -C "${PROJECT_SOURCE_DIR}" describe --match *.*.* --tags --abbrev=9
+				RESULT_VARIABLE EXIT_STATUS
+				OUTPUT_VARIABLE GIT_DESCRIBE
+				OUTPUT_STRIP_TRAILING_WHITESPACE
+				ERROR_QUIET)
+			if(EXIT_STATUS EQUAL "0")
+				set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/.git/HEAD")
+				if(GIT_DESCRIBE MATCHES "^v?([0-9]+\\.[0-9]+\\.[0-9]+)$")
+					# Tagged release version.
+					set(GIT_TAG ${CMAKE_MATCH_1})
+					if(NOT GIT_TAG VERSION_EQUAL RESOLVED_ZIG_VERSION)
+						message(SEND_ERROR "Zig version (${RESOLVED_ZIG_VERSION}) does not match Git tag (${GIT_TAG}).")
+					endif()
+				elseif(GIT_DESCRIBE MATCHES "^v?([0-9]+\\.[0-9]+\\.[0-9]+)-([0-9]+)-g(.+)$")
+					# Untagged pre-release. The Zig version is updated to include the number of commits
+					# since the last tagged version and the commit hash. The version is formatted in
+					# accordance with the https://semver.org specification.
+					set(GIT_TAG ${CMAKE_MATCH_1})
+					set(GIT_COMMITS_AFTER_TAG ${CMAKE_MATCH_2})
+					set(GIT_COMMIT ${CMAKE_MATCH_3})
+					if(NOT RESOLVED_ZIG_VERSION VERSION_GREATER GIT_TAG)
+						message(SEND_ERROR "Zig version (${RESOLVED_ZIG_VERSION}) must be greater than tagged ancestor (${GIT_TAG}).")
+					endif()
+					set(RESOLVED_ZIG_VERSION "${RESOLVED_ZIG_VERSION}-dev.${GIT_COMMITS_AFTER_TAG}+${GIT_COMMIT}")
+				else()
+					message(WARNING "Failed to parse version from output of `git describe`.")
+				endif()
+			endif()
+		endif()
+	endif()
 else()
+	if("${ZIG_VERSION}" STREQUAL "")
+		set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
+	endif()
     set(RESOLVED_ZIG_VERSION "${ZIG_VERSION}")
 endif()
 message(STATUS "Configuring zig version ${RESOLVED_ZIG_VERSION}")
