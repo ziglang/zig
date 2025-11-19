@@ -116,13 +116,18 @@ const Executable = struct {
                 "failed to init memory map for coverage file '{s}': {t}",
                 .{ &coverage_file_name, e },
             );
-            map.appendSliceAssumeCapacity(mem.asBytes(&abi.SeenPcsHeader{
+            map.appendSliceAssumeCapacity(@ptrCast(&abi.SeenPcsHeader{
                 .n_runs = 0,
                 .unique_runs = 0,
                 .pcs_len = pcs.len,
             }));
             map.appendNTimesAssumeCapacity(0, pc_bitset_usizes * @sizeOf(usize));
-            map.appendSliceAssumeCapacity(mem.sliceAsBytes(pcs));
+            // Relocations have been applied to `pcs` so it contains runtime addresses (with slide
+            // applied). We need to translate these to the virtual addresses as on disk.
+            for (pcs) |pc| {
+                const pc_vaddr = fuzzer_unslide_address(pc);
+                map.appendSliceAssumeCapacity(@ptrCast(&pc_vaddr));
+            }
             return map;
         } else {
             const size = coverage_file.getEndPos() catch |e| panic(
@@ -215,7 +220,16 @@ const Executable = struct {
             .{ self.pc_counters.len, pcs.len },
         );
 
-        self.pc_digest = std.hash.Wyhash.hash(0, mem.sliceAsBytes(pcs));
+        self.pc_digest = digest: {
+            // Relocations have been applied to `pcs` so it contains runtime addresses (with slide
+            // applied). We need to translate these to the virtual addresses as on disk.
+            var h: std.hash.Wyhash = .init(0);
+            for (pcs) |pc| {
+                const pc_vaddr = fuzzer_unslide_address(pc);
+                h.update(@ptrCast(&pc_vaddr));
+            }
+            break :digest h.final();
+        };
         self.shared_seen_pcs = getCoverageFile(cache_dir, pcs, self.pc_digest);
 
         return self;
@@ -620,6 +634,14 @@ export fn fuzzer_main(limit_kind: abi.LimitKind, amount: u64) void {
         .forever => while (true) fuzzer.cycle(),
         .iterations => for (0..amount) |_| fuzzer.cycle(),
     }
+}
+
+export fn fuzzer_unslide_address(addr: usize) usize {
+    const si = std.debug.getSelfDebugInfo() catch @compileError("unsupported");
+    const slide = si.getModuleSlide(std.debug.getDebugInfoAllocator(), addr) catch |err| {
+        std.debug.panic("failed to find virtual address slide: {t}", .{err});
+    };
+    return addr - slide;
 }
 
 /// Helps determine run uniqueness in the face of recursion.
@@ -1185,13 +1207,13 @@ const Mutation = enum {
                         const j = rng.uintAtMostBiased(usize, corpus[splice_i].len - len);
                         out.appendSliceAssumeCapacity(corpus[splice_i][j..][0..len]);
                     },
-                    .@"const" => out.appendSliceAssumeCapacity(mem.asBytes(
+                    .@"const" => out.appendSliceAssumeCapacity(@ptrCast(
                         &data_ctx[rng.uintLessThanBiased(usize, data_ctx.len)],
                     )),
-                    .small => out.appendSliceAssumeCapacity(mem.asBytes(
+                    .small => out.appendSliceAssumeCapacity(@ptrCast(
                         &mem.nativeTo(data_ctx[0], rng.int(SmallValue), data_ctx[1]),
                     )),
-                    .few => out.appendSliceAssumeCapacity(mem.asBytes(
+                    .few => out.appendSliceAssumeCapacity(@ptrCast(
                         &fewValue(rng, data_ctx[0], data_ctx[1]),
                     )),
                 }

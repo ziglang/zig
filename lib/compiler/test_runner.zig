@@ -184,7 +184,7 @@ fn mainServer() !void {
                 const test_fn = builtin.test_functions[index];
                 const entry_addr = @intFromPtr(test_fn.func);
 
-                try server.serveU64Message(.fuzz_start_addr, entry_addr);
+                try server.serveU64Message(.fuzz_start_addr, fuzz_abi.fuzzer_unslide_address(entry_addr));
                 defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
                 is_fuzz_test = false;
                 fuzz_test_index = index;

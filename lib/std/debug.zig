@@ -1367,7 +1367,7 @@ test printLineFromFile {
 
 /// The returned allocator should be thread-safe if the compilation is multi-threaded, because
 /// multiple threads could capture and/or print stack traces simultaneously.
-fn getDebugInfoAllocator() Allocator {
+pub fn getDebugInfoAllocator() Allocator {
     // Allow overriding the debug info allocator by exposing `root.debug.getDebugInfoAllocator`.
     if (@hasDecl(root, "debug") and @hasDecl(root.debug, "getDebugInfoAllocator")) {
         return root.debug.getDebugInfoAllocator();

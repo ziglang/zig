@@ -82,6 +82,20 @@ pub fn getModuleName(si: *SelfInfo, gpa: Allocator, address: usize) Error![]cons
     defer si.mutex.unlock();
     return module.name;
 }
+pub fn getModuleSlide(si: *SelfInfo, gpa: Allocator, address: usize) Error!usize {
+    const module = try si.findModule(gpa, address);
+    defer si.mutex.unlock();
+    const header: *std.macho.mach_header_64 = @ptrFromInt(module.text_base);
+    const raw_macho: [*]u8 = @ptrCast(header);
+    var it = macho.LoadCommandIterator.init(header, raw_macho[@sizeOf(macho.mach_header_64)..][0..header.sizeofcmds]) catch unreachable;
+    const text_vmaddr = while (it.next() catch unreachable) |load_cmd| {
+        if (load_cmd.hdr.cmd != .SEGMENT_64) continue;
+        const segment_cmd = load_cmd.cast(macho.segment_command_64).?;
+        if (!mem.eql(u8, segment_cmd.segName(), "__TEXT")) continue;
+        break segment_cmd.vmaddr;
+    } else unreachable;
+    return module.text_base - text_vmaddr;
+}
 
 pub const can_unwind: bool = true;
 pub const UnwindContext = std.debug.Dwarf.SelfUnwinder;
