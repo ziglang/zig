@@ -6903,8 +6903,10 @@ fn addCommonCCArgs(
             // According to Rich Felker libc headers are supposed to go before C language headers.
             // However as noted by @dimenus, appending libc headers before compiler headers breaks
             // intrinsics and other compiler specific items.
-            try argv.append("-isystem");
-            try argv.append(try fs.path.join(arena, &.{ comp.dirs.zig_lib.path.?, "include" }));
+            if (comp.config.link_libc) {
+                try argv.append("-isystem");
+                try argv.append(try fs.path.join(arena, &.{ comp.dirs.zig_lib.path.?, "include" }));
+            }
 
             try argv.ensureUnusedCapacity(comp.libc_include_dir_list.len * 2);
             for (comp.libc_include_dir_list) |include_dir| {
