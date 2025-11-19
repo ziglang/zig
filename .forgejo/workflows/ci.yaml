@@ -92,7 +92,7 @@ jobs:
           fetch-depth: 0
       - name: Build and Test
         run: sh ci/s390x-linux-release.sh
-        timeout-minutes: 180
+        timeout-minutes: 240
   x86_64-freebsd-debug:
     runs-on: [self-hosted, x86_64-freebsd]
     steps:
