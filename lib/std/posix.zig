@@ -3908,10 +3908,12 @@ pub const WaitPidResult = struct {
     status: u32,
 };
 
+const Rc = if (builtin.link_libc) c_int else u32;
+
 /// Use this version of the `waitpid` wrapper if you spawned your child process using explicit
 /// `fork` and `execve` method.
 pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
-    var status: if (builtin.link_libc) c_int else u32 = undefined;
+    var status: Rc = undefined;
     while (true) {
         const rc = system.waitpid(pid, &status, @intCast(flags));
         switch (errno(rc)) {
@@ -3921,6 +3923,25 @@ pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
             },
             .INTR => continue,
             .CHILD => unreachable, // The process specified does not exist. It would be a race condition to handle this error.
+            .INVAL => unreachable, // Invalid flags.
+            else => unreachable,
+        }
+    }
+}
+
+/// Waits for the termination of any child process. If WNOHANG is supplied as flag and no process
+/// was already terminated, returns null.
+pub fn wait(flags: u32) ?WaitPidResult {
+    var status: Rc = undefined;
+    while (true) {
+        const rc = system.waitpid(-1, &status, @intCast(flags));
+        switch (errno(rc)) {
+            .SUCCESS => return if (rc != 0)
+                .{ .pid = @intCast(rc), .status = @bitCast(status) }
+            else
+                null,
+            .INTR => continue,
+            .CHILD => return null, // For WNOHANG, where waitpid() returns immediately if no process already terminated. Null without WNOHANG is impossible.
             .INVAL => unreachable, // Invalid flags.
             else => unreachable,
         }
