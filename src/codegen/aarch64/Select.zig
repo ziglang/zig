@@ -9569,11 +9569,15 @@ pub const Value = struct {
                     .zr
                 else
                     return false;
-                if (part_ra != .zr) {
-                    const live_vi = isel.live_registers.getPtr(part_ra);
-                    assert(live_vi.* == .free);
-                    live_vi.* = .allocating;
-                }
+                const part_lock: RegLock = switch (part_ra) {
+                    else => isel.lockReg(part_ra),
+                    .zr => .empty,
+                };
+                defer switch (opts.expected_live_registers.get(part_ra)) {
+                    _ => {},
+                    .allocating => unreachable,
+                    .free => part_lock.unlock(isel),
+                };
                 if (opts.wrap) |int_info| switch (int_info.bits) {
                     else => unreachable,
                     1...7, 9...15, 17...31 => |bits| try isel.emit(switch (int_info.signedness) {
@@ -9604,15 +9608,6 @@ pub const Value = struct {
                     64 => {},
                 };
                 try isel.loadReg(part_ra, part_size, part_vi.signedness(isel), base_ra, opts.offset);
-                if (part_ra != .zr) {
-                    const live_vi = isel.live_registers.getPtr(part_ra);
-                    assert(live_vi.* == .allocating);
-                    switch (opts.expected_live_registers.get(part_ra)) {
-                        _ => {},
-                        .allocating => unreachable,
-                        .free => live_vi.* = .free,
-                    }
-                }
                 return true;
             }
             var used = false;

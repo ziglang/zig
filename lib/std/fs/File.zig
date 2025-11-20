@@ -739,10 +739,7 @@ pub const Writer = struct {
         return .{
             .vtable = &.{
                 .drain = drain,
-                .sendFile = switch (builtin.zig_backend) {
-                    else => sendFile,
-                    .stage2_aarch64 => Io.Writer.unimplementedSendFile,
-                },
+                .sendFile = sendFile,
             },
             .buffer = buffer,
         };
