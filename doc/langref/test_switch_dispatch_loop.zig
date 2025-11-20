@@ -9,7 +9,7 @@ const Instruction = enum {
 
 fn evaluate(initial_stack: []const i32, code: []const Instruction) !i32 {
     var buffer: [8]i32 = undefined;
-    var stack = std.ArrayListUnmanaged(i32).initBuffer(&buffer);
+    var stack = std.ArrayList(i32).initBuffer(&buffer);
     try stack.appendSliceBounded(initial_stack);
     var ip: usize = 0;
 

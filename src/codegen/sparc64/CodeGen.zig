@@ -68,7 +68,7 @@ stack_align: Alignment,
 /// MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// MIR extra data
-mir_extra: std.ArrayListUnmanaged(u32) = .empty,
+mir_extra: std.ArrayList(u32) = .empty,
 
 /// Byte offset within the source file of the ending curly.
 end_di_line: u32,
@@ -77,7 +77,7 @@ end_di_column: u32,
 /// The value is an offset into the `Function` `code` from the beginning.
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
-exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
+exitlude_jump_relocs: std.ArrayList(usize) = .empty,
 
 reused_operands: std.StaticBitSet(Air.Liveness.bpi - 1) = undefined,
 
@@ -218,7 +218,7 @@ const StackAllocation = struct {
 };
 
 const BlockData = struct {
-    relocs: std.ArrayListUnmanaged(Mir.Inst.Index),
+    relocs: std.ArrayList(Mir.Inst.Index),
     /// The first break instruction encounters `null` here and chooses a
     /// machine code value for the block result, populating this field.
     /// Following break instructions encounter that value and use it for

@@ -971,11 +971,11 @@ pub const Info = union(enum) {
 pub const Pool = struct {
     map: Map,
     items: std.MultiArrayList(Item),
-    extra: std.ArrayListUnmanaged(u32),
+    extra: std.ArrayList(u32),
 
     string_map: Map,
-    string_indices: std.ArrayListUnmanaged(u32),
-    string_bytes: std.ArrayListUnmanaged(u8),
+    string_indices: std.ArrayList(u32),
+    string_bytes: std.ArrayList(u8),
 
     const Map = std.AutoArrayHashMapUnmanaged(void, void);
 
@@ -1396,7 +1396,7 @@ pub const Pool = struct {
     pub fn fromType(
         pool: *Pool,
         allocator: std.mem.Allocator,
-        scratch: *std.ArrayListUnmanaged(u32),
+        scratch: *std.ArrayList(u32),
         ty: Type,
         pt: Zcu.PerThread,
         mod: *Module,
@@ -3271,7 +3271,7 @@ pub const Pool = struct {
         addExtraAssumeCapacityTo(&pool.extra, Extra, extra);
     }
     fn addExtraAssumeCapacityTo(
-        array: *std.ArrayListUnmanaged(u32),
+        array: *std.ArrayList(u32),
         comptime Extra: type,
         extra: Extra,
     ) void {
@@ -3309,7 +3309,7 @@ pub const Pool = struct {
     }
     fn addHashedExtraAssumeCapacityTo(
         pool: *Pool,
-        array: *std.ArrayListUnmanaged(u32),
+        array: *std.ArrayList(u32),
         hasher: *Hasher,
         comptime Extra: type,
         extra: Extra,

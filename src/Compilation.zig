@@ -263,7 +263,7 @@ llvm_opt_bisect_limit: c_int,
 
 time_report: ?TimeReport,
 
-file_system_inputs: ?*std.ArrayListUnmanaged(u8),
+file_system_inputs: ?*std.ArrayList(u8),
 
 /// This is the digest of the cache for the current compilation.
 /// This digest will be known after update() is called.
@@ -1166,8 +1166,8 @@ pub const CObject = struct {
                     category: u32 = 0,
                     msg: []const u8 = &.{},
                     src_loc: SrcLoc = .{},
-                    src_ranges: std.ArrayListUnmanaged(SrcRange) = .empty,
-                    sub_diags: std.ArrayListUnmanaged(Diag) = .empty,
+                    src_ranges: std.ArrayList(SrcRange) = .empty,
+                    sub_diags: std.ArrayList(Diag) = .empty,
 
                     fn deinit(wip_diag: *@This(), allocator: Allocator) void {
                         allocator.free(wip_diag.msg);
@@ -1197,7 +1197,7 @@ pub const CObject = struct {
                     category_names.deinit(gpa);
                 }
 
-                var stack: std.ArrayListUnmanaged(WipDiag) = .empty;
+                var stack: std.ArrayList(WipDiag) = .empty;
                 defer {
                     for (stack.items) |*wip_diag| wip_diag.deinit(gpa);
                     stack.deinit(gpa);
@@ -1784,7 +1784,7 @@ pub const CreateOptions = struct {
     global_cc_argv: []const []const u8 = &.{},
 
     /// Tracks all files that can cause the Compilation to be invalidated and need a rebuild.
-    file_system_inputs: ?*std.ArrayListUnmanaged(u8) = null,
+    file_system_inputs: ?*std.ArrayList(u8) = null,
 
     parent_whole_cache: ?ParentWholeCache = null,
 
@@ -4150,7 +4150,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) error{OutOfMemory}!ErrorBundle {
 
         const refs = try zcu.resolveReferences();
 
-        var messages: std.ArrayListUnmanaged(Zcu.ErrorMsg) = .empty;
+        var messages: std.ArrayList(Zcu.ErrorMsg) = .empty;
         defer messages.deinit(gpa);
         for (zcu.compile_logs.keys(), zcu.compile_logs.values()) |logging_unit, compile_log| {
             if (!refs.contains(logging_unit)) continue;
@@ -4197,7 +4197,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) error{OutOfMemory}!ErrorBundle {
             }
         }
 
-        var log_text: std.ArrayListUnmanaged(u8) = .empty;
+        var log_text: std.ArrayList(u8) = .empty;
         defer log_text.deinit(gpa);
 
         // Index 0 will be the root message; the rest will be notes.
@@ -4250,7 +4250,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) error{OutOfMemory}!ErrorBundle {
 }
 
 /// Writes all compile log lines belonging to `logging_unit` into `log_text` using `zcu.gpa`.
-fn appendCompileLogLines(log_text: *std.ArrayListUnmanaged(u8), zcu: *Zcu, logging_unit: InternPool.AnalUnit) Allocator.Error!void {
+fn appendCompileLogLines(log_text: *std.ArrayList(u8), zcu: *Zcu, logging_unit: InternPool.AnalUnit) Allocator.Error!void {
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     var opt_line_idx = zcu.compile_logs.get(logging_unit).?.first_line.toOptional();
@@ -4336,7 +4336,7 @@ pub fn addModuleErrorMsg(
     };
     const err_loc = std.zig.findLineColumn(err_source, err_span.main);
 
-    var ref_traces: std.ArrayListUnmanaged(ErrorBundle.ReferenceTrace) = .empty;
+    var ref_traces: std.ArrayList(ErrorBundle.ReferenceTrace) = .empty;
     defer ref_traces.deinit(gpa);
 
     rt: {
@@ -4470,7 +4470,7 @@ pub fn addModuleErrorMsg(
 fn addReferenceTraceFrame(
     zcu: *Zcu,
     eb: *ErrorBundle.Wip,
-    ref_traces: *std.ArrayListUnmanaged(ErrorBundle.ReferenceTrace),
+    ref_traces: *std.ArrayList(ErrorBundle.ReferenceTrace),
     name: []const u8,
     lazy_src: Zcu.LazySrcLoc,
     inlined: bool,
@@ -5678,7 +5678,7 @@ pub fn translateC(
         try argv.appendSlice(&[_][]const u8{ "-target", try target.zigTriple(arena) });
 
         const mcpu = mcpu: {
-            var buf: std.ArrayListUnmanaged(u8) = .empty;
+            var buf: std.ArrayList(u8) = .empty;
             defer buf.deinit(gpa);
 
             try buf.print(gpa, "-mcpu={s}", .{target.cpu.model.name});
@@ -6671,7 +6671,7 @@ fn spawnZigRc(
     argv: []const []const u8,
     child_progress_node: std.Progress.Node,
 ) !void {
-    var node_name: std.ArrayListUnmanaged(u8) = .empty;
+    var node_name: std.ArrayList(u8) = .empty;
     defer node_name.deinit(arena);
 
     var child = std.process.Child.init(argv, arena);
@@ -6986,7 +6986,7 @@ fn addCommonCCArgs(
             }
 
             if (is_clang) {
-                var san_arg: std.ArrayListUnmanaged(u8) = .empty;
+                var san_arg: std.ArrayList(u8) = .empty;
                 const prefix = "-fsanitize=";
                 if (mod.sanitize_c != .off) {
                     if (san_arg.items.len == 0) try san_arg.appendSlice(arena, prefix);

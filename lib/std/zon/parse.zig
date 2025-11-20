@@ -19,7 +19,7 @@ const Base = std.zig.number_literal.Base;
 const StrLitErr = std.zig.string_literal.Error;
 const NumberLiteralError = std.zig.number_literal.Error;
 const assert = std.debug.assert;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 
 /// Rename when adding or removing support for a type.
 const valid_types = {};
@@ -1115,7 +1115,7 @@ const Parser = struct {
                     };
                 } else b: {
                     const msg = "supported: ";
-                    var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(gpa, 64);
+                    var buf: std.ArrayList(u8) = try .initCapacity(gpa, 64);
                     defer buf.deinit(gpa);
                     try buf.appendSlice(gpa, msg);
                     inline for (info.fields, 0..) |field_info, i| {

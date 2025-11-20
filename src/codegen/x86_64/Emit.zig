@@ -12,9 +12,9 @@ prev_di_loc: Loc,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
-code_offset_mapping: std.ArrayListUnmanaged(u32),
-relocs: std.ArrayListUnmanaged(Reloc),
-table_relocs: std.ArrayListUnmanaged(TableReloc),
+code_offset_mapping: std.ArrayList(u32),
+relocs: std.ArrayList(Reloc),
+table_relocs: std.ArrayList(TableReloc),
 
 pub const Error = Lower.Error || error{
     EmitFail,

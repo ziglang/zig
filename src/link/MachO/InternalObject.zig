@@ -1,19 +1,19 @@
 index: File.Index,
 
 sections: std.MultiArrayList(Section) = .{},
-atoms: std.ArrayListUnmanaged(Atom) = .empty,
-atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .empty,
-atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
-symtab: std.ArrayListUnmanaged(macho.nlist_64) = .empty,
-strtab: std.ArrayListUnmanaged(u8) = .empty,
-symbols: std.ArrayListUnmanaged(Symbol) = .empty,
-symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
-globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .empty,
+atoms: std.ArrayList(Atom) = .empty,
+atoms_indexes: std.ArrayList(Atom.Index) = .empty,
+atoms_extra: std.ArrayList(u32) = .empty,
+symtab: std.ArrayList(macho.nlist_64) = .empty,
+strtab: std.ArrayList(u8) = .empty,
+symbols: std.ArrayList(Symbol) = .empty,
+symbols_extra: std.ArrayList(u32) = .empty,
+globals: std.ArrayList(MachO.SymbolResolver.Index) = .empty,
 
-objc_methnames: std.ArrayListUnmanaged(u8) = .empty,
+objc_methnames: std.ArrayList(u8) = .empty,
 objc_selrefs: [@sizeOf(u64)]u8 = [_]u8{0} ** @sizeOf(u64),
 
-force_undefined: std.ArrayListUnmanaged(Symbol.Index) = .empty,
+force_undefined: std.ArrayList(Symbol.Index) = .empty,
 entry_index: ?Symbol.Index = null,
 dyld_stub_binder_index: ?Symbol.Index = null,
 dyld_private_index: ?Symbol.Index = null,
@@ -21,7 +21,7 @@ objc_msg_send_index: ?Symbol.Index = null,
 mh_execute_header_index: ?Symbol.Index = null,
 mh_dylib_header_index: ?Symbol.Index = null,
 dso_handle_index: ?Symbol.Index = null,
-boundary_symbols: std.ArrayListUnmanaged(Symbol.Index) = .empty,
+boundary_symbols: std.ArrayList(Symbol.Index) = .empty,
 
 output_symtab_ctx: MachO.SymtabCtx = .{},
 
@@ -880,7 +880,7 @@ pub fn fmtSymtab(self: *InternalObject, macho_file: *MachO) std.fmt.Alt(Format, 
 
 const Section = struct {
     header: macho.section_64,
-    relocs: std.ArrayListUnmanaged(Relocation) = .empty,
+    relocs: std.ArrayList(Relocation) = .empty,
     extra: Extra = .{},
 
     const Extra = packed struct {

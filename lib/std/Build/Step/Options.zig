@@ -12,8 +12,8 @@ pub const base_id: Step.Id = .options;
 step: Step,
 generated_file: GeneratedFile,
 
-contents: std.ArrayListUnmanaged(u8),
-args: std.ArrayListUnmanaged(Arg),
+contents: std.ArrayList(u8),
+args: std.ArrayList(Arg),
 encountered_types: std.StringHashMapUnmanaged(void),
 
 pub fn create(owner: *std.Build) *Options {
@@ -45,7 +45,7 @@ fn addOptionFallible(options: *Options, comptime T: type, name: []const u8, valu
 
 fn printType(
     options: *Options,
-    out: *std.ArrayListUnmanaged(u8),
+    out: *std.ArrayList(u8),
     comptime T: type,
     value: T,
     indent: u8,
@@ -267,7 +267,7 @@ fn printType(
     }
 }
 
-fn printUserDefinedType(options: *Options, out: *std.ArrayListUnmanaged(u8), comptime T: type, indent: u8) !void {
+fn printUserDefinedType(options: *Options, out: *std.ArrayList(u8), comptime T: type, indent: u8) !void {
     switch (@typeInfo(T)) {
         .@"enum" => |info| {
             return try printEnum(options, out, T, info, indent);
@@ -281,7 +281,7 @@ fn printUserDefinedType(options: *Options, out: *std.ArrayListUnmanaged(u8), com
 
 fn printEnum(
     options: *Options,
-    out: *std.ArrayListUnmanaged(u8),
+    out: *std.ArrayList(u8),
     comptime T: type,
     comptime val: std.builtin.Type.Enum,
     indent: u8,
@@ -309,7 +309,7 @@ fn printEnum(
     try out.appendSlice(gpa, "};\n");
 }
 
-fn printStruct(options: *Options, out: *std.ArrayListUnmanaged(u8), comptime T: type, comptime val: std.builtin.Type.Struct, indent: u8) !void {
+fn printStruct(options: *Options, out: *std.ArrayList(u8), comptime T: type, comptime val: std.builtin.Type.Struct, indent: u8) !void {
     const gpa = options.step.owner.allocator;
     const gop = try options.encountered_types.getOrPut(gpa, @typeName(T));
     if (gop.found_existing) return;
@@ -369,7 +369,7 @@ fn printStruct(options: *Options, out: *std.ArrayListUnmanaged(u8), comptime T: 
 
 fn printStructValue(
     options: *Options,
-    out: *std.ArrayListUnmanaged(u8),
+    out: *std.ArrayList(u8),
     comptime struct_val: std.builtin.Type.Struct,
     val: anytype,
     indent: u8,

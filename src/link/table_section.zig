@@ -1,7 +1,7 @@
 pub fn TableSection(comptime Entry: type) type {
     return struct {
-        entries: std.ArrayListUnmanaged(Entry) = .empty,
-        free_list: std.ArrayListUnmanaged(Index) = .empty,
+        entries: std.ArrayList(Entry) = .empty,
+        free_list: std.ArrayList(Index) = .empty,
         lookup: std.AutoHashMapUnmanaged(Entry, Index) = .empty,
 
         pub fn deinit(self: *Self, allocator: Allocator) void {

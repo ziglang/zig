@@ -3,24 +3,24 @@
 //! and any relocations that may have been emitted.
 //! Think about this as fake in-memory Object file for the Zig module.
 
-data: std.ArrayListUnmanaged(u8) = .empty,
+data: std.ArrayList(u8) = .empty,
 /// Externally owned memory.
 basename: []const u8,
 index: File.Index,
 
 symtab: std.MultiArrayList(ElfSym) = .{},
 strtab: StringTable = .{},
-symbols: std.ArrayListUnmanaged(Symbol) = .empty,
-symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
-symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index) = .empty,
-local_symbols: std.ArrayListUnmanaged(Symbol.Index) = .empty,
-global_symbols: std.ArrayListUnmanaged(Symbol.Index) = .empty,
+symbols: std.ArrayList(Symbol) = .empty,
+symbols_extra: std.ArrayList(u32) = .empty,
+symbols_resolver: std.ArrayList(Elf.SymbolResolver.Index) = .empty,
+local_symbols: std.ArrayList(Symbol.Index) = .empty,
+global_symbols: std.ArrayList(Symbol.Index) = .empty,
 globals_lookup: std.AutoHashMapUnmanaged(u32, Symbol.Index) = .empty,
 
-atoms: std.ArrayListUnmanaged(Atom) = .empty,
-atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .empty,
-atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
-relocs: std.ArrayListUnmanaged(std.ArrayListUnmanaged(elf.Elf64_Rela)) = .empty,
+atoms: std.ArrayList(Atom) = .empty,
+atoms_indexes: std.ArrayList(Atom.Index) = .empty,
+atoms_extra: std.ArrayList(u32) = .empty,
+relocs: std.ArrayList(std.ArrayList(elf.Elf64_Rela)) = .empty,
 
 num_dynrelocs: u32 = 0,
 
@@ -2369,7 +2369,7 @@ const LazySymbolMetadata = struct {
 const AvMetadata = struct {
     symbol_index: Symbol.Index,
     /// A list of all exports aliases of this Av.
-    exports: std.ArrayListUnmanaged(Symbol.Index) = .empty,
+    exports: std.ArrayList(Symbol.Index) = .empty,
     /// Set to true if the AV has been initialized and allocated.
     allocated: bool = false,
 
@@ -2417,7 +2417,7 @@ const TlsVariable = struct {
     }
 };
 
-const AtomList = std.ArrayListUnmanaged(Atom.Index);
+const AtomList = std.ArrayList(Atom.Index);
 const NavTable = std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, AvMetadata);
 const UavTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, AvMetadata);
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, LazySymbolMetadata);

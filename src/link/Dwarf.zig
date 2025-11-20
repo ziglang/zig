@@ -211,7 +211,7 @@ const DebugRngLists = struct {
 };
 
 const StringSection = struct {
-    contents: std.ArrayListUnmanaged(u8),
+    contents: std.ArrayList(u8),
     map: std.AutoArrayHashMapUnmanaged(void, void),
     section: Section,
 
@@ -275,7 +275,7 @@ pub const Section = struct {
     first: Unit.Index.Optional,
     last: Unit.Index.Optional,
     len: u64,
-    units: std.ArrayListUnmanaged(Unit),
+    units: std.ArrayList(Unit),
 
     pub const Index = enum {
         debug_abbrev,
@@ -511,9 +511,9 @@ const Unit = struct {
     trailer_len: u32,
     /// data length in bytes
     len: u32,
-    entries: std.ArrayListUnmanaged(Entry),
-    cross_unit_relocs: std.ArrayListUnmanaged(CrossUnitReloc),
-    cross_section_relocs: std.ArrayListUnmanaged(CrossSectionReloc),
+    entries: std.ArrayList(Entry),
+    cross_unit_relocs: std.ArrayList(CrossUnitReloc),
+    cross_section_relocs: std.ArrayList(CrossSectionReloc),
 
     const Index = enum(u32) {
         main,
@@ -790,10 +790,10 @@ const Entry = struct {
     off: u32,
     /// data length in bytes
     len: u32,
-    cross_entry_relocs: std.ArrayListUnmanaged(CrossEntryReloc),
-    cross_unit_relocs: std.ArrayListUnmanaged(CrossUnitReloc),
-    cross_section_relocs: std.ArrayListUnmanaged(CrossSectionReloc),
-    external_relocs: std.ArrayListUnmanaged(ExternalReloc),
+    cross_entry_relocs: std.ArrayList(CrossEntryReloc),
+    cross_unit_relocs: std.ArrayList(CrossUnitReloc),
+    cross_section_relocs: std.ArrayList(CrossSectionReloc),
+    external_relocs: std.ArrayList(ExternalReloc),
 
     fn clear(entry: *Entry) void {
         entry.cross_entry_relocs.clearRetainingCapacity();
@@ -1474,7 +1474,7 @@ pub const WipNav = struct {
     func: InternPool.Index,
     func_sym_index: u32,
     func_high_pc: u32,
-    blocks: std.ArrayListUnmanaged(struct {
+    blocks: std.ArrayList(struct {
         abbrev_code: u32,
         low_pc_off: u64,
         high_pc: u32,
@@ -2300,8 +2300,8 @@ pub const WipNav = struct {
     }
 
     const PendingLazy = struct {
-        types: std.ArrayListUnmanaged(InternPool.Index),
-        values: std.ArrayListUnmanaged(InternPool.Index),
+        types: std.ArrayList(InternPool.Index),
+        values: std.ArrayList(InternPool.Index),
 
         const empty: PendingLazy = .{ .types = .empty, .values = .empty };
     };

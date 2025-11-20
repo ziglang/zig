@@ -21,7 +21,7 @@ const base64 = std.base64.standard.decoderWithIgnore(" \t\r\n");
 
 /// The key is the contents slice of the subject.
 map: std.HashMapUnmanaged(der.Element.Slice, u32, MapContext, std.hash_map.default_max_load_percentage) = .empty,
-bytes: std.ArrayListUnmanaged(u8) = .empty,
+bytes: std.ArrayList(u8) = .empty,
 
 pub const VerifyError = Certificate.Parsed.VerifyError || error{
     CertificateIssuerNotFound,

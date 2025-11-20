@@ -7,24 +7,24 @@ nav_index: InternPool.Nav.Index,
 def_order: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, void),
 blocks: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, Block),
 loops: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, Loop),
-active_loops: std.ArrayListUnmanaged(Loop.Index),
+active_loops: std.ArrayList(Loop.Index),
 loop_live: struct {
     set: std.AutoArrayHashMapUnmanaged(struct { Loop.Index, Air.Inst.Index }, void),
-    list: std.ArrayListUnmanaged(Air.Inst.Index),
+    list: std.ArrayList(Air.Inst.Index),
 },
 dom_start: u32,
 dom_len: u32,
-dom: std.ArrayListUnmanaged(DomInt),
+dom: std.ArrayList(DomInt),
 
 // Wip Mir
 saved_registers: std.enums.EnumSet(Register.Alias),
-instructions: std.ArrayListUnmanaged(codegen.aarch64.encoding.Instruction),
-literals: std.ArrayListUnmanaged(u32),
-nav_relocs: std.ArrayListUnmanaged(codegen.aarch64.Mir.Reloc.Nav),
-uav_relocs: std.ArrayListUnmanaged(codegen.aarch64.Mir.Reloc.Uav),
-lazy_relocs: std.ArrayListUnmanaged(codegen.aarch64.Mir.Reloc.Lazy),
-global_relocs: std.ArrayListUnmanaged(codegen.aarch64.Mir.Reloc.Global),
-literal_relocs: std.ArrayListUnmanaged(codegen.aarch64.Mir.Reloc.Literal),
+instructions: std.ArrayList(codegen.aarch64.encoding.Instruction),
+literals: std.ArrayList(u32),
+nav_relocs: std.ArrayList(codegen.aarch64.Mir.Reloc.Nav),
+uav_relocs: std.ArrayList(codegen.aarch64.Mir.Reloc.Uav),
+lazy_relocs: std.ArrayList(codegen.aarch64.Mir.Reloc.Lazy),
+global_relocs: std.ArrayList(codegen.aarch64.Mir.Reloc.Global),
+literal_relocs: std.ArrayList(codegen.aarch64.Mir.Reloc.Literal),
 
 // Stack Frame
 returns: bool,
@@ -44,7 +44,7 @@ stack_align: InternPool.Alignment,
 // Value Tracking
 live_registers: LiveRegisters,
 live_values: std.AutoHashMapUnmanaged(Air.Inst.Index, Value.Index),
-values: std.ArrayListUnmanaged(Value),
+values: std.ArrayList(Value),
 
 pub const LiveRegisters = std.enums.EnumArray(Register.Alias, Value.Index);
 
@@ -11274,7 +11274,7 @@ pub fn dumpValues(isel: *Select, which: enum { only_referenced, all }) void {
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(isel.nav_index);
 
-    var reverse_live_values: std.AutoArrayHashMapUnmanaged(Value.Index, std.ArrayListUnmanaged(Air.Inst.Index)) = .empty;
+    var reverse_live_values: std.AutoArrayHashMapUnmanaged(Value.Index, std.ArrayList(Air.Inst.Index)) = .empty;
     defer {
         for (reverse_live_values.values()) |*list| list.deinit(gpa);
         reverse_live_values.deinit(gpa);

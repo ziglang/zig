@@ -12,7 +12,7 @@ const fs = std.fs;
 const ArrayList = std.ArrayList;
 
 step: Step,
-output_source_files: std.ArrayListUnmanaged(OutputSourceFile),
+output_source_files: std.ArrayList(OutputSourceFile),
 
 pub const base_id: Step.Id = .update_source_files;
 

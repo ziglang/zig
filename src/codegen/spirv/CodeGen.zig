@@ -83,7 +83,7 @@ const ControlFlow = union(enum) {
             selection: struct {
                 /// In order to know which merges we still need to do, we need to keep
                 /// a stack of those.
-                merge_stack: std.ArrayListUnmanaged(SelectionMerge) = .empty,
+                merge_stack: std.ArrayList(SelectionMerge) = .empty,
             },
             /// For a `loop` type block, we can early-exit the block by
             /// jumping to the loop exit node, and we don't need to generate
@@ -91,7 +91,7 @@ const ControlFlow = union(enum) {
             loop: struct {
                 /// The next block to jump to can be determined from any number
                 /// of conditions that jump to the loop exit.
-                merges: std.ArrayListUnmanaged(Incoming) = .empty,
+                merges: std.ArrayList(Incoming) = .empty,
                 /// The label id of the loop's merge block.
                 merge_block: Id,
             },
@@ -105,7 +105,7 @@ const ControlFlow = union(enum) {
             }
         };
         /// This determines how exits from the current block must be handled.
-        block_stack: std.ArrayListUnmanaged(*Structured.Block) = .empty,
+        block_stack: std.ArrayList(*Structured.Block) = .empty,
         block_results: std.AutoHashMapUnmanaged(Air.Inst.Index, Id) = .empty,
     };
 
@@ -117,7 +117,7 @@ const ControlFlow = union(enum) {
 
         const Block = struct {
             label: ?Id = null,
-            incoming_blocks: std.ArrayListUnmanaged(Incoming) = .empty,
+            incoming_blocks: std.ArrayList(Incoming) = .empty,
         };
 
         /// We need to keep track of result ids for block labels, as well as the 'incoming'
@@ -151,9 +151,9 @@ control_flow: ControlFlow,
 base_line: u32,
 block_label: Id = .none,
 next_arg_index: u32 = 0,
-args: std.ArrayListUnmanaged(Id) = .empty,
+args: std.ArrayList(Id) = .empty,
 inst_results: std.AutoHashMapUnmanaged(Air.Inst.Index, Id) = .empty,
-id_scratch: std.ArrayListUnmanaged(Id) = .empty,
+id_scratch: std.ArrayList(Id) = .empty,
 prologue: Section = .{},
 body: Section = .{},
 error_msg: ?*Zcu.ErrorMsg = null,
@@ -5783,7 +5783,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
         }
     }
 
-    var incoming_structured_blocks: std.ArrayListUnmanaged(ControlFlow.Structured.Block.Incoming) = .empty;
+    var incoming_structured_blocks: std.ArrayList(ControlFlow.Structured.Block.Incoming) = .empty;
     defer incoming_structured_blocks.deinit(gpa);
 
     if (cg.control_flow == .structured) {

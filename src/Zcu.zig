@@ -87,10 +87,10 @@ local_zir_cache: Cache.Directory,
 
 /// This is where all `Export` values are stored. Not all values here are necessarily valid exports;
 /// to enumerate all exports, `single_exports` and `multi_exports` must be consulted.
-all_exports: std.ArrayListUnmanaged(Export) = .empty,
+all_exports: std.ArrayList(Export) = .empty,
 /// This is a list of free indices in `all_exports`. These indices may be reused by exports from
 /// future semantic analysis.
-free_exports: std.ArrayListUnmanaged(Export.Index) = .empty,
+free_exports: std.ArrayList(Export.Index) = .empty,
 /// Maps from an `AnalUnit` which performs a single export, to the index into `all_exports` of
 /// the export it performs. Note that the key is not the `Decl` being exported, but the `AnalUnit`
 /// whose analysis triggered the export.
@@ -201,8 +201,8 @@ compile_logs: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
         };
     }
 }) = .empty,
-compile_log_lines: std.ArrayListUnmanaged(CompileLogLine) = .empty,
-free_compile_log_lines: std.ArrayListUnmanaged(CompileLogLine.Index) = .empty,
+compile_log_lines: std.ArrayList(CompileLogLine) = .empty,
+free_compile_log_lines: std.ArrayList(CompileLogLine.Index) = .empty,
 /// This tracks files which triggered errors when generating AST/ZIR/ZOIR.
 /// If not `null`, the value is a retryable error (the file status is guaranteed
 /// to be `.retryable_failure`). Otherwise, the file status is `.astgen_failure`
@@ -232,7 +232,7 @@ failed_files: std.AutoArrayHashMapUnmanaged(File.Index, ?[]u8) = .empty,
 /// semantic analysis this update.
 ///
 /// Allocated into gpa.
-failed_imports: std.ArrayListUnmanaged(struct {
+failed_imports: std.ArrayList(struct {
     file_index: File.Index,
     import_string: Zir.NullTerminatedString,
     import_token: Ast.TokenIndex,
@@ -261,7 +261,7 @@ outdated_ready: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .empty,
 /// failure was something like running out of disk space, and trying again may
 /// succeed. On the next update, we will flush this list, marking all members of
 /// it as outdated.
-retryable_failures: std.ArrayListUnmanaged(AnalUnit) = .empty,
+retryable_failures: std.ArrayList(AnalUnit) = .empty,
 
 func_body_analysis_queued: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty,
 nav_val_analysis_queued: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
@@ -290,12 +290,12 @@ global_assembly: std.AutoArrayHashMapUnmanaged(AnalUnit, []u8) = .empty,
 /// The `next` field on the `Reference` forms a linked list of all references
 /// triggered by the key `AnalUnit`.
 reference_table: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
-all_references: std.ArrayListUnmanaged(Reference) = .empty,
+all_references: std.ArrayList(Reference) = .empty,
 /// Freelist of indices in `all_references`.
-free_references: std.ArrayListUnmanaged(u32) = .empty,
+free_references: std.ArrayList(u32) = .empty,
 
-inline_reference_frames: std.ArrayListUnmanaged(InlineReferenceFrame) = .empty,
-free_inline_reference_frames: std.ArrayListUnmanaged(InlineReferenceFrame.Index) = .empty,
+inline_reference_frames: std.ArrayList(InlineReferenceFrame) = .empty,
+free_inline_reference_frames: std.ArrayList(InlineReferenceFrame.Index) = .empty,
 
 /// Key is the `AnalUnit` *performing* the reference. This representation allows
 /// incremental updates to quickly delete references caused by a specific `AnalUnit`.
@@ -303,9 +303,9 @@ free_inline_reference_frames: std.ArrayListUnmanaged(InlineReferenceFrame.Index)
 /// The `next` field on the `TypeReference` forms a linked list of all type references
 /// triggered by the key `AnalUnit`.
 type_reference_table: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
-all_type_references: std.ArrayListUnmanaged(TypeReference) = .empty,
+all_type_references: std.ArrayList(TypeReference) = .empty,
 /// Freelist of indices in `all_type_references`.
-free_type_references: std.ArrayListUnmanaged(u32) = .empty,
+free_type_references: std.ArrayList(u32) = .empty,
 
 /// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = s })`, where `s` depends on the element.
 builtin_decl_values: BuiltinDecl.Memoized = .initFill(.none),
@@ -346,7 +346,7 @@ pub const IncrementalDebugState = struct {
     pub const UnitInfo = struct {
         last_update_gen: u32,
         /// This information isn't easily recoverable from `InternPool`'s dependency storage format.
-        deps: std.ArrayListUnmanaged(InternPool.Dependee),
+        deps: std.ArrayList(InternPool.Dependee),
     };
     pub fn getUnitInfo(ids: *IncrementalDebugState, gpa: Allocator, unit: AnalUnit) Allocator.Error!*UnitInfo {
         const gop = try ids.units.getOrPut(gpa, unit);
@@ -812,10 +812,10 @@ pub const Namespace = struct {
     priv_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .empty,
     /// All `comptime` declarations in this namespace. We store these purely so that incremental
     /// compilation can re-use the existing `ComptimeUnit`s when a namespace changes.
-    comptime_decls: std.ArrayListUnmanaged(InternPool.ComptimeUnit.Id) = .empty,
+    comptime_decls: std.ArrayList(InternPool.ComptimeUnit.Id) = .empty,
     /// All `test` declarations in this namespace. We store these purely so that incremental
     /// compilation can re-use the existing `Nav`s when a namespace changes.
-    test_decls: std.ArrayListUnmanaged(InternPool.Nav.Index) = .empty,
+    test_decls: std.ArrayList(InternPool.Nav.Index) = .empty,
 
     pub const Index = InternPool.NamespaceIndex;
     pub const OptionalIndex = InternPool.OptionalNamespaceIndex;
@@ -3292,7 +3292,7 @@ pub fn mapOldZirToNew(
         old_inst: Zir.Inst.Index,
         new_inst: Zir.Inst.Index,
     };
-    var match_stack: std.ArrayListUnmanaged(MatchedZirDecl) = .empty;
+    var match_stack: std.ArrayList(MatchedZirDecl) = .empty;
     defer match_stack.deinit(gpa);
 
     // Used as temporary buffers for namespace declaration instructions
@@ -3358,10 +3358,10 @@ pub fn mapOldZirToNew(
         var named_decltests: std.StringHashMapUnmanaged(Zir.Inst.Index) = .empty;
         defer named_decltests.deinit(gpa);
         // All unnamed tests, in order, for a best-effort match.
-        var unnamed_tests: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
+        var unnamed_tests: std.ArrayList(Zir.Inst.Index) = .empty;
         defer unnamed_tests.deinit(gpa);
         // All comptime declarations, in order, for a best-effort match.
-        var comptime_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
+        var comptime_decls: std.ArrayList(Zir.Inst.Index) = .empty;
         defer comptime_decls.deinit(gpa);
 
         {
@@ -4636,7 +4636,7 @@ pub fn addFileInMultipleModulesError(
         info.modules[1].fully_qualified_name,
     });
 
-    var notes: std.ArrayListUnmanaged(std.zig.ErrorBundle.MessageIndex) = .empty;
+    var notes: std.ArrayList(std.zig.ErrorBundle.MessageIndex) = .empty;
     defer notes.deinit(gpa);
 
     try notes.append(gpa, try eb.addErrorMessage(.{
@@ -4660,7 +4660,7 @@ pub fn addFileInMultipleModulesError(
 fn explainWhyFileIsInModule(
     zcu: *Zcu,
     eb: *std.zig.ErrorBundle.Wip,
-    notes_out: *std.ArrayListUnmanaged(std.zig.ErrorBundle.MessageIndex),
+    notes_out: *std.ArrayList(std.zig.ErrorBundle.MessageIndex),
     file: File.Index,
     in_module: *Package.Module,
     ref: File.Reference,

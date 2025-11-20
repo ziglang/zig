@@ -29,7 +29,7 @@ navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, AvBlock),
 /// All the string bytes of rendered C code, all squished into one array.
 /// While in progress, a separate buffer is used, and then when finished, the
 /// buffer is copied into this one.
-string_bytes: std.ArrayListUnmanaged(u8),
+string_bytes: std.ArrayList(u8),
 /// Tracks all the anonymous decls that are used by all the decls so they can
 /// be rendered during flush().
 uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, AvBlock),
@@ -519,16 +519,16 @@ pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.P
 
 const Flush = struct {
     ctype_pool: codegen.CType.Pool,
-    ctype_global_from_decl_map: std.ArrayListUnmanaged(codegen.CType),
-    ctypes: std.ArrayListUnmanaged(u8),
+    ctype_global_from_decl_map: std.ArrayList(codegen.CType),
+    ctypes: std.ArrayList(u8),
 
     lazy_ctype_pool: codegen.CType.Pool,
     lazy_fns: LazyFns,
-    lazy_fwd_decl: std.ArrayListUnmanaged(u8),
-    lazy_code: std.ArrayListUnmanaged(u8),
+    lazy_fwd_decl: std.ArrayList(u8),
+    lazy_code: std.ArrayList(u8),
 
     /// We collect a list of buffers to write, and write them all at once with pwritev 😎
-    all_buffers: std.ArrayListUnmanaged([]const u8),
+    all_buffers: std.ArrayList([]const u8),
     /// Keeps track of the total bytes of `all_buffers`.
     file_size: u64,
 

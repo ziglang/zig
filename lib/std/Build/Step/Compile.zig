@@ -1801,7 +1801,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
             for (arg, 0..) |c, arg_idx| {
                 if (c == '\\' or c == '"') {
                     // Slow path for arguments that need to be escaped. We'll need to allocate and copy
-                    var escaped: std.ArrayListUnmanaged(u8) = .empty;
+                    var escaped: std.ArrayList(u8) = .empty;
                     try escaped.ensureTotalCapacityPrecise(arena, arg.len + 1);
                     try escaped.appendSlice(arena, arg[0..arg_idx]);
                     for (arg[arg_idx..]) |to_escape| {
@@ -2035,7 +2035,7 @@ fn checkCompileErrors(compile: *Compile) !void {
     };
 
     // Render the expected lines into a string that we can compare verbatim.
-    var expected_generated: std.ArrayListUnmanaged(u8) = .empty;
+    var expected_generated: std.ArrayList(u8) = .empty;
     const expect_errors = compile.expect_errors.?;
 
     var actual_line_it = mem.splitScalar(u8, actual_errors, '\n');

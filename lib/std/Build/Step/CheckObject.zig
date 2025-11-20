@@ -721,12 +721,12 @@ const MachODumper = struct {
         gpa: Allocator,
         data: []const u8,
         header: macho.mach_header_64,
-        segments: std.ArrayListUnmanaged(macho.segment_command_64) = .empty,
-        sections: std.ArrayListUnmanaged(macho.section_64) = .empty,
-        symtab: std.ArrayListUnmanaged(macho.nlist_64) = .empty,
-        strtab: std.ArrayListUnmanaged(u8) = .empty,
-        indsymtab: std.ArrayListUnmanaged(u32) = .empty,
-        imports: std.ArrayListUnmanaged([]const u8) = .empty,
+        segments: std.ArrayList(macho.segment_command_64) = .empty,
+        sections: std.ArrayList(macho.section_64) = .empty,
+        symtab: std.ArrayList(macho.nlist_64) = .empty,
+        strtab: std.ArrayList(u8) = .empty,
+        indsymtab: std.ArrayList(u32) = .empty,
+        imports: std.ArrayList([]const u8) = .empty,
 
         fn parse(ctx: *ObjectContext) !void {
             var it = try ctx.getLoadCommandIterator();
@@ -1767,9 +1767,9 @@ const ElfDumper = struct {
     const ArchiveContext = struct {
         gpa: Allocator,
         data: []const u8,
-        symtab: std.ArrayListUnmanaged(ArSymtabEntry) = .empty,
+        symtab: std.ArrayList(ArSymtabEntry) = .empty,
         strtab: []const u8,
-        objects: std.ArrayListUnmanaged(struct { name: []const u8, off: usize, len: usize }) = .empty,
+        objects: std.ArrayList(struct { name: []const u8, off: usize, len: usize }) = .empty,
 
         fn parseSymtab(ctx: *ArchiveContext, raw: []const u8, ptr_width: enum { p32, p64 }) !void {
             var reader: std.Io.Reader = .fixed(raw);

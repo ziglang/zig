@@ -47,7 +47,7 @@ fn runThread(ids: *IncrementalDebugServer) void {
     const io = ids.zcu.comp.io;
 
     var cmd_buf: [1024]u8 = undefined;
-    var text_out: std.ArrayListUnmanaged(u8) = .empty;
+    var text_out: std.ArrayList(u8) = .empty;
     defer text_out.deinit(gpa);
 
     const addr: std.Io.net.IpAddress = .{ .ip6 = .loopback(port) };

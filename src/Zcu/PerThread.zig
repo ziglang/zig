@@ -3091,8 +3091,8 @@ pub fn processExports(pt: Zcu.PerThread) !void {
     }
 
     // First, construct a mapping of every exported value and Nav to the indices of all its different exports.
-    var nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, std.ArrayListUnmanaged(Zcu.Export.Index)) = .empty;
-    var uav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Index, std.ArrayListUnmanaged(Zcu.Export.Index)) = .empty;
+    var nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, std.ArrayList(Zcu.Export.Index)) = .empty;
+    var uav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Index, std.ArrayList(Zcu.Export.Index)) = .empty;
     defer {
         for (nav_exports.values()) |*exports| {
             exports.deinit(gpa);

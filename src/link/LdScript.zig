@@ -26,9 +26,9 @@ pub fn parse(
     data: []const u8,
 ) Error!LdScript {
     var tokenizer = Tokenizer{ .source = data };
-    var tokens: std.ArrayListUnmanaged(Token) = .empty;
+    var tokens: std.ArrayList(Token) = .empty;
     defer tokens.deinit(gpa);
-    var line_col: std.ArrayListUnmanaged(LineColumn) = .empty;
+    var line_col: std.ArrayList(LineColumn) = .empty;
     defer line_col.deinit(gpa);
 
     var line: usize = 0;
@@ -117,7 +117,7 @@ const Parser = struct {
     it: *TokenIterator,
 
     cpu_arch: ?std.Target.Cpu.Arch,
-    args: std.ArrayListUnmanaged(Arg),
+    args: std.ArrayList(Arg),
 
     fn start(parser: *Parser) !void {
         while (true) {

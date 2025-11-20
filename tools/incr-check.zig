@@ -108,7 +108,7 @@ pub fn main() !void {
         if (debug_log_verbose) {
             std.log.scoped(.status).info("target: '{s}-{t}'", .{ target.query, target.backend });
         }
-        var child_args: std.ArrayListUnmanaged([]const u8) = .empty;
+        var child_args: std.ArrayList([]const u8) = .empty;
         try child_args.appendSlice(arena, &.{
             resolved_zig_exe,
             "build-exe",
@@ -161,7 +161,7 @@ pub fn main() !void {
         child.cwd_dir = tmp_dir;
         child.cwd = tmp_dir_path;
 
-        var cc_child_args: std.ArrayListUnmanaged([]const u8) = .empty;
+        var cc_child_args: std.ArrayList([]const u8) = .empty;
         if (target.backend == .cbe) {
             const resolved_cc_zig_exe = if (opt_cc_zig) |cc_zig_exe|
                 try std.fs.path.relative(arena, tmp_dir_path, cc_zig_exe)
@@ -238,7 +238,7 @@ const Eval = struct {
     preserve_tmp_on_fatal: bool,
     /// When `target.backend == .cbe`, this contains the first few arguments to `zig cc` to build the generated binary.
     /// The arguments `out.c in.c` must be appended before spawning the subprocess.
-    cc_child_args: *std.ArrayListUnmanaged([]const u8),
+    cc_child_args: *std.ArrayList([]const u8),
 
     const StreamEnum = enum { stdout, stderr };
     const Poller = Io.Poller(StreamEnum);
@@ -664,11 +664,11 @@ const Case = struct {
     fn parse(arena: Allocator, io: Io, bytes: []const u8) !Case {
         const fatal = std.process.fatal;
 
-        var targets: std.ArrayListUnmanaged(Target) = .empty;
-        var modules: std.ArrayListUnmanaged(Module) = .empty;
-        var updates: std.ArrayListUnmanaged(Update) = .empty;
-        var changes: std.ArrayListUnmanaged(FullContents) = .empty;
-        var deletes: std.ArrayListUnmanaged([]const u8) = .empty;
+        var targets: std.ArrayList(Target) = .empty;
+        var modules: std.ArrayList(Module) = .empty;
+        var updates: std.ArrayList(Update) = .empty;
+        var changes: std.ArrayList(FullContents) = .empty;
+        var deletes: std.ArrayList([]const u8) = .empty;
         var it = std.mem.splitScalar(u8, bytes, '\n');
         var line_n: usize = 1;
         var root_source_file: ?[]const u8 = null;
@@ -731,7 +731,7 @@ const Case = struct {
 
                     // Because Windows is so excellent, we need to convert CRLF to LF, so
                     // can't just slice into the input here. How delightful!
-                    var src: std.ArrayListUnmanaged(u8) = .empty;
+                    var src: std.ArrayList(u8) = .empty;
 
                     while (true) {
                         const next_line_raw = it.peek() orelse fatal("line {d}: unexpected EOF", .{line_n});
@@ -767,7 +767,7 @@ const Case = struct {
                     const last_update = &updates.items[updates.items.len - 1];
                     if (last_update.outcome != .unknown) fatal("line {d}: conflicting expect directive", .{line_n});
 
-                    var errors: std.ArrayListUnmanaged(ExpectedError) = .empty;
+                    var errors: std.ArrayList(ExpectedError) = .empty;
                     try errors.append(arena, parseExpectedError(val, line_n));
                     while (true) {
                         const next_line = it.peek() orelse break;
@@ -783,7 +783,7 @@ const Case = struct {
                         try errors.append(arena, parseExpectedError(new_val, line_n));
                     }
 
-                    var compile_log_output: std.ArrayListUnmanaged(u8) = .empty;
+                    var compile_log_output: std.ArrayList(u8) = .empty;
                     while (true) {
                         const next_line = it.peek() orelse break;
                         if (!std.mem.startsWith(u8, next_line, "#")) break;

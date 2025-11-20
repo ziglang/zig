@@ -29,7 +29,7 @@ const Node = Document.Node;
 const ExtraIndex = Document.ExtraIndex;
 const ExtraData = Document.ExtraData;
 const StringIndex = Document.StringIndex;
-const ArrayList = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 
 nodes: Node.List = .{},
 extra: ArrayList(u32) = .empty,
