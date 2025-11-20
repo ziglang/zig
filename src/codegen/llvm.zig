@@ -1113,7 +1113,7 @@ pub const Object = struct {
                 // needs to for better fuzzing logic.
                 .IndirectCalls = false,
                 .TraceBB = false,
-                .TraceCmp = options.fuzz,
+                .TraceCmp = false,
                 .TraceDiv = false,
                 .TraceGep = false,
                 .Use8bitCounters = false,

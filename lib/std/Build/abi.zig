@@ -6,6 +6,7 @@
 //! All of these components interface to some degree via an ABI:
 //! * The build runner communicates with the web interface over a WebSocket connection
 //! * The build runner communicates with `libfuzzer` over a shared memory-mapped file
+const std = @import("std");
 
 // Check that no WebSocket message type has implicit padding bits. This ensures we never send any
 // undefined bits over the wire, and also helps validate that the layout doesn't differ between, for
@@ -13,7 +14,6 @@
 comptime {
     const check = struct {
         fn check(comptime T: type) void {
-            const std = @import("std");
             std.debug.assert(@typeInfo(T) == .@"struct");
             std.debug.assert(@typeInfo(T).@"struct".layout == .@"extern");
             std.debug.assert(std.meta.hasUniqueRepresentation(T));
@@ -139,12 +139,46 @@ pub const Rebuild = extern struct {
 
 /// ABI bits specifically relating to the fuzzer interface.
 pub const fuzz = struct {
-    pub const TestOne = *const fn (Slice) callconv(.c) void;
+    pub const TestOne = *const fn () callconv(.c) void;
+
+    /// A unique value to identify the related requests across runs
+    pub const Uid = packed struct(u32) {
+        kind: enum(u1) { int, bytes },
+        hash: u31,
+
+        pub const hashmap_ctx = struct {
+            pub fn hash(_: @This(), u: Uid) u32 {
+                // We can ignore `kind` since `hash` should be unique regardless
+                return u.hash;
+            }
+
+            pub fn eql(_: @This(), a: Uid, b: Uid, _: usize) bool {
+                return a == b;
+            }
+        };
+    };
+
     pub extern fn fuzzer_init(cache_dir_path: Slice) void;
+    /// `fuzzer_init` must be called first.
     pub extern fn fuzzer_coverage() Coverage;
-    pub extern fn fuzzer_init_test(test_one: TestOne, unit_test_name: Slice) void;
+    /// `fuzzer_init` must be called first.
+    pub extern fn fuzzer_set_test(test_one: TestOne, unit_test_name: Slice) void;
+    /// `fuzzer_set_test` must be called first.
+    /// The callee owns the memory of bytes and must not free it until `fuzzer_main` returns
     pub extern fn fuzzer_new_input(bytes: Slice) void;
+    /// `fuzzer_set_test` must be called first.
+    /// Resets the fuzzer's state to that of `fuzzer_init`.
     pub extern fn fuzzer_main(limit_kind: LimitKind, amount: u64) void;
+
+    pub extern fn fuzzer_int(uid: Uid, weights: Weights) u64;
+    pub extern fn fuzzer_eos(uid: Uid, weights: Weights) bool;
+    pub extern fn fuzzer_bytes(uid: Uid, out: MutSlice, weights: Weights) void;
+    pub extern fn fuzzer_slice(
+        uid: Uid,
+        buf: MutSlice,
+        len_weights: Weights,
+        byte_weights: Weights,
+    ) u32;
 
     pub const Slice = extern struct {
         ptr: [*]const u8,
@@ -156,6 +190,100 @@ pub const fuzz = struct {
 
         pub fn fromSlice(s: []const u8) Slice {
             return .{ .ptr = s.ptr, .len = s.len };
+        }
+    };
+
+    pub const MutSlice = extern struct {
+        ptr: [*]u8,
+        len: usize,
+
+        pub fn toSlice(s: MutSlice) []u8 {
+            return s.ptr[0..s.len];
+        }
+
+        pub fn fromSlice(s: []u8) MutSlice {
+            return .{ .ptr = s.ptr, .len = s.len };
+        }
+    };
+
+    pub const Weights = extern struct {
+        ptr: [*]const Weight,
+        len: usize,
+
+        pub fn toSlice(s: Weights) []const Weight {
+            return s.ptr[0..s.len];
+        }
+
+        pub fn fromSlice(s: []const Weight) Weights {
+            return .{ .ptr = s.ptr, .len = s.len };
+        }
+    };
+
+    /// Increases the probability of values being selected by the fuzzer.
+    ///
+    /// `weight` applies to each value in the range (i.e. not evenly across
+    /// the range) and must be nonzero.
+    ///
+    /// In a set of weights, the total weight must not exceed 2^64 and be
+    /// nonzero.
+    pub const Weight = extern struct {
+        /// Inclusive
+        min: u64,
+        /// Inclusive
+        max: u64,
+        weight: u64,
+
+        fn intFromValue(x: anytype) u64 {
+            const T = @TypeOf(x);
+            return switch (@typeInfo(T)) {
+                .comptime_int => x,
+                .bool => @intFromBool(x),
+                .@"enum" => @intFromEnum(x),
+                else => @as(std.meta.Int(.unsigned, @bitSizeOf(T)), @bitCast(x)),
+
+                .int => |i| x: {
+                    comptime {
+                        if (i.signedness == .signed) {
+                            @compileError("type does not have a continous range: " ++ @typeName(T));
+                        }
+                        // Reject types that don't have a fixed bitsize (esp. usize)
+                        // since they are not gauraunteed to fit in a u64 across targets.
+                        if (std.mem.indexOfScalar(type, &.{
+                            usize, c_char, c_ushort, c_uint, c_ulong, c_ulonglong,
+                        }, T) != null) {
+                            @compileError("type does not have a fixed bitsize: " ++ @typeName(T));
+                        }
+                    }
+                    break :x x;
+                },
+
+                .comptime_float,
+                .float,
+                => @compileError("type does not have a continous range: " ++ @typeName(T)),
+                .pointer => @compileError("type does not have a fixed bitsize: " ++ @typeName(T)),
+            };
+        }
+
+        pub fn value(T: type, x: T, weight: u64) Weight {
+            return .{ .min = intFromValue(x), .max = intFromValue(x), .weight = weight };
+        }
+
+        pub fn rangeAtMost(T: type, at_least: T, at_most: T, weight: u64) Weight {
+            std.debug.assert(intFromValue(at_least) <= intFromValue(at_most));
+            return .{
+                .min = intFromValue(at_least),
+                .max = intFromValue(at_most),
+                .weight = weight,
+            };
+        }
+
+        pub fn rangeLessThan(T: type, at_least: T, less_than: T, weight: u64) Weight {
+            std.debug.assert(intFromValue(at_least) < intFromValue(less_than));
+            return .{
+                .min = intFromValue(at_least),
+                .max = intFromValue(less_than) - 1,
+                .weight = weight,
+            };
         }
     };
 
@@ -218,6 +346,7 @@ pub const fuzz = struct {
         string_bytes_len: u32,
         /// When, according to the server, fuzzing started.
         start_timestamp: i64 align(4),
+        start_n_runs: u64 align(4),
     };
 
     /// WebSocket server->client.

@@ -1086,6 +1086,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 pub fn rerunInFuzzMode(
     run: *Run,
     fuzz: *std.Build.Fuzz,
+    gpa: mem.Allocator,
     unit_test_index: u32,
     prog_node: std.Progress.Node,
 ) !void {
@@ -1143,6 +1144,8 @@ pub fn rerunInFuzzMode(
     const has_side_effects = false;
     const rand_int = std.crypto.random.int(u64);
     const tmp_dir_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
+    gpa.free(run.step.result_failed_command.?);
+    run.step.result_failed_command = null;
     try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, .{
         .progress_node = prog_node,
         .thread_pool = undefined, // not used by `runCommand`
@@ -1150,7 +1153,7 @@ pub fn rerunInFuzzMode(
         .web_server = null, // only needed for time reports
         .ttyconf = fuzz.ttyconf,
         .unit_test_timeout_ns = null, // don't time out fuzz tests for now
-        .gpa = undefined, // not used by `runCommand`
+        .gpa = gpa,
     }, .{
         .unit_test_index = unit_test_index,
         .fuzz = fuzz,
@@ -1888,7 +1891,7 @@ fn pollZigTest(
             // Always `null` if `timer` is `null`.
             const opt_timeout_ns: ?u64 = ns: {
                 if (timer == null) break :ns null;
-                if (active_test_index == null) break :ns response_timeout_ns;
+                if (active_test_index == null and fuzz_context == null) break :ns response_timeout_ns;
                 break :ns options.unit_test_timeout_ns;
             };
 

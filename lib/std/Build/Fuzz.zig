@@ -67,6 +67,7 @@ const CoverageMap = struct {
     /// Elements are indexes into `source_locations` pointing to the unit tests that are being fuzz tested.
     entry_points: std.ArrayListUnmanaged(u32),
     start_timestamp: i64,
+    start_n_runs: u64,
 
     fn deinit(cm: *CoverageMap, gpa: Allocator) void {
         std.posix.munmap(cm.mapped_memory);
@@ -143,6 +144,15 @@ pub fn start(fuzz: *Fuzz) void {
     }
 
     for (fuzz.run_steps) |run| {
+        if (run.fuzz_tests.items.len > 1) {
+            // Multiple fuzzWorkerRuns currently cause race-
+            // conditions since they use the same Run step.
+            fuzz.wait_group.finish();
+            fatal("--fuzz not yet implemented for multiple tests", .{});
+        }
+    }
+
+    for (fuzz.run_steps) |run| {
         for (run.fuzz_tests.items) |unit_test_index| {
             assert(run.rebuilt_executable != null);
             fuzz.thread_pool.spawnWg(&fuzz.wait_group, fuzzWorkerRun, .{
@@ -203,7 +213,7 @@ fn fuzzWorkerRun(
     const prog_node = fuzz.prog_node.start(test_name, 0);
     defer prog_node.end();
 
-    run.rerunInFuzzMode(fuzz, unit_test_index, prog_node) catch |err| switch (err) {
+    run.rerunInFuzzMode(fuzz, gpa, unit_test_index, prog_node) catch |err| switch (err) {
         error.MakeFailed => {
             var buf: [256]u8 = undefined;
             const w, _ = std.debug.lockStderrWriter(&buf);
@@ -218,6 +228,17 @@ fn fuzzWorkerRun(
             return;
         },
     };
+
+    const show_compile_errors = run.step.result_error_bundle.errorMessageCount() > 0;
+    const show_error_msgs = run.step.result_error_msgs.items.len > 0;
+    const show_stderr = run.step.result_stderr.len > 0;
+
+    if (show_error_msgs or show_compile_errors or show_stderr) {
+        var buf: [256]u8 = undefined;
+        const w, _ = std.debug.lockStderrWriter(&buf);
+        defer std.debug.unlockStderrWriter();
+        build_runner.printErrorMessages(gpa, &run.step, .{}, w, fuzz.ttyconf, .verbose, .indent) catch {};
+    }
 }
 
 pub fn serveSourcesTar(fuzz: *Fuzz, req: *std.http.Server.Request) !void {
@@ -298,6 +319,7 @@ pub fn sendUpdate(
                 .source_locations_len = @intCast(coverage_map.source_locations.len),
                 .string_bytes_len = @intCast(coverage_map.coverage.string_bytes.items.len),
                 .start_timestamp = coverage_map.start_timestamp,
+                .start_n_runs = coverage_map.start_n_runs,
             };
             var iovecs: [5][]const u8 = .{
                 @ptrCast(&header),
@@ -379,6 +401,7 @@ fn prepareTables(fuzz: *Fuzz, run_step: *Step.Run, coverage_id: u64) error{ OutO
         .source_locations = undefined, // populated below
         .entry_points = .{},
         .start_timestamp = ws.now(),
+        .start_n_runs = undefined, // populated below
     };
     errdefer gop.value_ptr.coverage.deinit(fuzz.gpa);
 
@@ -448,6 +471,7 @@ fn prepareTables(fuzz: *Fuzz, run_step: *Step.Run, coverage_id: u64) error{ OutO
 
     for (sorted_pcs.items(.index), sorted_pcs.items(.sl)) |i, sl| source_locations[i] = sl;
     gop.value_ptr.source_locations = source_locations;
+    gop.value_ptr.start_n_runs = header.n_runs;
 
     ws.notifyUpdate();
 }
