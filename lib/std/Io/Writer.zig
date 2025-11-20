@@ -271,8 +271,8 @@ fn writeSplatHeaderLimitFinish(
             if (remaining == 0) break :v;
         }
         for (data[0 .. data.len - 1]) |buf| if (buf.len != 0) {
-            const copy_len = @min(header.len, remaining);
-            vecs[i] = buf;
+            const copy_len = @min(buf.len, remaining);
+            vecs[i] = buf[0..copy_len];
             i += 1;
             remaining -= copy_len;
             if (remaining == 0) break :v;
@@ -304,6 +304,24 @@ test "writeSplatHeader splatting avoids buffer aliasing temptation" {
         "header which is longer than buf 123456foo",
         aw.writer.buffered(),
     );
+}
+
+test "writeSplatHeaderLimit limits data" {
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+
+    const data = [_][]const u8{ "good", "...not" };
+    const limit: usize = 4;
+
+    const n = try aw.writer.writeSplatHeaderLimit(
+        &.{},
+        &data,
+        1,
+        @enumFromInt(limit),
+    );
+
+    try testing.expectEqualStrings("good", aw.written());
+    try testing.expectEqual(limit, n);
 }
 
 /// Drains all remaining buffered data.
