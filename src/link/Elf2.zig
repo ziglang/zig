@@ -1143,7 +1143,7 @@ fn initHeaders(
             if (target_endian != native_endian) std.mem.byteSwapAllFields(ElfN.Sym, symtab_null);
 
             const ehdr = @field(elf.ehdrPtr(), @tagName(ct_class));
-            elf.targetStore(&ehdr.shstrndx, ehdr.shnum);
+            ehdr.shstrndx = ehdr.shnum;
         },
     }
     assert(elf.si.shstrtab == try elf.addSection(elf.ni.file, .{
