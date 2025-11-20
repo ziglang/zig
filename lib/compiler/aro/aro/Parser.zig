@@ -6,7 +6,6 @@ const big = std.math.big;
 
 const Attribute = @import("Attribute.zig");
 const Builtins = @import("Builtins.zig");
-const Builtin = Builtins.Builtin;
 const evalBuiltin = @import("Builtins/eval.zig").eval;
 const char_info = @import("char_info.zig");
 const Compilation = @import("Compilation.zig");
@@ -18,7 +17,6 @@ const Source = @import("Source.zig");
 const StringId = @import("StringInterner.zig").StringId;
 const SymbolStack = @import("SymbolStack.zig");
 const Symbol = SymbolStack.Symbol;
-const target_util = @import("target.zig");
 const text_literal = @import("text_literal.zig");
 const Tokenizer = @import("Tokenizer.zig");
 const Tree = @import("Tree.zig");
@@ -80,6 +78,7 @@ pub const Error = Compilation.Error || error{ParsingFailed};
 const TentativeAttribute = struct {
     attr: Attribute,
     tok: TokenIndex,
+    seen: bool = false,
 };
 
 /// How the parser handles const int decl references when it is expecting an integer
@@ -390,11 +389,12 @@ fn expectToken(p: *Parser, expected: Token.Id) Error!TokenIndex {
 pub fn tokSlice(p: *Parser, tok: TokenIndex) []const u8 {
     if (p.tok_ids[tok].lexeme()) |some| return some;
     const loc = p.pp.tokens.items(.loc)[tok];
-    var tmp_tokenizer = Tokenizer{
+    var tmp_tokenizer: Tokenizer = .{
         .buf = p.comp.getSource(loc.id).buf,
         .langopts = p.comp.langopts,
         .index = loc.byte_offset,
         .source = .generated,
+        .splice_locs = &.{},
     };
     const res = tmp_tokenizer.next();
     return tmp_tokenizer.buf[res.start..res.end];
@@ -732,13 +732,10 @@ pub fn getDecayedStringLiteral(p: *Parser, node: Node.Index) ?Value {
 }
 
 fn getNode(p: *Parser, node: Node.Index, comptime tag: std.meta.Tag(Tree.Node)) ?@FieldType(Node, @tagName(tag)) {
-    var cur = node;
-    while (true) {
-        switch (cur.get(&p.tree)) {
-            .paren_expr => |un| cur = un.operand,
-            tag => |data| return data,
-            else => return null,
-        }
+    loop: switch (node.get(&p.tree)) {
+        .paren_expr => |un| continue :loop un.operand.get(&p.tree),
+        tag => |data| return data,
+        else => return null,
     }
 }
 
@@ -1426,6 +1423,11 @@ fn decl(p: *Parser) Error!bool {
 
         if (p.eatToken(.comma) == null) break;
 
+        const attr_buf_top_declarator = p.attr_buf.len;
+        defer p.attr_buf.len = attr_buf_top_declarator;
+
+        try p.attributeSpecifierGnu();
+
         if (!warned_auto) {
             // TODO these are warnings in clang
             if (decl_spec.auto_type) |tok_i| {
@@ -1806,6 +1808,11 @@ fn attribute(p: *Parser, kind: Attribute.Kind, namespace: ?[]const u8) Error!?Te
         if (p.eatToken(.l_paren)) |_| p.skipTo(.r_paren);
         return null;
     };
+    if (attr == .availability) {
+        // TODO parse introduced=10.4 etc
+        if (p.eatToken(.l_paren)) |_| p.skipTo(.r_paren);
+        return null;
+    }
 
     const required_count = Attribute.requiredArgCount(attr);
     var arguments = Attribute.initArguments(attr, name_tok);
@@ -1936,6 +1943,26 @@ fn gnuAttribute(p: *Parser) !bool {
     _ = try p.expectClosing(paren2, .r_paren);
     _ = try p.expectClosing(paren1, .r_paren);
     return true;
+}
+
+fn attributeSpecifierGnu(p: *Parser) Error!void {
+    while (true) {
+        if (try p.gnuAttribute()) continue;
+
+        const tok = p.tok_i;
+        const attr_buf_top_declarator = p.attr_buf.len;
+        defer p.attr_buf.len = attr_buf_top_declarator;
+
+        if (try p.c23Attribute()) {
+            try p.err(tok, .invalid_attribute_location, .{"an attribute list"});
+            continue;
+        }
+        if (try p.msvcAttribute()) {
+            try p.err(tok, .invalid_attribute_location, .{"a declspec attribute"});
+            continue;
+        }
+        break;
+    }
 }
 
 fn attributeSpecifier(p: *Parser) Error!void {
@@ -2183,11 +2210,24 @@ fn typeSpec(p: *Parser, builder: *TypeStore.Builder) Error!bool {
             .keyword_signed, .keyword_signed1, .keyword_signed2 => try builder.combine(.signed, p.tok_i),
             .keyword_unsigned => try builder.combine(.unsigned, p.tok_i),
             .keyword_fp16 => try builder.combine(.fp16, p.tok_i),
+            .keyword_bf16 => try builder.combine(.bf16, p.tok_i),
             .keyword_float16 => try builder.combine(.float16, p.tok_i),
+            .keyword_float32 => try builder.combine(.float32, p.tok_i),
+            .keyword_float64 => try builder.combine(.float64, p.tok_i),
+            .keyword_float32x => try builder.combine(.float32x, p.tok_i),
+            .keyword_float64x => try builder.combine(.float64x, p.tok_i),
+            .keyword_float128x => {
+                try p.err(p.tok_i, .type_not_supported_on_target, .{p.tok_ids[p.tok_i].lexeme().?});
+                return error.ParsingFailed;
+            },
+            .keyword_dfloat32 => try builder.combine(.dfloat32, p.tok_i),
+            .keyword_dfloat64 => try builder.combine(.dfloat64, p.tok_i),
+            .keyword_dfloat128 => try builder.combine(.dfloat128, p.tok_i),
+            .keyword_dfloat64x => try builder.combine(.dfloat64x, p.tok_i),
             .keyword_float => try builder.combine(.float, p.tok_i),
             .keyword_double => try builder.combine(.double, p.tok_i),
             .keyword_complex => try builder.combine(.complex, p.tok_i),
-            .keyword_float128_1, .keyword_float128_2 => {
+            .keyword_float128, .keyword_float128_1 => {
                 if (!p.comp.hasFloat128()) {
                     try p.err(p.tok_i, .type_not_supported_on_target, .{p.tok_ids[p.tok_i].lexeme().?});
                 }
@@ -2690,6 +2730,9 @@ fn recordDecl(p: *Parser) Error!bool {
         const attr_len: u32 = @intCast(to_append.len);
         try p.comp.type_store.attributes.appendSlice(gpa, to_append);
 
+        qt = try Attribute.applyTypeAttributes(p, qt, attr_buf_top, null);
+        @memset(p.attr_buf.items(.seen)[attr_buf_top..], false);
+
         if (name_tok == 0 and bits == null) unnamed: {
             var is_typedef = false;
             if (!qt.isInvalid()) loop: switch (qt.type(p.comp)) {
@@ -2832,7 +2875,7 @@ fn enumSpec(p: *Parser) Error!QualType {
     try p.attributeSpecifier();
 
     const maybe_ident = try p.eatIdentifier();
-    const fixed_qt = if (p.eatToken(.colon)) |colon| fixed: {
+    const fixed_qt: ?QualType = if (p.eatToken(.colon)) |colon| fixed: {
         const ty_start = p.tok_i;
         const fixed = (try p.specQual()) orelse {
             if (p.record.kind != .invalid) {
@@ -2842,17 +2885,27 @@ fn enumSpec(p: *Parser) Error!QualType {
             }
             try p.err(p.tok_i, .expected_type, .{});
             try p.err(colon, .enum_fixed, .{});
-            break :fixed null;
+            break :fixed .int;
         };
 
-        const fixed_sk = fixed.scalarKind(p.comp);
-        if (fixed_sk == .@"enum" or !fixed_sk.isInt() or !fixed_sk.isReal()) {
-            try p.err(ty_start, .invalid_type_underlying_enum, .{fixed});
-            break :fixed null;
+        var final = fixed;
+        while (true) {
+            switch (final.base(p.comp).type) {
+                .int => {
+                    try p.err(colon, .enum_fixed, .{});
+                    if (final.isQualified()) try p.err(ty_start, .enum_qualifiers_ignored, .{});
+                    break :fixed final.unqualified();
+                },
+                .atomic => |atomic| {
+                    try p.err(ty_start, .enum_atomic_ignored, .{});
+                    final = atomic.withQualifiers(final);
+                },
+                else => {
+                    try p.err(ty_start, .enum_invalid_underlying_type, .{fixed});
+                    break :fixed .int;
+                },
+            }
         }
-
-        try p.err(colon, .enum_fixed, .{});
-        break :fixed fixed;
     } else null;
 
     const reserved_index = try p.tree.nodes.addOne(gpa);
@@ -2870,6 +2923,8 @@ fn enumSpec(p: *Parser) Error!QualType {
                 try p.checkEnumFixedTy(fixed_qt, ident, prev);
             return prev.qt;
         } else {
+            if (fixed_qt == null) try p.err(ident, .enum_forward_declaration, .{});
+
             const enum_qt = try p.comp.type_store.put(gpa, .{ .@"enum" = .{
                 .name = interned_name,
                 .tag = fixed_qt,
@@ -2969,33 +3024,30 @@ fn enumSpec(p: *Parser) Error!QualType {
 
     if (fixed_qt == null) {
         // Coerce all fields to final type.
+        const tag_qt = enum_ty.tag.?;
+        const keep_int = e.num_positive_bits < Type.Int.int.bits(p.comp);
         for (enum_fields, field_nodes) |*field, field_node| {
-            if (field.qt.eql(.int, p.comp)) continue;
-
             const sym = p.syms.get(field.name, .vars) orelse continue;
             if (sym.kind != .enumeration) continue; // already an error
 
             var res: Result = .{ .node = undefined, .qt = field.qt, .val = sym.val };
-            const dest_ty: QualType = if (p.comp.fixedEnumTagType()) |some|
-                some
-            else if (try res.intFitsInType(p, .int))
+            const dest_qt: QualType = if (keep_int and try res.intFitsInType(p, .int))
                 .int
-            else if (!res.qt.eql(enum_ty.tag.?, p.comp))
-                enum_ty.tag.?
             else
-                continue;
+                tag_qt;
+            if (field.qt.eql(dest_qt, p.comp)) continue;
 
             const symbol = p.syms.getPtr(field.name, .vars);
-            _ = try symbol.val.intCast(dest_ty, p.comp);
+            _ = try symbol.val.intCast(dest_qt, p.comp);
             try p.tree.value_map.put(gpa, field_node, symbol.val);
 
-            symbol.qt = dest_ty;
-            field.qt = dest_ty;
-            res.qt = dest_ty;
+            symbol.qt = dest_qt;
+            field.qt = dest_qt;
+            res.qt = dest_qt;
 
             // Create a new enum_field node with the correct type.
             var new_field_node = field_node.get(&p.tree);
-            new_field_node.enum_field.qt = dest_ty;
+            new_field_node.enum_field.qt = dest_qt;
 
             if (new_field_node.enum_field.init) |some| {
                 res.node = some;
@@ -3503,7 +3555,7 @@ fn declarator(
         return d;
     } else if (p.eatToken(.l_paren)) |l_paren| blk: {
         // C23 and declspec attributes are not allowed here
-        while (try p.gnuAttribute()) {}
+        try p.attributeSpecifierGnu();
 
         // Parse Microsoft keyword type attributes.
         _ = try p.msTypeAttribute();
@@ -4704,20 +4756,17 @@ fn msvcAsmStmt(p: *Parser) Error!?Node.Index {
 }
 
 /// asmOperand : ('[' IDENTIFIER ']')? asmStr '(' expr ')'
-fn asmOperand(p: *Parser, names: *std.ArrayList(?TokenIndex), constraints: *NodeList, exprs: *NodeList) Error!void {
-    const gpa = p.comp.gpa;
-    if (p.eatToken(.l_bracket)) |l_bracket| {
+fn asmOperand(p: *Parser, kind: enum { output, input }) Error!Tree.Node.AsmStmt.Operand {
+    const name = if (p.eatToken(.l_bracket)) |l_bracket| name: {
         const ident = (try p.eatIdentifier()) orelse {
             try p.err(p.tok_i, .expected_identifier, .{});
             return error.ParsingFailed;
         };
-        try names.append(gpa, ident);
         try p.expectClosing(l_bracket, .r_bracket);
-    } else {
-        try names.append(gpa, null);
-    }
+        break :name ident;
+    } else 0;
+
     const constraint = try p.asmStr();
-    try constraints.append(gpa, constraint.node);
 
     const l_paren = p.eatToken(.l_paren) orelse {
         try p.err(p.tok_i, .expected_token, .{ p.tok_ids[p.tok_i], Token.Id.l_paren });
@@ -4725,8 +4774,17 @@ fn asmOperand(p: *Parser, names: *std.ArrayList(?TokenIndex), constraints: *Node
     };
     const maybe_res = try p.expr();
     try p.expectClosing(l_paren, .r_paren);
-    const res = try p.expectResult(maybe_res);
-    try exprs.append(gpa, res.node);
+    var res = try p.expectResult(maybe_res);
+    if (kind == .output and !p.tree.isLval(res.node)) {
+        try p.err(l_paren + 1, .invalid_asm_output, .{});
+    } else if (kind == .input) {
+        try res.lvalConversion(p, l_paren + 1);
+    }
+    return .{
+        .name = name,
+        .constraint = constraint.node,
+        .expr = res.node,
+    };
 }
 
 /// gnuAsmStmt
@@ -4741,33 +4799,36 @@ fn gnuAsmStmt(p: *Parser, quals: Tree.GNUAssemblyQualifiers, asm_tok: TokenIndex
     try p.checkAsmStr(asm_str.val, l_paren);
 
     if (p.tok_ids[p.tok_i] == .r_paren) {
+        if (quals.goto) try p.err(p.tok_i, .expected_token, .{ Tree.Token.Id.r_paren, p.tok_ids[p.tok_i] });
+
         return try p.addNode(.{
-            .gnu_asm_simple = .{
-                .asm_str = asm_str.node,
+            .asm_stmt = .{
                 .asm_tok = asm_tok,
+                .asm_str = asm_str.node,
+                .outputs = &.{},
+                .inputs = &.{},
+                .clobbers = &.{},
+                .labels = &.{},
+                .quals = quals,
             },
         });
     }
 
     const expected_items = 8; // arbitrarily chosen, most assembly will have fewer than 8 inputs/outputs/constraints/names
-    const bytes_needed = expected_items * @sizeOf(?TokenIndex) + expected_items * 3 * @sizeOf(Node.Index);
+    const bytes_needed = expected_items * @sizeOf(Tree.Node.AsmStmt.Operand) + expected_items * 2 * @sizeOf(Node.Index);
 
     var stack_fallback = std.heap.stackFallback(bytes_needed, gpa);
     const allocator = stack_fallback.get();
 
-    // TODO: Consider using a TokenIndex of 0 instead of null if we need to store the names in the tree
-    var names: std.ArrayList(?TokenIndex) = .empty;
-    defer names.deinit(allocator);
-    names.ensureUnusedCapacity(allocator, expected_items) catch unreachable; // stack allocation already succeeded
-    var constraints: NodeList = .empty;
-    defer constraints.deinit(allocator);
-    constraints.ensureUnusedCapacity(allocator, expected_items) catch unreachable; // stack allocation already succeeded
-    var exprs: NodeList = .empty;
-    defer exprs.deinit(allocator);
-    exprs.ensureUnusedCapacity(allocator, expected_items) catch unreachable; //stack allocation already succeeded
+    var operands: std.ArrayList(Tree.Node.AsmStmt.Operand) = .empty;
+    defer operands.deinit(allocator);
+    operands.ensureUnusedCapacity(allocator, expected_items) catch unreachable; //stack allocation already succeeded
     var clobbers: NodeList = .empty;
     defer clobbers.deinit(allocator);
     clobbers.ensureUnusedCapacity(allocator, expected_items) catch unreachable; //stack allocation already succeeded
+    var labels: NodeList = .empty;
+    defer labels.deinit(allocator);
+    labels.ensureUnusedCapacity(allocator, expected_items) catch unreachable; //stack allocation already succeeded
 
     // Outputs
     var ate_extra_colon = false;
@@ -4776,14 +4837,14 @@ fn gnuAsmStmt(p: *Parser, quals: Tree.GNUAssemblyQualifiers, asm_tok: TokenIndex
         if (!ate_extra_colon) {
             if (p.tok_ids[p.tok_i].isStringLiteral() or p.tok_ids[p.tok_i] == .l_bracket) {
                 while (true) {
-                    try p.asmOperand(&names, &constraints, &exprs);
+                    const operand = try p.asmOperand(.output);
+                    try operands.append(allocator, operand);
                     if (p.eatToken(.comma) == null) break;
                 }
             }
         }
     }
-
-    const num_outputs = names.items.len;
+    const num_outputs = operands.items.len;
 
     // Inputs
     if (ate_extra_colon or p.tok_ids[p.tok_i] == .colon or p.tok_ids[p.tok_i] == .colon_colon) {
@@ -4796,15 +4857,13 @@ fn gnuAsmStmt(p: *Parser, quals: Tree.GNUAssemblyQualifiers, asm_tok: TokenIndex
         if (!ate_extra_colon) {
             if (p.tok_ids[p.tok_i].isStringLiteral() or p.tok_ids[p.tok_i] == .l_bracket) {
                 while (true) {
-                    try p.asmOperand(&names, &constraints, &exprs);
+                    const operand = try p.asmOperand(.input);
+                    try operands.append(allocator, operand);
                     if (p.eatToken(.comma) == null) break;
                 }
             }
         }
     }
-    std.debug.assert(names.items.len == constraints.items.len and constraints.items.len == exprs.items.len);
-    const num_inputs = names.items.len - num_outputs;
-    _ = num_inputs;
 
     // Clobbers
     if (ate_extra_colon or p.tok_ids[p.tok_i] == .colon or p.tok_ids[p.tok_i] == .colon_colon) {
@@ -4829,7 +4888,6 @@ fn gnuAsmStmt(p: *Parser, quals: Tree.GNUAssemblyQualifiers, asm_tok: TokenIndex
     }
 
     // Goto labels
-    var num_labels: u32 = 0;
     if (ate_extra_colon or p.tok_ids[p.tok_i] == .colon) {
         if (!ate_extra_colon) {
             p.tok_i += 1;
@@ -4844,7 +4902,6 @@ fn gnuAsmStmt(p: *Parser, quals: Tree.GNUAssemblyQualifiers, asm_tok: TokenIndex
                 try p.labels.append(gpa, .{ .unresolved_goto = ident });
                 break :blk ident;
             };
-            try names.append(allocator, ident);
 
             const label_addr_node = try p.addNode(.{
                 .addr_of_label = .{
@@ -4852,9 +4909,8 @@ fn gnuAsmStmt(p: *Parser, quals: Tree.GNUAssemblyQualifiers, asm_tok: TokenIndex
                     .qt = .void_pointer,
                 },
             });
-            try exprs.append(allocator, label_addr_node);
+            try labels.append(allocator, label_addr_node);
 
-            num_labels += 1;
             if (p.eatToken(.comma) == null) break;
         }
     } else if (quals.goto) {
@@ -4862,11 +4918,18 @@ fn gnuAsmStmt(p: *Parser, quals: Tree.GNUAssemblyQualifiers, asm_tok: TokenIndex
         return error.ParsingFailed;
     }
 
-    // TODO: validate and insert into AST
-    return p.addNode(.{ .null_stmt = .{
-        .semicolon_or_r_brace_tok = asm_tok,
-        .qt = .void,
-    } });
+    // TODO: validate
+    return p.addNode(.{
+        .asm_stmt = .{
+            .asm_tok = asm_tok,
+            .asm_str = asm_str.node,
+            .outputs = operands.items[0..num_outputs],
+            .inputs = operands.items[num_outputs..],
+            .clobbers = clobbers.items,
+            .labels = labels.items,
+            .quals = quals,
+        },
+    });
 }
 
 fn checkAsmStr(p: *Parser, asm_str: Value, tok: TokenIndex) !void {
@@ -5617,7 +5680,9 @@ fn returnStmt(p: *Parser) Error!?Node.Index {
 
     if (ret_expr) |*some| {
         if (ret_void) {
-            try p.err(e_tok, .void_func_returns_value, .{p.tokSlice(p.func.name)});
+            if (!some.qt.is(p.comp, .void)) {
+                try p.err(e_tok, .void_func_returns_value, .{p.tokSlice(p.func.name)});
+            }
         } else {
             try some.coerce(p, ret_qt, e_tok, .ret);
 
@@ -5649,14 +5714,14 @@ const CallExpr = union(enum) {
     standard: Node.Index,
     builtin: struct {
         builtin_tok: TokenIndex,
-        tag: Builtin.Tag,
+        expanded: Builtins.Expanded,
     },
 
     fn init(p: *Parser, call_node: Node.Index, func_node: Node.Index) CallExpr {
         if (p.getNode(call_node, .builtin_ref)) |builtin_ref| {
             const name = p.tokSlice(builtin_ref.name_tok);
             const expanded = p.comp.builtins.lookup(name);
-            return .{ .builtin = .{ .builtin_tok = builtin_ref.name_tok, .tag = expanded.builtin.tag } };
+            return .{ .builtin = .{ .builtin_tok = builtin_ref.name_tok, .expanded = expanded } };
         }
         return .{ .standard = func_node };
     }
@@ -5664,11 +5729,14 @@ const CallExpr = union(enum) {
     fn shouldPerformLvalConversion(self: CallExpr, arg_idx: u32) bool {
         return switch (self) {
             .standard => true,
-            .builtin => |builtin| switch (builtin.tag) {
-                .__builtin_va_start,
-                .__va_start,
-                .va_start,
-                => arg_idx != 1,
+            .builtin => |builtin| switch (builtin.expanded.tag) {
+                .common => |tag| switch (tag) {
+                    .__builtin_va_start,
+                    .__va_start,
+                    .va_start,
+                    => arg_idx != 1,
+                    else => true,
+                },
                 else => true,
             },
         };
@@ -5677,20 +5745,23 @@ const CallExpr = union(enum) {
     fn shouldPromoteVarArg(self: CallExpr, arg_idx: u32) bool {
         return switch (self) {
             .standard => true,
-            .builtin => |builtin| switch (builtin.tag) {
-                .__builtin_va_start,
-                .__va_start,
-                .va_start,
-                => arg_idx != 1,
-                .__builtin_add_overflow,
-                .__builtin_complex,
-                .__builtin_isinf,
-                .__builtin_isinf_sign,
-                .__builtin_mul_overflow,
-                .__builtin_isnan,
-                .__builtin_sub_overflow,
-                => false,
-                else => true,
+            .builtin => |builtin| switch (builtin.expanded.tag) {
+                .common => |tag| switch (tag) {
+                    .__builtin_va_start,
+                    .__va_start,
+                    .va_start,
+                    => arg_idx != 1,
+                    .__builtin_add_overflow,
+                    .__builtin_complex,
+                    .__builtin_isinf,
+                    .__builtin_isinf_sign,
+                    .__builtin_mul_overflow,
+                    .__builtin_isnan,
+                    .__builtin_sub_overflow,
+                    => false,
+                    else => true,
+                },
+                else => false,
             },
         };
     }
@@ -5701,21 +5772,88 @@ const CallExpr = union(enum) {
         return true;
     }
 
-    fn checkVarArg(self: CallExpr, p: *Parser, first_after: TokenIndex, param_tok: TokenIndex, arg: *Result, arg_idx: u32) Error!void {
+    fn checkVarArg(self: CallExpr, p: *Parser, first_after: TokenIndex, param_tok: TokenIndex, arg: *Result, arg_idx: u32) !void {
         if (self == .standard) return;
 
         const builtin_tok = self.builtin.builtin_tok;
-        switch (self.builtin.tag) {
-            .__builtin_va_start,
-            .__va_start,
-            .va_start,
-            => return p.checkVaStartArg(builtin_tok, first_after, param_tok, arg, arg_idx),
-            .__builtin_complex => return p.checkComplexArg(builtin_tok, first_after, param_tok, arg, arg_idx),
-            .__builtin_add_overflow,
-            .__builtin_sub_overflow,
-            .__builtin_mul_overflow,
-            => return p.checkArithOverflowArg(builtin_tok, first_after, param_tok, arg, arg_idx),
+        switch (self.builtin.expanded.tag) {
+            .common => |tag| switch (tag) {
+                .__builtin_va_start,
+                .__va_start,
+                .va_start,
+                => return p.checkVaStartArg(builtin_tok, first_after, param_tok, arg, arg_idx),
+                .__builtin_complex => return p.checkComplexArg(builtin_tok, first_after, param_tok, arg, arg_idx),
+                .__builtin_add_overflow,
+                .__builtin_sub_overflow,
+                .__builtin_mul_overflow,
+                => return p.checkArithOverflowArg(builtin_tok, first_after, param_tok, arg, arg_idx),
 
+                .__builtin_elementwise_abs,
+                => return p.checkElementwiseArg(param_tok, arg, arg_idx, .sint_float),
+                .__builtin_elementwise_bitreverse,
+                .__builtin_elementwise_add_sat,
+                .__builtin_elementwise_sub_sat,
+                .__builtin_elementwise_popcount,
+                => return p.checkElementwiseArg(param_tok, arg, arg_idx, .int),
+                .__builtin_elementwise_canonicalize,
+                .__builtin_elementwise_ceil,
+                .__builtin_elementwise_cos,
+                .__builtin_elementwise_exp,
+                .__builtin_elementwise_exp2,
+                .__builtin_elementwise_floor,
+                .__builtin_elementwise_log,
+                .__builtin_elementwise_log10,
+                .__builtin_elementwise_log2,
+                .__builtin_elementwise_nearbyint,
+                .__builtin_elementwise_rint,
+                .__builtin_elementwise_round,
+                .__builtin_elementwise_roundeven,
+                .__builtin_elementwise_sin,
+                .__builtin_elementwise_sqrt,
+                .__builtin_elementwise_trunc,
+                .__builtin_elementwise_copysign,
+                .__builtin_elementwise_pow,
+                .__builtin_elementwise_fma,
+                => return p.checkElementwiseArg(param_tok, arg, arg_idx, .float),
+                .__builtin_elementwise_max,
+                .__builtin_elementwise_min,
+                => return p.checkElementwiseArg(param_tok, arg, arg_idx, .both),
+
+                .__builtin_reduce_add,
+                .__builtin_reduce_mul,
+                .__builtin_reduce_and,
+                .__builtin_reduce_or,
+                .__builtin_reduce_xor,
+                => return p.checkElementwiseArg(param_tok, arg, arg_idx, .int),
+                .__builtin_reduce_max,
+                .__builtin_reduce_min,
+                => return p.checkElementwiseArg(param_tok, arg, arg_idx, .both),
+
+                .__builtin_nondeterministic_value => return p.checkElementwiseArg(param_tok, arg, arg_idx, .both),
+                .__builtin_nontemporal_load => return p.checkNonTemporalArg(param_tok, arg, arg_idx, .load),
+                .__builtin_nontemporal_store => return p.checkNonTemporalArg(param_tok, arg, arg_idx, .store),
+
+                .__sync_lock_release => return p.checkSyncArg(param_tok, arg, arg_idx, 1),
+                .__sync_fetch_and_add,
+                .__sync_fetch_and_and,
+                .__sync_fetch_and_nand,
+                .__sync_fetch_and_or,
+                .__sync_fetch_and_sub,
+                .__sync_fetch_and_xor,
+                .__sync_add_and_fetch,
+                .__sync_and_and_fetch,
+                .__sync_nand_and_fetch,
+                .__sync_or_and_fetch,
+                .__sync_sub_and_fetch,
+                .__sync_xor_and_fetch,
+                .__sync_swap,
+                .__sync_lock_test_and_set,
+                => return p.checkSyncArg(param_tok, arg, arg_idx, 2),
+                .__sync_bool_compare_and_swap,
+                .__sync_val_compare_and_swap,
+                => return p.checkSyncArg(param_tok, arg, arg_idx, 3),
+                else => {},
+            },
             else => {},
         }
     }
@@ -5728,128 +5866,246 @@ const CallExpr = union(enum) {
     fn paramCountOverride(self: CallExpr) ?u32 {
         return switch (self) {
             .standard => null,
-            .builtin => |builtin| switch (builtin.tag) {
-                .__c11_atomic_thread_fence,
-                .__c11_atomic_signal_fence,
-                .__c11_atomic_is_lock_free,
-                .__builtin_isinf,
-                .__builtin_isinf_sign,
-                .__builtin_isnan,
-                => 1,
+            .builtin => |builtin| switch (builtin.expanded.tag) {
+                .common => |tag| switch (tag) {
+                    .__c11_atomic_thread_fence,
+                    .__atomic_thread_fence,
+                    .__c11_atomic_signal_fence,
+                    .__atomic_signal_fence,
+                    .__c11_atomic_is_lock_free,
+                    .__builtin_isinf,
+                    .__builtin_isinf_sign,
+                    .__builtin_isnan,
+                    .__builtin_elementwise_abs,
+                    .__builtin_elementwise_bitreverse,
+                    .__builtin_elementwise_canonicalize,
+                    .__builtin_elementwise_ceil,
+                    .__builtin_elementwise_cos,
+                    .__builtin_elementwise_exp,
+                    .__builtin_elementwise_exp2,
+                    .__builtin_elementwise_floor,
+                    .__builtin_elementwise_log,
+                    .__builtin_elementwise_log10,
+                    .__builtin_elementwise_log2,
+                    .__builtin_elementwise_nearbyint,
+                    .__builtin_elementwise_rint,
+                    .__builtin_elementwise_round,
+                    .__builtin_elementwise_roundeven,
+                    .__builtin_elementwise_sin,
+                    .__builtin_elementwise_sqrt,
+                    .__builtin_elementwise_trunc,
+                    .__builtin_elementwise_popcount,
+                    .__builtin_nontemporal_load,
+                    .__builtin_nondeterministic_value,
+                    .__builtin_reduce_add,
+                    .__builtin_reduce_mul,
+                    .__builtin_reduce_and,
+                    .__builtin_reduce_or,
+                    .__builtin_reduce_xor,
+                    .__builtin_reduce_max,
+                    .__builtin_reduce_min,
+                    => 1,
 
-                .__builtin_complex,
-                .__c11_atomic_load,
-                .__c11_atomic_init,
-                => 2,
+                    .__builtin_complex,
+                    .__c11_atomic_load,
+                    .__atomic_load_n,
+                    .__c11_atomic_init,
+                    .__builtin_elementwise_add_sat,
+                    .__builtin_elementwise_copysign,
+                    .__builtin_elementwise_max,
+                    .__builtin_elementwise_min,
+                    .__builtin_elementwise_pow,
+                    .__builtin_elementwise_sub_sat,
+                    .__builtin_nontemporal_store,
+                    => 2,
 
-                .__c11_atomic_store,
-                .__c11_atomic_exchange,
-                .__c11_atomic_fetch_add,
-                .__c11_atomic_fetch_sub,
-                .__c11_atomic_fetch_or,
-                .__c11_atomic_fetch_xor,
-                .__c11_atomic_fetch_and,
-                .__atomic_fetch_add,
-                .__atomic_fetch_sub,
-                .__atomic_fetch_and,
-                .__atomic_fetch_xor,
-                .__atomic_fetch_or,
-                .__atomic_fetch_nand,
-                .__atomic_add_fetch,
-                .__atomic_sub_fetch,
-                .__atomic_and_fetch,
-                .__atomic_xor_fetch,
-                .__atomic_or_fetch,
-                .__atomic_nand_fetch,
-                .__builtin_add_overflow,
-                .__builtin_sub_overflow,
-                .__builtin_mul_overflow,
-                => 3,
+                    .__c11_atomic_store,
+                    .__atomic_store,
+                    .__c11_atomic_exchange,
+                    .__atomic_exchange,
+                    .__c11_atomic_fetch_add,
+                    .__c11_atomic_fetch_sub,
+                    .__c11_atomic_fetch_or,
+                    .__c11_atomic_fetch_xor,
+                    .__c11_atomic_fetch_and,
+                    .__atomic_fetch_add,
+                    .__atomic_fetch_sub,
+                    .__atomic_fetch_and,
+                    .__atomic_fetch_xor,
+                    .__atomic_fetch_or,
+                    .__atomic_fetch_nand,
+                    .__atomic_add_fetch,
+                    .__atomic_sub_fetch,
+                    .__atomic_and_fetch,
+                    .__atomic_xor_fetch,
+                    .__atomic_or_fetch,
+                    .__atomic_nand_fetch,
+                    .__builtin_add_overflow,
+                    .__builtin_sub_overflow,
+                    .__builtin_mul_overflow,
+                    .__builtin_elementwise_fma,
+                    .__atomic_exchange_n,
+                    => 3,
 
-                .__c11_atomic_compare_exchange_strong,
-                .__c11_atomic_compare_exchange_weak,
-                => 5,
+                    .__c11_atomic_compare_exchange_strong,
+                    .__c11_atomic_compare_exchange_weak,
+                    => 5,
 
-                .__atomic_compare_exchange,
-                .__atomic_compare_exchange_n,
-                => 6,
+                    .__atomic_compare_exchange,
+                    .__atomic_compare_exchange_n,
+                    => 6,
+                    else => null,
+                },
                 else => null,
             },
         };
     }
 
-    fn returnType(self: CallExpr, p: *Parser, func_qt: QualType) !QualType {
+    fn returnType(self: CallExpr, p: *Parser, args: []const Node.Index, func_qt: QualType) !QualType {
         if (self == .standard) {
             return if (func_qt.get(p.comp, .func)) |func_ty| func_ty.return_type else .invalid;
         }
         const builtin = self.builtin;
         const func_ty = func_qt.get(p.comp, .func).?;
-        return switch (builtin.tag) {
-            .__c11_atomic_exchange => {
-                if (p.list_buf.items.len != 4) return .invalid; // wrong number of arguments; already an error
-                const second_param = p.list_buf.items[2];
-                return second_param.qt(&p.tree);
+        return switch (builtin.expanded.tag) {
+            .common => |tag| switch (tag) {
+                .__c11_atomic_exchange => {
+                    if (args.len != 4) return .invalid; // wrong number of arguments; already an error
+                    const second_param = args[2];
+                    return second_param.qt(&p.tree);
+                },
+                .__c11_atomic_load => {
+                    if (args.len != 3) return .invalid; // wrong number of arguments; already an error
+                    const first_param = args[1];
+                    const qt = first_param.qt(&p.tree);
+                    if (!qt.isPointer(p.comp)) return .invalid;
+                    return qt.childType(p.comp);
+                },
+
+                .__atomic_fetch_add,
+                .__atomic_add_fetch,
+                .__c11_atomic_fetch_add,
+
+                .__atomic_fetch_sub,
+                .__atomic_sub_fetch,
+                .__c11_atomic_fetch_sub,
+
+                .__atomic_fetch_and,
+                .__atomic_and_fetch,
+                .__c11_atomic_fetch_and,
+
+                .__atomic_fetch_xor,
+                .__atomic_xor_fetch,
+                .__c11_atomic_fetch_xor,
+
+                .__atomic_fetch_or,
+                .__atomic_or_fetch,
+                .__c11_atomic_fetch_or,
+
+                .__atomic_fetch_nand,
+                .__atomic_nand_fetch,
+                .__c11_atomic_fetch_nand,
+
+                .__atomic_exchange_n,
+                => {
+                    if (args.len != 3) return .invalid; // wrong number of arguments; already an error
+                    const second_param = args[2];
+                    return second_param.qt(&p.tree);
+                },
+                .__builtin_complex => {
+                    if (args.len < 1) return .invalid; // not enough arguments; already an error
+                    const last_param = args[args.len - 1];
+                    return try last_param.qt(&p.tree).toComplex(p.comp);
+                },
+                .__atomic_compare_exchange,
+                .__atomic_compare_exchange_n,
+                .__c11_atomic_is_lock_free,
+                .__sync_bool_compare_and_swap,
+                => .bool,
+
+                .__c11_atomic_compare_exchange_strong,
+                .__c11_atomic_compare_exchange_weak,
+                => {
+                    if (args.len != 6) return .invalid; // wrong number of arguments
+                    const third_param = args[3];
+                    return third_param.qt(&p.tree);
+                },
+
+                .__builtin_elementwise_abs,
+                .__builtin_elementwise_bitreverse,
+                .__builtin_elementwise_canonicalize,
+                .__builtin_elementwise_ceil,
+                .__builtin_elementwise_cos,
+                .__builtin_elementwise_exp,
+                .__builtin_elementwise_exp2,
+                .__builtin_elementwise_floor,
+                .__builtin_elementwise_log,
+                .__builtin_elementwise_log10,
+                .__builtin_elementwise_log2,
+                .__builtin_elementwise_nearbyint,
+                .__builtin_elementwise_rint,
+                .__builtin_elementwise_round,
+                .__builtin_elementwise_roundeven,
+                .__builtin_elementwise_sin,
+                .__builtin_elementwise_sqrt,
+                .__builtin_elementwise_trunc,
+                .__builtin_elementwise_add_sat,
+                .__builtin_elementwise_copysign,
+                .__builtin_elementwise_max,
+                .__builtin_elementwise_min,
+                .__builtin_elementwise_pow,
+                .__builtin_elementwise_sub_sat,
+                .__builtin_elementwise_fma,
+                .__builtin_elementwise_popcount,
+                .__builtin_nondeterministic_value,
+                => {
+                    if (args.len < 1) return .invalid; // not enough arguments; already an error
+                    const last_param = args[args.len - 1];
+                    return last_param.qt(&p.tree);
+                },
+                .__builtin_nontemporal_load,
+                .__builtin_reduce_add,
+                .__builtin_reduce_mul,
+                .__builtin_reduce_and,
+                .__builtin_reduce_or,
+                .__builtin_reduce_xor,
+                .__builtin_reduce_max,
+                .__builtin_reduce_min,
+                => {
+                    if (args.len < 1) return .invalid; // not enough arguments; already an error
+                    const last_param = args[args.len - 1];
+                    return last_param.qt(&p.tree).childType(p.comp);
+                },
+                .__sync_add_and_fetch,
+                .__sync_and_and_fetch,
+                .__sync_fetch_and_add,
+                .__sync_fetch_and_and,
+                .__sync_fetch_and_nand,
+                .__sync_fetch_and_or,
+                .__sync_fetch_and_sub,
+                .__sync_fetch_and_xor,
+                .__sync_lock_test_and_set,
+                .__sync_nand_and_fetch,
+                .__sync_or_and_fetch,
+                .__sync_sub_and_fetch,
+                .__sync_swap,
+                .__sync_xor_and_fetch,
+                .__sync_val_compare_and_swap,
+                .__atomic_load_n,
+                => {
+                    if (args.len < 1) return .invalid; // not enough arguments; already an error
+                    const first_param = args[0];
+                    return first_param.qt(&p.tree).childType(p.comp);
+                },
+                else => func_ty.return_type,
             },
-            .__c11_atomic_load => {
-                if (p.list_buf.items.len != 3) return .invalid; // wrong number of arguments; already an error
-                const first_param = p.list_buf.items[1];
-                const qt = first_param.qt(&p.tree);
-                if (!qt.isPointer(p.comp)) return .invalid;
-                return qt.childType(p.comp);
-            },
-
-            .__atomic_fetch_add,
-            .__atomic_add_fetch,
-            .__c11_atomic_fetch_add,
-
-            .__atomic_fetch_sub,
-            .__atomic_sub_fetch,
-            .__c11_atomic_fetch_sub,
-
-            .__atomic_fetch_and,
-            .__atomic_and_fetch,
-            .__c11_atomic_fetch_and,
-
-            .__atomic_fetch_xor,
-            .__atomic_xor_fetch,
-            .__c11_atomic_fetch_xor,
-
-            .__atomic_fetch_or,
-            .__atomic_or_fetch,
-            .__c11_atomic_fetch_or,
-
-            .__atomic_fetch_nand,
-            .__atomic_nand_fetch,
-            .__c11_atomic_fetch_nand,
-            => {
-                if (p.list_buf.items.len != 3) return .invalid; // wrong number of arguments; already an error
-                const second_param = p.list_buf.items[2];
-                return second_param.qt(&p.tree);
-            },
-            .__builtin_complex => {
-                if (p.list_buf.items.len < 1) return .invalid; // not enough arguments; already an error
-                const last_param = p.list_buf.items[p.list_buf.items.len - 1];
-                return try last_param.qt(&p.tree).toComplex(p.comp);
-            },
-            .__atomic_compare_exchange,
-            .__atomic_compare_exchange_n,
-            .__c11_atomic_is_lock_free,
-            => .bool,
             else => func_ty.return_type,
-
-            .__c11_atomic_compare_exchange_strong,
-            .__c11_atomic_compare_exchange_weak,
-            => {
-                if (p.list_buf.items.len != 6) return .invalid; // wrong number of arguments
-                const third_param = p.list_buf.items[3];
-                return third_param.qt(&p.tree);
-            },
         };
     }
 
     fn finish(self: CallExpr, p: *Parser, func_qt: QualType, list_buf_top: usize, l_paren: TokenIndex) Error!Result {
         const args = p.list_buf.items[list_buf_top..];
-        const return_qt = try self.returnType(p, func_qt);
+        const return_qt = try self.returnType(p, args, func_qt);
         switch (self) {
             .standard => |func_node| return .{
                 .qt = return_qt,
@@ -5861,7 +6117,7 @@ const CallExpr = union(enum) {
                 } }),
             },
             .builtin => |builtin| return .{
-                .val = try evalBuiltin(builtin.tag, p, args),
+                .val = try evalBuiltin(builtin.expanded, p, args),
                 .qt = return_qt,
                 .node = try p.addNode(.{ .builtin_call_expr = .{
                     .builtin_tok = builtin.builtin_tok,
@@ -5886,8 +6142,7 @@ pub const Result = struct {
         // for (p.diagnostics.list.items[err_start..]) |err_item| {
         //     if (err_item.tag != .unused_value) return;
         // }
-        var cur_node = res.node;
-        while (true) switch (cur_node.get(&p.tree)) {
+        loop: switch (res.node.get(&p.tree)) {
             .assign_expr,
             .mul_assign_expr,
             .div_assign_expr,
@@ -5903,29 +6158,26 @@ pub const Result = struct {
             .pre_dec_expr,
             .post_inc_expr,
             .post_dec_expr,
-            => return,
+            => {},
             .call_expr => |call| {
                 const call_info = p.tree.callableResultUsage(call.callee) orelse return;
                 if (call_info.nodiscard) try p.err(expr_start, .nodiscard_unused, .{p.tokSlice(call_info.tok)});
                 if (call_info.warn_unused_result) try p.err(expr_start, .warn_unused_result, .{p.tokSlice(call_info.tok)});
-                return;
             },
             .builtin_call_expr => |call| {
                 const expanded = p.comp.builtins.lookup(p.tokSlice(call.builtin_tok));
-                const attributes = expanded.builtin.properties.attributes;
+                const attributes = expanded.attributes;
                 if (attributes.pure) try p.err(call.builtin_tok, .builtin_unused, .{"pure"});
                 if (attributes.@"const") try p.err(call.builtin_tok, .builtin_unused, .{"const"});
-                return;
             },
             .stmt_expr => |stmt_expr| {
                 const compound = stmt_expr.operand.get(&p.tree).compound_stmt;
-                cur_node = compound.body[compound.body.len - 1];
+                continue :loop compound.body[compound.body.len - 1].get(&p.tree);
             },
-            .comma_expr => |comma| cur_node = comma.rhs,
-            .paren_expr => |grouped| cur_node = grouped.operand,
-            else => break,
-        };
-        try p.err(expr_start, .unused_value, .{});
+            .comma_expr => |comma| continue :loop comma.rhs.get(&p.tree),
+            .paren_expr => |grouped| continue :loop grouped.operand.get(&p.tree),
+            else => try p.err(expr_start, .unused_value, .{}),
+        }
     }
 
     fn boolRes(lhs: *Result, p: *Parser, tag: std.meta.Tag(Node), rhs: Result, tok_i: TokenIndex) !void {
@@ -5933,7 +6185,15 @@ pub const Result = struct {
             lhs.val = .zero;
         }
         if (!lhs.qt.isInvalid()) {
-            lhs.qt = .int;
+            if (lhs.qt.get(p.comp, .vector)) |vec| {
+                if (!vec.elem.isInt(p.comp)) {
+                    lhs.qt = try p.comp.type_store.put(p.comp.gpa, .{
+                        .vector = .{ .elem = .int, .len = vec.len },
+                    });
+                }
+            } else {
+                lhs.qt = .int;
+            }
         }
         return lhs.bin(p, tag, rhs, tok_i);
     }
@@ -6061,6 +6321,9 @@ pub const Result = struct {
         const a_vec = a.qt.is(p.comp, .vector);
         const b_vec = b.qt.is(p.comp, .vector);
         if (a_vec and b_vec) {
+            if (kind == .boolean_logic) {
+                return a.invalidBinTy(tok, b, p);
+            }
             if (a.qt.eql(b.qt, p.comp)) {
                 return a.shouldEval(b, p);
             }
@@ -6565,8 +6828,14 @@ pub const Result = struct {
         if (a_float and b_float) {
             const a_complex = a.qt.is(p.comp, .complex);
             const b_complex = b.qt.is(p.comp, .complex);
+            const a_rank = a.qt.floatRank(p.comp);
+            const b_rank = b.qt.floatRank(p.comp);
+            if ((a_rank >= QualType.decimal_float_rank) != (b_rank >= QualType.decimal_float_rank)) {
+                try p.err(tok, .mixing_decimal_floats, .{});
+                return;
+            }
 
-            const res_qt = if (a.qt.floatRank(p.comp) > b.qt.floatRank(p.comp))
+            const res_qt = if (a_rank > b_rank)
                 (if (!a_complex and b_complex)
                     try a.qt.toComplex(p.comp)
                 else
@@ -6946,12 +7215,12 @@ pub const Result = struct {
         assign,
         init,
         ret,
-        arg: TokenIndex,
+        arg: ?TokenIndex,
         test_coerce,
 
         fn note(c: CoerceContext, p: *Parser) !void {
             switch (c) {
-                .arg => |tok| try p.err(tok, .parameter_here, .{}),
+                .arg => |opt_tok| if (opt_tok) |tok| try p.err(tok, .parameter_here, .{}),
                 .test_coerce => unreachable,
                 else => {},
             }
@@ -7734,6 +8003,37 @@ fn castExpr(p: *Parser) Error!?Result {
     return p.unExpr();
 }
 
+/// builtinBitCast : __builtin_bit_cast '(' typeName ',' assignExpr ')'
+fn builtinBitCast(p: *Parser, builtin_tok: TokenIndex) Error!Result {
+    const l_paren = try p.expectToken(.l_paren);
+
+    const res_qt = (try p.typeName()) orelse {
+        try p.err(p.tok_i, .expected_type, .{});
+        return error.ParsingFailed;
+    };
+
+    _ = try p.expectToken(.comma);
+
+    const operand_tok = p.tok_i;
+    var operand = try p.expect(assignExpr);
+    try operand.lvalConversion(p, operand_tok);
+
+    try p.expectClosing(l_paren, .r_paren);
+
+    return .{
+        .qt = res_qt,
+        .node = try p.addNode(.{
+            .cast = .{
+                .l_paren = builtin_tok,
+                .qt = res_qt,
+                .kind = .bitcast,
+                .operand = operand.node,
+                .implicit = false,
+            },
+        }),
+    };
+}
+
 /// shufflevector : __builtin_shufflevector '(' assignExpr ',' assignExpr (',' integerConstExpr)* ')'
 fn shufflevector(p: *Parser, builtin_tok: TokenIndex) Error!Result {
     const l_paren = try p.expectToken(.l_paren);
@@ -8011,25 +8311,30 @@ fn offsetofMemberDesignator(
     base_record_ty: Type.Record,
     base_qt: QualType,
     offset_kind: OffsetKind,
-    access_tok: TokenIndex,
+    base_access_tok: TokenIndex,
 ) Error!Result {
     errdefer p.skipTo(.r_paren);
     const base_field_name_tok = try p.expectIdentifier();
     const base_field_name = try p.comp.internString(p.tokSlice(base_field_name_tok));
 
-    try p.validateFieldAccess(base_record_ty, base_qt, base_field_name_tok, base_field_name);
     const base_node = try p.addNode(.{ .default_init_expr = .{
         .last_tok = p.tok_i,
         .qt = base_qt,
     } });
 
-    var cur_offset: u64 = 0;
-    var lhs = try p.fieldAccessExtra(base_node, base_record_ty, base_field_name, false, access_tok, &cur_offset);
+    var lhs, const initial_offset = try p.fieldAccessExtra(base_node, base_record_ty, false, &.{
+        .base_qt = base_qt,
+        .target_name = base_field_name,
+        .access_tok = base_access_tok,
+        .name_tok = base_field_name_tok,
+        .check_deprecated = false,
+    });
 
-    var total_offset: i64 = @intCast(cur_offset);
+    var total_offset: i64 = @intCast(initial_offset);
     var runtime_offset = false;
     while (true) switch (p.tok_ids[p.tok_i]) {
         .period => {
+            const access_tok = p.tok_i;
             p.tok_i += 1;
             const field_name_tok = try p.expectIdentifier();
             const field_name = try p.comp.internString(p.tokSlice(field_name_tok));
@@ -8038,9 +8343,14 @@ fn offsetofMemberDesignator(
                 try p.err(field_name_tok, .offsetof_ty, .{lhs.qt});
                 return error.ParsingFailed;
             };
-            try p.validateFieldAccess(lhs_record_ty, lhs.qt, field_name_tok, field_name);
-            lhs = try p.fieldAccessExtra(lhs.node, lhs_record_ty, field_name, false, access_tok, &cur_offset);
-            total_offset += @intCast(cur_offset);
+            lhs, const offset_bits = try p.fieldAccessExtra(lhs.node, lhs_record_ty, false, &.{
+                .base_qt = base_qt,
+                .target_name = field_name,
+                .access_tok = access_tok,
+                .name_tok = field_name_tok,
+                .check_deprecated = false,
+            });
+            total_offset += @intCast(offset_bits);
         },
         .l_bracket => {
             const l_bracket_tok = p.tok_i;
@@ -8093,9 +8403,8 @@ fn computeOffsetExtra(p: *Parser, node: Node.Index, offset_so_far: *Value) !Valu
     switch (node.get(&p.tree)) {
         .cast => |cast| {
             return switch (cast.kind) {
-                .array_to_pointer, .no_op, .bitcast => p.computeOffsetExtra(cast.operand, offset_so_far),
                 .lval_to_rval => .{},
-                else => unreachable,
+                else => p.computeOffsetExtra(cast.operand, offset_so_far),
             };
         },
         .paren_expr => |un| return p.computeOffsetExtra(un.operand, offset_so_far),
@@ -8244,7 +8553,8 @@ fn unExpr(p: *Parser) Error!?Result {
 
             var operand = try p.expect(castExpr);
             try operand.lvalConversion(p, tok);
-            if (!operand.qt.isInt(p.comp) and !operand.qt.isFloat(p.comp))
+            const scalar_qt = if (operand.qt.get(p.comp, .vector)) |vec| vec.elem else operand.qt;
+            if (!scalar_qt.isInt(p.comp) and !scalar_qt.isFloat(p.comp))
                 try p.err(tok, .invalid_argument_un, .{operand.qt});
 
             try operand.usualUnaryConversion(p, tok);
@@ -8256,7 +8566,8 @@ fn unExpr(p: *Parser) Error!?Result {
 
             var operand = try p.expect(castExpr);
             try operand.lvalConversion(p, tok);
-            if (!operand.qt.isInt(p.comp) and !operand.qt.isFloat(p.comp))
+            const scalar_qt = if (operand.qt.get(p.comp, .vector)) |vec| vec.elem else operand.qt;
+            if (!scalar_qt.isInt(p.comp) and !scalar_qt.isFloat(p.comp))
                 try p.err(tok, .invalid_argument_un, .{operand.qt});
 
             try operand.usualUnaryConversion(p, tok);
@@ -8330,7 +8641,9 @@ fn unExpr(p: *Parser) Error!?Result {
             var operand = try p.expect(castExpr);
             try operand.lvalConversion(p, tok);
             try operand.usualUnaryConversion(p, tok);
-            const scalar_kind = operand.qt.scalarKind(p.comp);
+
+            const scalar_qt = if (operand.qt.get(p.comp, .vector)) |vec| vec.elem else operand.qt;
+            const scalar_kind = scalar_qt.scalarKind(p.comp);
             if (!scalar_kind.isReal()) {
                 try p.err(tok, .complex_conj, .{operand.qt});
                 if (operand.val.is(.complex, p.comp)) {
@@ -8589,10 +8902,13 @@ fn compoundLiteral(p: *Parser, qt_opt: ?QualType, opt_l_paren: ?TokenIndex) Erro
     };
     var qt = d.qt;
 
+    var incomplete_array_ty = false;
     switch (qt.base(p.comp).type) {
         .func => try p.err(p.tok_i, .func_init, .{}),
         .array => |array_ty| if (array_ty.len == .variable) {
             try p.err(p.tok_i, .vla_init, .{});
+        } else {
+            incomplete_array_ty = array_ty.len == .incomplete;
         },
         else => if (qt.hasIncompleteSize(p.comp)) {
             try p.err(p.tok_i, .variable_incomplete_ty, .{qt});
@@ -8607,6 +8923,8 @@ fn compoundLiteral(p: *Parser, qt_opt: ?QualType, opt_l_paren: ?TokenIndex) Erro
     if (d.constexpr) |_| {
         // TODO error if not constexpr
     }
+
+    if (!incomplete_array_ty) init_list_expr.qt = qt;
 
     init_list_expr.node = try p.addNode(.{ .compound_literal_expr = .{
         .l_paren_tok = l_paren,
@@ -8789,32 +9107,35 @@ fn fieldAccess(
     if (!is_arrow and is_ptr) try p.err(field_name_tok, .member_expr_ptr, .{expr_qt});
 
     const field_name = try p.comp.internString(p.tokSlice(field_name_tok));
-    try p.validateFieldAccess(record_ty, record_qt, field_name_tok, field_name);
-    var discard: u64 = 0;
-    return p.fieldAccessExtra(lhs.node, record_ty, field_name, is_arrow, access_tok, &discard);
-}
-
-fn validateFieldAccess(p: *Parser, record_ty: Type.Record, record_qt: QualType, field_name_tok: TokenIndex, field_name: StringId) Error!void {
-    if (record_ty.hasField(p.comp, field_name)) return;
-    try p.err(field_name_tok, .no_such_member, .{ p.tokSlice(field_name_tok), record_qt });
-    return error.ParsingFailed;
+    const result, _ = try p.fieldAccessExtra(lhs.node, record_ty, is_arrow, &.{
+        .base_qt = record_qt,
+        .target_name = field_name,
+        .access_tok = access_tok,
+        .name_tok = field_name_tok,
+        .check_deprecated = true,
+    });
+    return result;
 }
 
 fn fieldAccessExtra(
     p: *Parser,
     base: Node.Index,
     record_ty: Type.Record,
-    target_name: StringId,
     is_arrow: bool,
-    access_tok: TokenIndex,
-    offset_bits: *u64,
-) Error!Result {
+    ctx: *const struct {
+        base_qt: QualType,
+        target_name: StringId,
+        access_tok: TokenIndex,
+        name_tok: TokenIndex,
+        check_deprecated: bool,
+    },
+) Error!struct { Result, u64 } {
     for (record_ty.fields, 0..) |field, field_index| {
         if (field.name_tok == 0) if (field.qt.getRecord(p.comp)) |field_record_ty| {
-            if (!field_record_ty.hasField(p.comp, target_name)) continue;
+            if (!field_record_ty.hasField(p.comp, ctx.target_name)) continue;
 
             const access: Node.MemberAccess = .{
-                .access_tok = access_tok,
+                .access_tok = ctx.access_tok,
                 .qt = field.qt,
                 .base = base,
                 .member_index = @intCast(field_index),
@@ -8824,27 +9145,27 @@ fn fieldAccessExtra(
             else
                 .{ .member_access_expr = access });
 
-            const ret = p.fieldAccessExtra(inner, field_record_ty, target_name, false, access_tok, offset_bits);
-            offset_bits.* = field.layout.offset_bits;
-            return ret;
+            const ret, const offset_bits = try p.fieldAccessExtra(inner, field_record_ty, false, ctx);
+            return .{ ret, offset_bits + field.layout.offset_bits };
         };
-        if (target_name == field.name) {
-            offset_bits.* = field.layout.offset_bits;
+        if (ctx.target_name == field.name) {
+            if (ctx.check_deprecated) try p.checkDeprecatedUnavailable(field.qt, ctx.name_tok, field.name_tok);
 
             const access: Node.MemberAccess = .{
-                .access_tok = access_tok,
+                .access_tok = ctx.access_tok,
                 .qt = field.qt,
                 .base = base,
                 .member_index = @intCast(field_index),
             };
-            return .{ .qt = field.qt, .node = try p.addNode(if (is_arrow)
+            const result_node = try p.addNode(if (is_arrow)
                 .{ .member_access_ptr_expr = access }
             else
-                .{ .member_access_expr = access }) };
+                .{ .member_access_expr = access });
+            return .{ .{ .qt = field.qt, .node = result_node }, field.layout.offset_bits };
         }
     }
-    // We already checked that this container has a field by the name.
-    unreachable;
+    try p.err(ctx.name_tok, .no_such_member, .{ p.tokSlice(ctx.name_tok), ctx.base_qt });
+    return error.ParsingFailed;
 }
 
 fn checkVaStartArg(p: *Parser, builtin_tok: TokenIndex, first_after: TokenIndex, param_tok: TokenIndex, arg: *Result, idx: u32) !void {
@@ -8894,6 +9215,100 @@ fn checkComplexArg(p: *Parser, builtin_tok: TokenIndex, first_after: TokenIndex,
         if (!prev_qt.eql(arg.qt, p.comp)) {
             try p.err(param_tok, .argument_types_differ, .{ prev_qt, arg.qt });
         }
+    }
+}
+
+fn checkElementwiseArg(
+    p: *Parser,
+    param_tok: TokenIndex,
+    arg: *Result,
+    idx: u32,
+    kind: enum { sint_float, float, int, both },
+) !void {
+    if (idx == 0) {
+        const scarlar_qt = if (arg.qt.get(p.comp, .vector)) |vec| vec.elem else arg.qt;
+        const sk = scarlar_qt.scalarKind(p.comp);
+        switch (kind) {
+            .float => if (!sk.isFloat() or !sk.isReal()) {
+                try p.err(param_tok, .elementwise_type, .{ " or a floating point type", arg.qt });
+            },
+            .int => if (!sk.isInt() or !sk.isReal()) {
+                try p.err(param_tok, .elementwise_type, .{ " or an integer point type", arg.qt });
+            },
+            .sint_float => if (!((sk.isInt() and scarlar_qt.signedness(p.comp) == .signed) or sk.isFloat()) or !sk.isReal()) {
+                try p.err(param_tok, .elementwise_type, .{ ", a signed integer or a floating point type", arg.qt });
+            },
+            .both => if (!(sk.isInt() or sk.isFloat()) or !sk.isReal()) {
+                try p.err(param_tok, .elementwise_type, .{ ", an integer or a floating point type", arg.qt });
+            },
+        }
+    } else {
+        const prev_idx = p.list_buf.items[p.list_buf.items.len - 1];
+        const prev_qt = prev_idx.qt(&p.tree);
+        arg.coerceExtra(p, prev_qt, param_tok, .{ .arg = null }) catch |er| switch (er) {
+            error.CoercionFailed => {
+                try p.err(param_tok, .argument_types_differ, .{ prev_qt, arg.qt });
+            },
+            else => |e| return e,
+        };
+    }
+}
+
+fn checkNonTemporalArg(
+    p: *Parser,
+    param_tok: TokenIndex,
+    arg: *Result,
+    idx: u32,
+    kind: enum { store, load },
+) !void {
+    if (kind == .store and idx == 0) return;
+    const base_qt = if (arg.qt.get(p.comp, .pointer)) |ptr|
+        ptr.child
+    else
+        return p.err(param_tok, .nontemporal_address_pointer, .{arg.qt});
+
+    const scarlar_qt = if (base_qt.get(p.comp, .vector)) |vec| vec.elem else base_qt;
+    const sk = scarlar_qt.scalarKind(p.comp);
+    if (!(sk.isInt() or sk.isFloat()) or !sk.isReal() or sk.isPointer()) {
+        try p.err(param_tok, .nontemporal_address_type, .{arg.qt});
+    }
+
+    if (kind == .store) {
+        const prev_idx = p.list_buf.items[p.list_buf.items.len - 1];
+        var prev_arg: Result = .{
+            .node = prev_idx,
+            .qt = prev_idx.qt(&p.tree),
+        };
+        try prev_arg.coerce(p, base_qt, prev_idx.tok(&p.tree), .{ .arg = null });
+        p.list_buf.items[p.list_buf.items.len - 1] = prev_arg.node;
+    }
+}
+
+fn checkSyncArg(
+    p: *Parser,
+    param_tok: TokenIndex,
+    arg: *Result,
+    idx: u32,
+    max_count: u8,
+) !void {
+    if (idx >= max_count) return;
+    if (idx == 0) {
+        const ptr_ty = arg.qt.get(p.comp, .pointer) orelse
+            return p.err(param_tok, .atomic_address_pointer, .{arg.qt});
+
+        const child_sk = ptr_ty.child.scalarKind(p.comp);
+        if (!((child_sk.isInt() and child_sk.isReal()) or child_sk.isPointer()))
+            return p.err(param_tok, .atomic_address_type, .{arg.qt});
+    } else {
+        const first_idx = p.list_buf.items[p.list_buf.items.len - idx];
+        const ptr_ty = first_idx.qt(&p.tree).get(p.comp, .pointer) orelse return;
+        const prev_qt = ptr_ty.child;
+        arg.coerceExtra(p, prev_qt, param_tok, .{ .arg = null }) catch |er| switch (er) {
+            error.CoercionFailed => {
+                try p.err(param_tok, .argument_types_differ, .{ prev_qt, arg.qt });
+            },
+            else => |e| return e,
+        };
     }
 }
 
@@ -9152,21 +9567,25 @@ fn primaryExpr(p: *Parser) Error!?Result {
                         return error.ParsingFailed;
                     },
                 };
-                if (some.builtin.properties.header != .none) {
+                if (some.header != .none) {
                     try p.err(name_tok, .implicit_builtin, .{name});
                     try p.err(name_tok, .implicit_builtin_header_note, .{
-                        @tagName(some.builtin.properties.header), Builtin.nameFromTag(some.builtin.tag).span(),
+                        @tagName(some.header), name,
                     });
                 }
 
-                switch (some.builtin.tag) {
-                    .__builtin_choose_expr => return try p.builtinChooseExpr(),
-                    .__builtin_va_arg => return try p.builtinVaArg(name_tok),
-                    .__builtin_offsetof => return try p.builtinOffsetof(name_tok, .bytes),
-                    .__builtin_bitoffsetof => return try p.builtinOffsetof(name_tok, .bits),
-                    .__builtin_types_compatible_p => return try p.typesCompatible(name_tok),
-                    .__builtin_convertvector => return try p.convertvector(name_tok),
-                    .__builtin_shufflevector => return try p.shufflevector(name_tok),
+                switch (some.tag) {
+                    .common => |tag| switch (tag) {
+                        .__builtin_choose_expr => return try p.builtinChooseExpr(),
+                        .__builtin_va_arg => return try p.builtinVaArg(name_tok),
+                        .__builtin_offsetof => return try p.builtinOffsetof(name_tok, .bytes),
+                        .__builtin_bitoffsetof => return try p.builtinOffsetof(name_tok, .bits),
+                        .__builtin_types_compatible_p => return try p.typesCompatible(name_tok),
+                        .__builtin_convertvector => return try p.convertvector(name_tok),
+                        .__builtin_shufflevector => return try p.shufflevector(name_tok),
+                        .__builtin_bit_cast => return try p.builtinBitCast(name_tok),
+                        else => {},
+                    },
                     else => {},
                 }
 
@@ -9691,9 +10110,18 @@ fn parseFloat(p: *Parser, buf: []const u8, suffix: NumberSuffix, tok_i: TokenInd
         .None, .I => .double,
         .F, .IF => .float,
         .F16, .IF16 => .float16,
+        .BF16 => .bf16,
         .L, .IL => .long_double,
         .W, .IW => p.comp.float80Type().?,
         .Q, .IQ, .F128, .IF128 => .float128,
+        .F32, .IF32 => .float32,
+        .F64, .IF64 => .float64,
+        .F32x, .IF32x => .float32x,
+        .F64x, .IF64x => .float64x,
+        .D32 => .dfloat32,
+        .D64 => .dfloat64,
+        .D128 => .dfloat128,
+        .D64x => .dfloat64x,
         else => unreachable,
     };
     const val = try Value.intern(p.comp, key: {
@@ -9850,7 +10278,7 @@ fn fixedSizeInt(p: *Parser, base: u8, buf: []const u8, suffix: NumberSuffix, tok
         if (interned_val.compare(.lte, max_int, p.comp)) break;
     } else {
         if (p.comp.langopts.emulate == .gcc) {
-            if (target_util.hasInt128(p.comp.target)) {
+            if (p.comp.target.hasInt128()) {
                 res.qt = .int128;
             } else {
                 res.qt = .long_long;
@@ -10180,7 +10608,7 @@ test "Node locations" {
     const arena = arena_state.allocator();
 
     var diagnostics: Diagnostics = .{ .output = .ignore };
-    var comp = Compilation.init(std.testing.allocator, arena, &diagnostics, std.fs.cwd());
+    var comp = Compilation.init(std.testing.allocator, arena, std.testing.io, &diagnostics, std.fs.cwd());
     defer comp.deinit();
 
     const file = try comp.addSourceFromBuffer("file.c",

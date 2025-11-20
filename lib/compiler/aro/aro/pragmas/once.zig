@@ -51,6 +51,15 @@ fn preprocessorHandler(pragma: *Pragma, pp: *Preprocessor, start_idx: TokenIndex
             .location = name_tok.loc.expand(pp.comp),
         }, pp.expansionSlice(start_idx + 1), true);
     }
+    if (pp.include_depth == 0) {
+        const diagnostic: Preprocessor.Diagnostic = .pragma_once_in_main_file;
+        return pp.diagnostics.addWithLocation(pp.comp, .{
+            .text = diagnostic.fmt,
+            .kind = diagnostic.kind,
+            .opt = diagnostic.opt,
+            .location = name_tok.loc.expand(pp.comp),
+        }, pp.expansionSlice(start_idx + 1), true);
+    }
     const seen = self.preprocess_count == pp.preprocess_count;
     const prev = try self.pragma_once.fetchPut(pp.comp.gpa, name_tok.loc.id, {});
     if (prev != null and !seen) {

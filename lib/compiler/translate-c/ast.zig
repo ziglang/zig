@@ -247,6 +247,9 @@ pub const Node = extern union {
         /// comptime { if (!(lhs)) @compileError(rhs); }
         static_assert,
 
+        /// __root.<name>
+        root_ref,
+
         pub const last_no_payload_tag = Tag.@"break";
         pub const no_payload_count = @intFromEnum(last_no_payload_tag) + 1;
 
@@ -394,7 +397,8 @@ pub const Node = extern union {
                 .block => Payload.Block,
                 .c_pointer, .single_pointer => Payload.Pointer,
                 .array_type, .null_sentinel_array_type => Payload.Array,
-                .arg_redecl, .alias, .fail_decl => Payload.ArgRedecl,
+                .arg_redecl, .alias => Payload.ArgRedecl,
+                .fail_decl => Payload.FailDecl,
                 .var_simple, .pub_var_simple, .wrapped_local, .mut_str => Payload.SimpleVarDecl,
                 .enum_constant => Payload.EnumConstant,
                 .array_filler => Payload.ArrayFiller,
@@ -405,6 +409,7 @@ pub const Node = extern union {
                 .builtin_extern => Payload.Extern,
                 .helper_call => Payload.HelperCall,
                 .helper_ref => Payload.HelperRef,
+                .root_ref => Payload.RootRef,
             };
         }
 
@@ -708,6 +713,15 @@ pub const Payload = struct {
         },
     };
 
+    pub const FailDecl = struct {
+        base: Payload,
+        data: struct {
+            actual: []const u8,
+            mangled: []const u8,
+            local: bool,
+        },
+    };
+
     pub const SimpleVarDecl = struct {
         base: Payload,
         data: struct {
@@ -791,6 +805,11 @@ pub const Payload = struct {
         base: Payload,
         data: []const u8,
     };
+
+    pub const RootRef = struct {
+        base: Payload,
+        data: []const u8,
+    };
 };
 
 /// Converts the nodes into a Zig Ast.
@@ -860,7 +879,7 @@ const Context = struct {
     gpa: Allocator,
     buf: std.ArrayList(u8) = .empty,
     nodes: std.zig.Ast.NodeList = .empty,
-    extra_data: std.ArrayListUnmanaged(u32) = .empty,
+    extra_data: std.ArrayList(u32) = .empty,
     tokens: std.zig.Ast.TokenList = .empty,
 
     fn addTokenFmt(c: *Context, tag: TokenTag, comptime format: []const u8, args: anytype) Allocator.Error!TokenIndex {
@@ -1203,11 +1222,24 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .fail_decl => {
             const payload = node.castTag(.fail_decl).?.data;
-            // pub const name = @compileError(msg);
-            _ = try c.addToken(.keyword_pub, "pub");
+            // pub const name = (if (true))? @compileError(msg);
+            if (!payload.local) _ = try c.addToken(.keyword_pub, "pub");
             const const_tok = try c.addToken(.keyword_const, "const");
             _ = try c.addIdentifier(payload.actual);
             _ = try c.addToken(.equal, "=");
+
+            var if_tok: TokenIndex = undefined;
+            var true_node: NodeIndex = undefined;
+            if (payload.local) {
+                if_tok = try c.addToken(.keyword_if, "if");
+                _ = try c.addToken(.l_paren, "(");
+                true_node = try c.addNode(.{
+                    .tag = .identifier,
+                    .main_token = try c.addToken(.identifier, "true"),
+                    .data = undefined,
+                });
+                _ = try c.addToken(.r_paren, ")");
+            }
 
             const compile_error_tok = try c.addToken(.builtin, "@compileError");
             _ = try c.addToken(.l_paren, "(");
@@ -1233,7 +1265,16 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .data = .{
                     .opt_node_and_opt_node = .{
                         .none, // Type expression
-                        compile_error.toOptional(), // Init expression
+                        if (payload.local) // Init expression
+                            (try c.addNode(.{
+                                .tag = .if_simple,
+                                .main_token = if_tok,
+                                .data = .{ .node_and_node = .{
+                                    true_node, compile_error,
+                                } },
+                            })).toOptional()
+                        else
+                            compile_error.toOptional(),
                     },
                 },
             });
@@ -2158,6 +2199,15 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             });
         },
         .@"anytype" => unreachable, // Handled in renderParams
+        .root_ref => {
+            const payload = node.castTag(.root_ref).?.data;
+            const root_tok = try c.addNode(.{
+                .tag = .identifier,
+                .main_token = try c.addIdentifier("__root"),
+                .data = undefined,
+            });
+            return renderFieldAccess(c, root_tok, payload);
+        },
     }
 }
 
@@ -2480,6 +2530,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .sqrt,
         .trunc,
         .floor,
+        .root_ref,
         => {
             // no grouping needed
             return renderNode(c, node);

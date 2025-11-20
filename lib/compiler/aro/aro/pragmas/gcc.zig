@@ -18,6 +18,7 @@ pragma: Pragma = .{
     .preprocessorHandler = preprocessorHandler,
     .parserHandler = parserHandler,
     .preserveTokens = preserveTokens,
+    .shouldExpandTokenAtIndexHandler = shouldExpandTokenAtIndex,
 },
 original_state: Diagnostics.State = .{},
 state_stack: std.ArrayList(Diagnostics.State) = .empty,
@@ -168,4 +169,8 @@ fn preserveTokens(_: *Pragma, pp: *Preprocessor, start_idx: TokenIndex) bool {
         }
     }
     return true;
+}
+
+fn shouldExpandTokenAtIndex(_: *const Pragma, _: TokenIndex) bool {
+    return false;
 }

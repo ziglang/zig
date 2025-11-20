@@ -95,6 +95,33 @@ pub const Suffix = enum {
     // _Bitint
     WB, UWB,
 
+    // __bf16
+    BF16,
+
+    // _Float32 and imaginary _Float32
+    F32, IF32,
+
+    // _Float64 and imaginary _Float64
+    F64, IF64,
+
+    // _Float32x and imaginary _Float32x
+    F32x, IF32x,
+
+    // _Float64x and imaginary _Float64x
+    F64x, IF64x,
+
+    // _Decimal32
+    D32,
+
+    // _Decimal64
+    D64,
+
+    // _Decimal128
+    D128,
+
+    // _Decimal64x
+    D64x,
+
     // zig fmt: on
 
     const Tuple = struct { Suffix, []const []const u8 };
@@ -126,6 +153,15 @@ pub const Suffix = enum {
         .{ .W, &.{"W"} },
         .{ .F128, &.{"F128"} },
         .{ .Q, &.{"Q"} },
+        .{ .BF16, &.{"BF16"} },
+        .{ .F32, &.{"F32"} },
+        .{ .F64, &.{"F64"} },
+        .{ .F32x, &.{"F32x"} },
+        .{ .F64x, &.{"F64x"} },
+        .{ .D32, &.{"D32"} },
+        .{ .D64, &.{"D64"} },
+        .{ .D128, &.{"D128"} },
+        .{ .D64x, &.{"D64x"} },
 
         .{ .I, &.{"I"} },
         .{ .IL, &.{ "I", "L" } },
@@ -134,6 +170,10 @@ pub const Suffix = enum {
         .{ .IW, &.{ "I", "W" } },
         .{ .IF128, &.{ "I", "F128" } },
         .{ .IQ, &.{ "I", "Q" } },
+        .{ .IF32, &.{ "I", "F32" } },
+        .{ .IF64, &.{ "I", "F64" } },
+        .{ .IF32x, &.{ "I", "F32x" } },
+        .{ .IF64x, &.{ "I", "F64x" } },
     };
 
     pub fn fromString(buf: []const u8, suffix_kind: enum { int, float }) ?Suffix {
@@ -162,8 +202,8 @@ pub const Suffix = enum {
 
     pub fn isImaginary(suffix: Suffix) bool {
         return switch (suffix) {
-            .I, .IL, .IF, .IU, .IUL, .ILL, .IULL, .IWB, .IUWB, .IF128, .IQ, .IW, .IF16 => true,
-            .None, .L, .F16, .F, .U, .UL, .LL, .ULL, .WB, .UWB, .F128, .Q, .W => false,
+            .I, .IL, .IF, .IU, .IUL, .ILL, .IULL, .IWB, .IUWB, .IF128, .IQ, .IW, .IF16, .IF32, .IF64, .IF32x, .IF64x => true,
+            .None, .L, .F16, .F, .U, .UL, .LL, .ULL, .WB, .UWB, .F128, .Q, .W, .F32, .F64, .F32x, .F64x, .D32, .D64, .D128, .D64x, .BF16 => false,
         };
     }
 
@@ -171,7 +211,7 @@ pub const Suffix = enum {
         return switch (suffix) {
             .None, .L, .LL, .I, .IL, .ILL, .WB, .IWB => true,
             .U, .UL, .ULL, .IU, .IUL, .IULL, .UWB, .IUWB => false,
-            .F, .IF, .F16, .F128, .IF128, .Q, .IQ, .W, .IW, .IF16 => unreachable,
+            .F, .IF, .F16, .F128, .IF128, .Q, .IQ, .W, .IW, .IF16, .F32, .IF32, .F64, .IF64, .F32x, .IF32x, .F64x, .IF64x, .D32, .D64, .D128, .D64x, .BF16 => unreachable,
         };
     }
 

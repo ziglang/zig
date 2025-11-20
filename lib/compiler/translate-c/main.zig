@@ -14,7 +14,7 @@ pub fn main() u8 {
     const gpa = general_purpose_allocator.allocator();
     defer _ = general_purpose_allocator.deinit();
 
-    var arena_instance = std.heap.ArenaAllocator.init(gpa);
+    var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
@@ -58,7 +58,7 @@ pub fn main() u8 {
     var driver: aro.Driver = .{ .comp = &comp, .diagnostics = &diagnostics, .aro_name = "aro" };
     defer driver.deinit();
 
-    var toolchain: aro.Toolchain = .{ .driver = &driver, .filesystem = .{ .real = comp.cwd } };
+    var toolchain: aro.Toolchain = .{ .driver = &driver };
     defer toolchain.deinit();
 
     translate(&driver, &toolchain, args, zig_integration) catch |err| switch (err) {
@@ -182,10 +182,7 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: [][:0]u8, zig_integration
         error.OutOfMemory => return error.OutOfMemory,
         error.TooManyMultilibs => return d.fatal("found more than one multilib with the same priority", .{}),
     };
-    tc.defineSystemIncludes() catch |er| switch (er) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.AroIncludeNotFound => return d.fatal("unable to find Aro builtin headers", .{}),
-    };
+    try tc.defineSystemIncludes();
 
     const builtin_macros = d.comp.generateBuiltinMacros(.include_system_defines) catch |err| switch (err) {
         error.FileTooBig => return d.fatal("builtin macro source exceeded max size", .{}),
@@ -205,7 +202,13 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: [][:0]u8, zig_integration
 
     if (opt_dep_file) |*dep_file| pp.dep_file = dep_file;
 
-    try pp.preprocessSources(&.{ source, builtin_macros, user_macros });
+    try pp.preprocessSources(.{
+        .main = source,
+        .builtin = builtin_macros,
+        .command_line = user_macros,
+        .imacros = d.imacros.items,
+        .implicit_includes = d.implicit_includes.items,
+    });
 
     var c_tree = try pp.parse();
     defer c_tree.deinit();
