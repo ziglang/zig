@@ -139,7 +139,8 @@ pub fn get_sqe(self: *IoUring) !*linux.io_uring_sqe {
     // We must therefore use wrapping addition and subtraction to avoid a runtime crash.
     const next = self.sq.sqe_tail +% 1;
     if (next -% head > self.sq.sqes.len) return error.SubmissionQueueFull;
-    const sqe = &self.sq.sqes[self.sq.sqe_tail & self.sq.mask];
+    // Use shift-based indexing for SQE128 to match liburing
+    const sqe = &self.sq.sqes[(self.sq.sqe_tail & self.sq.mask) << self.sq.sqe_shift];
     self.sq.sqe_tail = next;
     return sqe;
 }
@@ -283,6 +284,14 @@ fn copy_cqes_ready(self: *IoUring, cqes: []linux.io_uring_cqe) u32 {
     const ready = self.cq_ready();
     const count = @min(cqes.len, ready);
     const head = self.cq.head.* & self.cq.mask;
+
+    // Copy CQEs using shift-based indexing to match liburing
+    // When CQE32 is enabled, shift=1 doubles the index: cqes[(head & mask) << shift]
+    for (0..count) |i| {
+        const cqe_index = (head + @as(u32, @intCast(i))) & self.cq.mask;
+        const array_index = cqe_index << self.cq.cqe_shift;
+        cqes[i] = self.cq.cqes[array_index];
+    }
 
     // before wrapping
     const n = @min(self.cq.cqes.len - head, count);
@@ -1512,6 +1521,7 @@ pub const SubmissionQueue = struct {
     // This allows us to amortize the cost of the @atomicStore to `tail` across multiple SQEs.
     sqe_head: u32 = 0,
     sqe_tail: u32 = 0,
+    sqe_shift: u1, // Index shift for SQE128: 0 for normal, 1 for SQE128 (doubles index)
 
     pub fn init(fd: linux.fd_t, p: linux.io_uring_params) !SubmissionQueue {
         assert(fd >= 0);
@@ -1533,7 +1543,12 @@ pub const SubmissionQueue = struct {
 
         // The motivation for the `sqes` and `array` indirection is to make it possible for the
         // application to preallocate static linux.io_uring_sqe entries and then replay them when needed.
-        const size_sqes = p.sq_entries * @sizeOf(linux.io_uring_sqe);
+        // With SQE128, each SQE is 128 bytes instead of 64 (kernel uses double spacing)
+        const sqe_size: usize = if ((p.flags & linux.IORING_SETUP_SQE128) != 0)
+            @sizeOf(linux.io_uring_sqe) * 2
+        else
+            @sizeOf(linux.io_uring_sqe);
+        const size_sqes = p.sq_entries * sqe_size;
         const mmap_sqes = try posix.mmap(
             null,
             size_sqes,
@@ -1544,6 +1559,10 @@ pub const SubmissionQueue = struct {
         );
         errdefer posix.munmap(mmap_sqes);
         assert(mmap_sqes.len == size_sqes);
+
+        // Determine SQE shift: 1 if SQE128 is set (doubles array index for 128-byte stride)
+        // Matches liburing: sqe = &sqes[(sqe_tail & mask) << shift]
+        const sqe_shift: u1 = if ((p.flags & linux.IORING_SETUP_SQE128) != 0) 1 else 0;
 
         const array: [*]u32 = @ptrCast(@alignCast(&mmap[p.sq_off.array]));
         const sqes: [*]linux.io_uring_sqe = @ptrCast(@alignCast(&mmap_sqes[0]));
@@ -1560,6 +1579,7 @@ pub const SubmissionQueue = struct {
             .sqes = sqes[0..p.sq_entries],
             .mmap = mmap,
             .mmap_sqes = mmap_sqes,
+            .sqe_shift = sqe_shift,
         };
     }
 
@@ -1575,6 +1595,7 @@ pub const CompletionQueue = struct {
     mask: u32,
     overflow: *u32,
     cqes: []linux.io_uring_cqe,
+    cqe_shift: u1, // Index shift for CQE32: 0 for normal, 1 for CQE32 (doubles index)
 
     pub fn init(fd: linux.fd_t, p: linux.io_uring_params, sq: SubmissionQueue) !CompletionQueue {
         assert(fd >= 0);
@@ -1582,12 +1603,18 @@ pub const CompletionQueue = struct {
         const mmap = sq.mmap;
         const cqes: [*]linux.io_uring_cqe = @ptrCast(@alignCast(&mmap[p.cq_off.cqes]));
         assert(p.cq_entries == @as(*u32, @ptrCast(@alignCast(&mmap[p.cq_off.ring_entries]))).*);
+
+        // Determine CQE shift: 1 if CQE32 flag is set (doubles array index for 32-byte stride)
+        // Matches liburing's implementation: cqe = &cqes[(head & mask) << shift]
+        const cqe_shift: u1 = if ((p.flags & linux.IORING_SETUP_CQE32) != 0) 1 else 0;
+
         return CompletionQueue{
             .head = @ptrCast(@alignCast(&mmap[p.cq_off.head])),
             .tail = @ptrCast(@alignCast(&mmap[p.cq_off.tail])),
             .mask = @as(*u32, @ptrCast(@alignCast(&mmap[p.cq_off.ring_mask]))).*,
             .overflow = @ptrCast(@alignCast(&mmap[p.cq_off.overflow])),
             .cqes = cqes[0..p.cq_entries],
+            .cqe_shift = cqe_shift,
         };
     }
 
