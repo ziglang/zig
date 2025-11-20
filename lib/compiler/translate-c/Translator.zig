@@ -82,12 +82,11 @@ pub fn getMangle(t: *Translator) u32 {
 
 /// Convert an `aro.Source.Location` to a 'file:line:column' string.
 pub fn locStr(t: *Translator, loc: aro.Source.Location) ![]const u8 {
-    const source = t.comp.getSource(loc.id);
-    const line_col = source.lineCol(loc);
-    const filename = source.path;
+    const expanded = loc.expand(t.comp);
+    const filename = expanded.path;
 
-    const line = source.physicalLine(loc);
-    const col = line_col.col;
+    const line = expanded.line_no;
+    const col = expanded.col;
 
     return std.fmt.allocPrint(t.arena, "{s}:{d}:{d}", .{ filename, line, col });
 }
@@ -139,7 +138,11 @@ pub fn failDeclExtra(
     // location
     // pub const name = @compileError(msg);
     const fail_msg = try std.fmt.allocPrint(t.arena, format, args);
-    const fail_decl = try ZigTag.fail_decl.create(t.arena, .{ .actual = name, .mangled = fail_msg });
+    const fail_decl = try ZigTag.fail_decl.create(t.arena, .{
+        .actual = name,
+        .mangled = fail_msg,
+        .local = scope.id != .root,
+    });
 
     const str = try t.locStr(loc);
     const location_comment = try std.fmt.allocPrint(t.arena, "// {s}", .{str});
@@ -220,6 +223,7 @@ pub fn translate(options: Options) mem.Allocator.Error![]u8 {
     defer allocating.deinit();
 
     allocating.writer.writeAll(
+        \\const __root = @This();
         \\pub const __builtin = @import("std").zig.c_translation.builtins;
         \\pub const __helpers = @import("std").zig.c_translation.helpers;
         \\
@@ -297,7 +301,7 @@ fn prepopulateGlobalNameTable(t: *Translator) !void {
     }
 
     for (t.pp.defines.keys(), t.pp.defines.values()) |name, macro| {
-        if (macro.is_builtin) continue;
+        if (macro.isBuiltin()) continue;
         if (!t.isSelfDefinedMacro(name, macro)) {
             try t.global_names.put(t.gpa, name, {});
         }
@@ -524,6 +528,13 @@ fn transRecordDecl(t: *Translator, scope: *Scope, record_qt: QualType) Error!voi
             if (field.bit_width != .null) {
                 try t.opaque_demotes.put(t.gpa, base.qt, {});
                 try t.warn(scope, field_loc, "{s} demoted to opaque type - has bitfield", .{container_kind_name});
+                break :init ZigTag.opaque_literal.init();
+            }
+
+            // Demote record to opaque if it contains an opaque field
+            if (t.typeWasDemotedToOpaque(field.qt)) {
+                try t.opaque_demotes.put(t.gpa, base.qt, {});
+                try t.warn(scope, field_loc, "{s} demoted to opaque type - has opaque field", .{container_kind_name});
                 break :init ZigTag.opaque_literal.init();
             }
 
@@ -856,12 +867,18 @@ fn transVarDecl(t: *Translator, scope: *Scope, variable: Node.Variable) Error!vo
         break :blk null;
     };
 
+    // TODO actually set with @export/@extern
+    const linkage = variable.qt.linkage(t.comp);
+    if (linkage != .strong) {
+        try t.warn(scope, variable.name_tok, "TODO {s} linkage ignored", .{@tagName(linkage)});
+    }
+
     const alignment: ?c_uint = variable.qt.requestedAlignment(t.comp) orelse null;
     var node = try ZigTag.var_decl.create(t.arena, .{
         .is_pub = toplevel,
         .is_const = is_const,
         .is_extern = is_extern,
-        .is_export = toplevel and variable.storage_class == .auto,
+        .is_export = toplevel and variable.storage_class == .auto and linkage == .strong,
         .is_threadlocal = variable.thread_local,
         .linksection_string = linksection_string,
         .alignment = alignment,
@@ -1013,7 +1030,7 @@ fn transStaticAssert(t: *Translator, scope: *Scope, static_assert: Node.StaticAs
     try scope.appendNode(assert_node);
 }
 
-fn transGlobalAsm(t: *Translator, scope: *Scope, global_asm: Node.SimpleAsm) Error!void {
+fn transGlobalAsm(t: *Translator, scope: *Scope, global_asm: Node.GlobalAsm) Error!void {
     const asm_string = t.tree.value_map.get(global_asm.asm_str).?;
     const bytes = t.comp.interner.get(asm_string.ref()).bytes;
 
@@ -1071,6 +1088,17 @@ fn transType(t: *Translator, scope: *Scope, qt: QualType, source_loc: TokenIndex
             .double => return ZigTag.type.create(t.arena, "f64"),
             .long_double => return ZigTag.type.create(t.arena, "c_longdouble"),
             .float128 => return ZigTag.type.create(t.arena, "f128"),
+            .bf16,
+            .float32,
+            .float64,
+            .float32x,
+            .float64x,
+            .float128x,
+            .dfloat32,
+            .dfloat64,
+            .dfloat128,
+            .dfloat64x,
+            => return t.fail(error.UnsupportedType, source_loc, "TODO support float type: '{s}'", .{try t.getTypeStr(qt)}),
         },
         .pointer => |pointer_ty| {
             const child_qt = pointer_ty.child;
@@ -1165,17 +1193,8 @@ fn headFieldAlignment(t: *Translator, record_decl: aro.Type.Record) ?c_uint {
     const parent_ptr_alignment_bits = record_decl.layout.?.pointer_alignment_bits;
     const parent_ptr_alignment = parent_ptr_alignment_bits / bits_per_byte;
     var max_field_alignment_bits: u64 = 0;
-    for (record_decl.fields) |field| {
-        if (field.qt.getRecord(t.comp)) |field_record_decl| {
-            const child_record_alignment = field_record_decl.layout.?.field_alignment_bits;
-            if (child_record_alignment > max_field_alignment_bits)
-                max_field_alignment_bits = child_record_alignment;
-        } else {
-            const field_size = field.layout.size_bits;
-            if (field_size > max_field_alignment_bits)
-                max_field_alignment_bits = field_size;
-        }
-    }
+    for (record_decl.fields) |field|
+        max_field_alignment_bits = @max(max_field_alignment_bits, bits_per_byte * field.qt.alignof(t.comp));
     if (max_field_alignment_bits != parent_ptr_alignment_bits) {
         return parent_ptr_alignment;
     } else {
@@ -1227,10 +1246,7 @@ fn alignmentForField(
     // Records have a natural alignment when used as a field, and their size is
     // a multiple of this alignment value. For all other types, the natural alignment
     // is their size.
-    const field_natural_alignment_bits: u64 = if (field.qt.getRecord(t.comp)) |record|
-        record.layout.?.field_alignment_bits
-    else
-        field_size_bits;
+    const field_natural_alignment_bits: u64 = bits_per_byte * field.qt.alignof(t.comp);
     const rem_bits = field_offset_bits % field_natural_alignment_bits;
 
     // If there's a remainder, then the alignment is smaller than the field's
@@ -1351,13 +1367,19 @@ fn transFnType(
         }
     };
 
+    // TODO actually set with @export/@extern
+    const linkage = func_qt.linkage(t.comp);
+    if (linkage != .strong) {
+        try t.warn(scope, source_loc, "TODO {s} linkage ignored", .{@tagName(linkage)});
+    }
+
     const payload = try t.arena.create(ast.Payload.Func);
     payload.* = .{
         .base = .{ .tag = .func },
         .data = .{
             .is_pub = ctx.is_pub,
             .is_extern = ctx.is_extern,
-            .is_export = ctx.is_export,
+            .is_export = ctx.is_export and linkage == .strong,
             .is_inline = ctx.is_always_inline,
             .is_var_args = switch (func_ty.kind) {
                 .normal => false,
@@ -1446,18 +1468,7 @@ fn typeIsOpaque(t: *Translator, qt: QualType) bool {
 }
 
 fn typeWasDemotedToOpaque(t: *Translator, qt: QualType) bool {
-    const base = qt.base(t.comp);
-    switch (base.type) {
-        .@"struct", .@"union" => |record_ty| {
-            if (t.opaque_demotes.contains(base.qt)) return true;
-            for (record_ty.fields) |field| {
-                if (t.typeWasDemotedToOpaque(field.qt)) return true;
-            }
-            return false;
-        },
-        .@"enum" => return t.opaque_demotes.contains(base.qt),
-        else => return false,
-    }
+    return t.opaque_demotes.contains(qt);
 }
 
 fn typeHasWrappingOverflow(t: *Translator, qt: QualType) bool {
@@ -1538,6 +1549,9 @@ fn transStmt(t: *Translator, scope: *Scope, stmt: Node.Index) TransError!ZigNode
         },
         .goto_stmt, .computed_goto_stmt, .labeled_stmt => {
             return t.fail(error.UnsupportedTranslation, stmt.tok(t.tree), "TODO goto", .{});
+        },
+        .asm_stmt => {
+            return t.fail(error.UnsupportedTranslation, stmt.tok(t.tree), "TODO asm stmt", .{});
         },
         else => return t.transExprCoercing(scope, stmt, .unused),
     }
@@ -2197,7 +2211,7 @@ fn transExpr(t: *Translator, scope: *Scope, expr: Node.Index, used: ResultUsed) 
         .default_stmt,
         .goto_stmt,
         .computed_goto_stmt,
-        .gnu_asm_simple,
+        .asm_stmt,
         .global_asm,
         .typedef,
         .struct_decl,
@@ -3031,6 +3045,10 @@ fn transMemberAccess(
         .normal => member_access.base.qt(t.tree),
         .ptr => member_access.base.qt(t.tree).childType(t.comp),
     };
+    if (t.typeWasDemotedToOpaque(base_info)) {
+        return t.fail(error.UnsupportedTranslation, member_access.access_tok, "member access of demoted record", .{});
+    }
+
     const record = base_info.getRecord(t.comp).?;
     const field = record.fields[member_access.member_index];
     const field_name = if (field.name_tok == 0) t.anonymous_record_field_names.get(.{
@@ -3551,7 +3569,7 @@ fn transArrayInit(
     const array_item_qt = array_init.container_qt.childType(t.comp);
     const array_item_type = try t.transType(scope, array_item_qt, array_init.l_brace_tok);
     var maybe_lhs: ?ZigNode = null;
-    var val_list: std.ArrayListUnmanaged(ZigNode) = .empty;
+    var val_list: std.ArrayList(ZigNode) = .empty;
     defer val_list.deinit(t.gpa);
     var i: usize = 0;
     while (i < array_init.items.len) {
@@ -3671,6 +3689,10 @@ fn transTypeInfo(
     const operand = operand: {
         if (typeinfo.expr) |expr| {
             const operand = try t.transExpr(scope, expr, .used);
+            if (operand.tag() == .string_literal) {
+                const deref = try ZigTag.deref.create(t.arena, operand);
+                break :operand try ZigTag.typeof.create(t.arena, deref);
+            }
             break :operand try ZigTag.typeof.create(t.arena, operand);
         }
         break :operand try t.transType(scope, typeinfo.operand_qt, typeinfo.op_tok);
@@ -3962,7 +3984,8 @@ fn createFlexibleMemberFn(
 
     // return @ptrCast(&self.*.<field_name>);
     const address_of = try ZigTag.address_of.create(t.arena, field_access);
-    const casted = try ZigTag.ptr_cast.create(t.arena, address_of);
+    const aligned = try ZigTag.align_cast.create(t.arena, address_of);
+    const casted = try ZigTag.ptr_cast.create(t.arena, aligned);
     const return_stmt = try ZigTag.@"return".create(t.arena, casted);
     const body = try ZigTag.block_single.create(t.arena, return_stmt);
 
@@ -3994,7 +4017,7 @@ fn transMacros(t: *Translator) !void {
     defer pattern_list.deinit(t.gpa);
 
     for (t.pp.defines.keys(), t.pp.defines.values()) |name, macro| {
-        if (macro.is_builtin) continue;
+        if (macro.isBuiltin()) continue;
         if (t.global_scope.containsNow(name)) {
             continue;
         }

@@ -22,7 +22,7 @@ pub fn main() u8 {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var args = process.argsAlloc(arena) catch {
+    const args = process.argsAlloc(arena) catch {
         std.debug.print("ran out of memory allocating arguments\n", .{});
         if (fast_exit) process.exit(1);
         return 1;
@@ -58,7 +58,7 @@ pub fn main() u8 {
     var driver: aro.Driver = .{ .comp = &comp, .diagnostics = &diagnostics, .aro_name = "aro" };
     defer driver.deinit();
 
-    var toolchain: aro.Toolchain = .{ .driver = &driver, .filesystem = .{ .real = comp.cwd } };
+    var toolchain: aro.Toolchain = .{ .driver = &driver };
     defer toolchain.deinit();
 
     translate(&driver, &toolchain, args, zig_integration) catch |err| switch (err) {
@@ -149,7 +149,7 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: [][:0]u8, zig_integration
         break :args args[0..i];
     };
     const user_macros = macros: {
-        var macro_buf: std.ArrayListUnmanaged(u8) = .empty;
+        var macro_buf: std.ArrayList(u8) = .empty;
         defer macro_buf.deinit(gpa);
 
         var discard_buf: [256]u8 = undefined;
@@ -182,12 +182,10 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: [][:0]u8, zig_integration
         error.OutOfMemory => return error.OutOfMemory,
         error.TooManyMultilibs => return d.fatal("found more than one multilib with the same priority", .{}),
     };
-    tc.defineSystemIncludes() catch |er| switch (er) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.AroIncludeNotFound => return d.fatal("unable to find Aro builtin headers", .{}),
-    };
+    try tc.defineSystemIncludes();
+    try d.comp.initSearchPath(d.includes.items, d.verbose_search_path);
 
-    const builtin_macros = d.comp.generateBuiltinMacros(.include_system_defines) catch |err| switch (err) {
+    const builtin_macros = d.comp.generateBuiltinMacros(d.system_defines) catch |err| switch (err) {
         error.FileTooBig => return d.fatal("builtin macro source exceeded max size", .{}),
         else => |e| return e,
     };
@@ -205,7 +203,13 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: [][:0]u8, zig_integration
 
     if (opt_dep_file) |*dep_file| pp.dep_file = dep_file;
 
-    try pp.preprocessSources(&.{ source, builtin_macros, user_macros });
+    try pp.preprocessSources(.{
+        .main = source,
+        .builtin = builtin_macros,
+        .command_line = user_macros,
+        .imacros = d.imacros.items,
+        .implicit_includes = d.implicit_includes.items,
+    });
 
     var c_tree = try pp.parse();
     defer c_tree.deinit();

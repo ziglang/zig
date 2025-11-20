@@ -61,25 +61,21 @@ pub const Iterator = struct {
             return .{ self.slice[self.index], self.index };
         }
         if (self.source) |*source| {
-            var cur = source.qt;
-            if (cur.isInvalid()) {
+            if (source.qt.isInvalid()) {
                 self.source = null;
                 return null;
             }
-            while (true) switch (cur.type(source.comp)) {
-                .typeof => |typeof| cur = typeof.base,
+            loop: switch (source.qt.type(source.comp)) {
+                .typeof => |typeof| continue :loop typeof.base.type(source.comp),
                 .attributed => |attributed| {
                     self.slice = attributed.attributes;
                     self.index = 1;
                     source.qt = attributed.base;
                     return .{ self.slice[0], 0 };
                 },
-                .typedef => |typedef| cur = typedef.base,
-                else => {
-                    self.source = null;
-                    break;
-                },
-            };
+                .typedef => |typedef| continue :loop typedef.base.type(source.comp),
+                else => self.source = null,
+            }
         }
         return null;
     }
@@ -712,6 +708,9 @@ const attributes = struct {
     pub const thiscall = struct {};
     pub const sysv_abi = struct {};
     pub const ms_abi = struct {};
+    // TODO cannot be combined with weak or selectany
+    pub const internal_linkage = struct {};
+    pub const availability = struct {};
 };
 
 pub const Tag = std.meta.DeclEnum(attributes);
@@ -776,9 +775,9 @@ pub fn fromString(kind: Kind, namespace: ?[]const u8, name: []const u8) ?Tag {
 
     const tag_and_opts = attribute_names.fromName(normalized) orelse return null;
     switch (actual_kind) {
-        inline else => |tag| {
-            if (@field(tag_and_opts.properties, @tagName(tag)))
-                return tag_and_opts.properties.tag;
+        inline else => |available_kind| {
+            if (@field(tag_and_opts, @tagName(available_kind)))
+                return tag_and_opts.tag;
         },
     }
     return null;
@@ -814,7 +813,7 @@ fn applyVariableOrParameterAttributes(p: *Parser, qt: QualType, attr_buf_start: 
     for (attrs, toks) |attr, tok| switch (attr.tag) {
         // zig fmt: off
         .alias, .may_alias, .deprecated, .unavailable, .unused, .warn_if_not_aligned, .weak, .used,
-        .noinit, .retain, .persistent, .section, .mode, .asm_label, .nullability, .unaligned,
+        .noinit, .retain, .persistent, .section, .mode, .asm_label, .nullability, .unaligned, .selectany, .internal_linkage,
          => try p.attr_application_buf.append(gpa, attr),
         // zig fmt: on
         .common => if (nocommon) {
@@ -874,18 +873,18 @@ fn applyVariableOrParameterAttributes(p: *Parser, qt: QualType, attr_buf_start: 
 
 pub fn applyFieldAttributes(p: *Parser, field_qt: *QualType, attr_buf_start: usize) ![]const Attribute {
     const attrs = p.attr_buf.items(.attr)[attr_buf_start..];
-    const toks = p.attr_buf.items(.tok)[attr_buf_start..];
+    const seen = p.attr_buf.items(.seen)[attr_buf_start..];
     p.attr_application_buf.items.len = 0;
-    for (attrs, toks) |attr, tok| switch (attr.tag) {
-        // zig fmt: off
-        .@"packed", .may_alias, .deprecated, .unavailable, .unused, .warn_if_not_aligned,
-        .mode, .warn_unused_result, .nodiscard, .nullability, .unaligned,
-        => try p.attr_application_buf.append(p.comp.gpa, attr),
-        // zig fmt: on
-        .vector_size => try attr.applyVectorSize(p, tok, field_qt),
-        .aligned => try attr.applyAligned(p, field_qt.*, null),
-        .calling_convention => try applyCallingConvention(attr, p, tok, field_qt.*),
-        else => try ignoredAttrErr(p, tok, attr.tag, "fields"),
+    for (attrs, 0..) |attr, i| switch (attr.tag) {
+        .@"packed" => {
+            try p.attr_application_buf.append(p.comp.gpa, attr);
+            seen[i] = true;
+        },
+        .aligned => {
+            try attr.applyAligned(p, field_qt.*, null);
+            seen[i] = true;
+        },
+        else => {},
     };
     return p.attr_application_buf.items;
 }
@@ -894,29 +893,35 @@ pub fn applyTypeAttributes(p: *Parser, qt: QualType, attr_buf_start: usize, diag
     const gpa = p.comp.gpa;
     const attrs = p.attr_buf.items(.attr)[attr_buf_start..];
     const toks = p.attr_buf.items(.tok)[attr_buf_start..];
+    const seens = p.attr_buf.items(.seen)[attr_buf_start..];
     p.attr_application_buf.items.len = 0;
     var base_qt = qt;
-    for (attrs, toks) |attr, tok| switch (attr.tag) {
-        // zig fmt: off
-        .@"packed", .may_alias, .deprecated, .unavailable, .unused, .warn_if_not_aligned, .mode, .nullability, .unaligned,
-         => try p.attr_application_buf.append(gpa, attr),
-        // zig fmt: on
-        .transparent_union => try attr.applyTransparentUnion(p, tok, base_qt),
-        .vector_size => try attr.applyVectorSize(p, tok, &base_qt),
-        .aligned => try attr.applyAligned(p, base_qt, diagnostic),
-        .designated_init => if (base_qt.is(p.comp, .@"struct")) {
-            try p.attr_application_buf.append(gpa, attr);
-        } else {
-            try p.err(tok, .designated_init_invalid, .{});
-        },
-        .calling_convention => try applyCallingConvention(attr, p, tok, base_qt),
-        .alloc_size,
-        .copy,
-        .scalar_storage_order,
-        .nonstring,
-        => |t| try p.err(tok, .attribute_todo, .{ @tagName(t), "types" }),
-        else => try ignoredAttrErr(p, tok, attr.tag, "types"),
-    };
+    for (attrs, toks, seens) |attr, tok, seen| {
+        if (seen) continue;
+
+        switch (attr.tag) {
+            // zig fmt: off
+            .@"packed", .may_alias, .deprecated, .unavailable, .unused, .warn_if_not_aligned, .mode,
+            .nullability, .unaligned, .warn_unused_result,
+            => try p.attr_application_buf.append(gpa, attr),
+            // zig fmt: on
+            .transparent_union => try attr.applyTransparentUnion(p, tok, base_qt),
+            .vector_size => try attr.applyVectorSize(p, tok, &base_qt),
+            .aligned => try attr.applyAligned(p, base_qt, diagnostic),
+            .designated_init => if (base_qt.is(p.comp, .@"struct")) {
+                try p.attr_application_buf.append(gpa, attr);
+            } else {
+                try p.err(tok, .designated_init_invalid, .{});
+            },
+            .calling_convention => try applyCallingConvention(attr, p, tok, base_qt),
+            .alloc_size,
+            .copy,
+            .scalar_storage_order,
+            .nonstring,
+            => |t| try p.err(tok, .attribute_todo, .{ @tagName(t), "types" }),
+            else => try ignoredAttrErr(p, tok, attr.tag, "types"),
+        }
+    }
     return applySelected(base_qt, p);
 }
 
@@ -935,7 +940,7 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
         .noreturn, .unused, .used, .warning, .deprecated, .unavailable, .weak, .pure, .leaf,
         .@"const", .warn_unused_result, .section, .returns_nonnull, .returns_twice, .@"error",
         .externally_visible, .retain, .flatten, .gnu_inline, .alias, .asm_label, .nodiscard,
-        .reproducible, .unsequenced, .nothrow, .nullability, .unaligned,
+        .reproducible, .unsequenced, .nothrow, .nullability, .unaligned, .internal_linkage,
          => try p.attr_application_buf.append(gpa, attr),
         // zig fmt: on
         .hot => if (cold) {
@@ -1164,7 +1169,7 @@ pub fn applyStatementAttributes(p: *Parser, expr_start: TokenIndex, attr_buf_sta
                         try p.attr_application_buf.append(p.comp.gpa, attr);
                         break;
                     },
-                    .r_brace => {},
+                    .r_brace, .semicolon => {},
                     else => {
                         try p.err(expr_start, .invalid_fallthrough, .{});
                         break;

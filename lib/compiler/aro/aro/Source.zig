@@ -1,9 +1,15 @@
 const std = @import("std");
 
-pub const Id = enum(u32) {
-    unused = 0,
-    generated = 1,
-    _,
+pub const Id = packed struct(u32) {
+    index: enum(u31) {
+        unused = std.math.maxInt(u31) - 0,
+        generated = std.math.maxInt(u31) - 1,
+        _,
+    },
+    alias: bool = false,
+
+    pub const unused: Id = .{ .index = .unused };
+    pub const generated: Id = .{ .index = .generated };
 };
 
 /// Classifies the file for line marker output in -E mode
@@ -51,20 +57,6 @@ id: Id,
 /// consecutive splices happened. Guaranteed to be non-decreasing
 splice_locs: []const u32,
 kind: Kind,
-
-/// Todo: binary search instead of scanning entire `splice_locs`.
-pub fn numSplicesBefore(source: Source, byte_offset: u32) u32 {
-    for (source.splice_locs, 0..) |splice_offset, i| {
-        if (splice_offset > byte_offset) return @intCast(i);
-    }
-    return @intCast(source.splice_locs.len);
-}
-
-/// Returns the actual line number (before newline splicing) of a Location
-/// This corresponds to what the user would actually see in their text editor
-pub fn physicalLine(source: Source, loc: Location) u32 {
-    return loc.line + source.numSplicesBefore(loc.byte_offset);
-}
 
 pub fn lineCol(source: Source, loc: Location) ExpandedLocation {
     var start: usize = 0;
@@ -117,7 +109,7 @@ pub fn lineCol(source: Source, loc: Location) ExpandedLocation {
     return .{
         .path = source.path,
         .line = source.buf[start..nl],
-        .line_no = loc.line + splice_index,
+        .line_no = loc.line,
         .col = col,
         .width = width,
         .end_with_splice = end_with_splice,

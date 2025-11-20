@@ -5693,7 +5693,7 @@ pub fn translateC(
                 const plus_or_minus = "-+"[@intFromBool(is_enabled)];
                 try buf.print(gpa, "{c}{s}", .{ plus_or_minus, feature.name });
             }
-            break :mcpu try buf.toOwnedSlice(arena);
+            break :mcpu try arena.dupe(u8, buf.items);
         };
         try argv.append(mcpu);
 
