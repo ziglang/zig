@@ -82,7 +82,7 @@ jobs:
           fetch-depth: 0
       - name: Build and Test
         run: sh ci/s390x-linux-debug.sh
-        timeout-minutes: 240
+        timeout-minutes: 300
   s390x-linux-release:
     runs-on: [self-hosted, s390x-linux]
     steps:
