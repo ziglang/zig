@@ -2284,16 +2284,20 @@ test writeVarPackedInt {
 /// Swap the byte order of all the members of the fields of a struct
 /// (Changing their endianness)
 pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
+    byteSwapAllFieldsAligned(S, @alignOf(S), ptr);
+}
+
+/// Swap the byte order of all the members of the fields of a struct
+/// (Changing their endianness)
+pub fn byteSwapAllFieldsAligned(comptime S: type, comptime A: comptime_int, ptr: *align(A) S) void {
     switch (@typeInfo(S)) {
-        .@"struct" => {
-            inline for (std.meta.fields(S)) |f| {
+        .@"struct" => |struct_info| {
+            if (struct_info.backing_integer) |Int| {
+                ptr.* = @bitCast(@byteSwap(@as(Int, @bitCast(ptr.*))));
+            } else inline for (std.meta.fields(S)) |f| {
                 switch (@typeInfo(f.type)) {
-                    .@"struct" => |struct_info| if (struct_info.backing_integer) |Int| {
-                        @field(ptr, f.name) = @bitCast(@byteSwap(@as(Int, @bitCast(@field(ptr, f.name)))));
-                    } else {
-                        byteSwapAllFields(f.type, &@field(ptr, f.name));
-                    },
-                    .@"union", .array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
+                    .@"struct" => byteSwapAllFieldsAligned(f.type, f.alignment, &@field(ptr, f.name)),
+                    .@"union", .array => byteSwapAllFieldsAligned(f.type, f.alignment, &@field(ptr, f.name)),
                     .@"enum" => {
                         @field(ptr, f.name) = @enumFromInt(@byteSwap(@intFromEnum(@field(ptr, f.name))));
                     },
@@ -2349,6 +2353,20 @@ test byteSwapAllFields {
         f4: bool,
         f5: f32,
     };
+    const P = packed struct(u32) {
+        f0: u1,
+        f1: u7,
+        f2: u4,
+        f3: u4,
+        f4: u16,
+    };
+    const A = extern struct {
+        f0: u32,
+        f1: extern struct {
+            f0: u64,
+        } align(4),
+        f2: u32,
+    };
     var s = T{
         .f0 = 0x12,
         .f1 = 0x1234,
@@ -2366,8 +2384,16 @@ test byteSwapAllFields {
         .f4 = false,
         .f5 = @as(f32, @bitCast(@as(u32, 0x45d42800))),
     };
+    var p: P = @bitCast(@as(u32, 0x01234567));
+    var a: A = A{
+        .f0 = 0x12345678,
+        .f1 = .{ .f0 = 0x123456789ABCDEF0 },
+        .f2 = 0x87654321,
+    };
     byteSwapAllFields(T, &s);
     byteSwapAllFields(K, &k);
+    byteSwapAllFields(P, &p);
+    byteSwapAllFields(A, &a);
     try std.testing.expectEqual(T{
         .f0 = 0x12,
         .f1 = 0x3412,
@@ -2385,6 +2411,12 @@ test byteSwapAllFields {
         .f4 = false,
         .f5 = @as(f32, @bitCast(@as(u32, 0x0028d445))),
     }, k);
+    try std.testing.expectEqual(@as(P, @bitCast(@as(u32, 0x67452301))), p);
+    try std.testing.expectEqual(A{
+        .f0 = 0x78563412,
+        .f1 = .{ .f0 = 0xF0DEBC9A78563412 },
+        .f2 = 0x21436587,
+    }, a);
 }
 
 /// Reverses the byte order of all elements in a slice.
