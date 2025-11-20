@@ -383,7 +383,14 @@ fn prepareTables(fuzz: *Fuzz, run_step: *Step.Run, coverage_id: u64) error{ OutO
     errdefer gop.value_ptr.coverage.deinit(fuzz.gpa);
 
     const rebuilt_exe_path = run_step.rebuilt_executable.?;
-    var debug_info = std.debug.Info.load(fuzz.gpa, rebuilt_exe_path, &gop.value_ptr.coverage) catch |err| {
+    const target = run_step.producer.?.rootModuleTarget();
+    var debug_info = std.debug.Info.load(
+        fuzz.gpa,
+        rebuilt_exe_path,
+        &gop.value_ptr.coverage,
+        target.ofmt,
+        target.cpu.arch,
+    ) catch |err| {
         log.err("step '{s}': failed to load debug information for '{f}': {s}", .{
             run_step.step.name, rebuilt_exe_path, @errorName(err),
         });
@@ -479,9 +486,23 @@ fn addEntryPoint(fuzz: *Fuzz, coverage_id: u64, addr: u64) error{ AlreadyReporte
     if (false) {
         const sl = coverage_map.source_locations[index];
         const file_name = coverage_map.coverage.stringAt(coverage_map.coverage.fileAt(sl.file).basename);
-        log.debug("server found entry point for 0x{x} at {s}:{d}:{d} - index {d} between {x} and {x}", .{
-            addr, file_name, sl.line, sl.column, index, pcs[index - 1], pcs[index + 1],
-        });
+        if (pcs.len == 1) {
+            log.debug("server found entry point for 0x{x} at {s}:{d}:{d} - index 0 (final)", .{
+                addr, file_name, sl.line, sl.column,
+            });
+        } else if (index == 0) {
+            log.debug("server found entry point for 0x{x} at {s}:{d}:{d} - index 0 before {x}", .{
+                addr, file_name, sl.line, sl.column, pcs[index + 1],
+            });
+        } else if (index == pcs.len - 1) {
+            log.debug("server found entry point for 0x{x} at {s}:{d}:{d} - index {d} (final) after {x}", .{
+                addr, file_name, sl.line, sl.column, index, pcs[index - 1],
+            });
+        } else {
+            log.debug("server found entry point for 0x{x} at {s}:{d}:{d} - index {d} between {x} and {x}", .{
+                addr, file_name, sl.line, sl.column, index, pcs[index - 1], pcs[index + 1],
+            });
+        }
     }
     try coverage_map.entry_points.append(fuzz.gpa, @intCast(index));
 }

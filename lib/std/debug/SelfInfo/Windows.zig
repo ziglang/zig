@@ -33,6 +33,12 @@ pub fn getModuleName(si: *SelfInfo, gpa: Allocator, address: usize) Error![]cons
     const module = try si.findModule(gpa, address);
     return module.name;
 }
+pub fn getModuleSlide(si: *SelfInfo, gpa: Allocator, address: usize) Error!usize {
+    si.mutex.lock();
+    defer si.mutex.unlock();
+    const module = try si.findModule(gpa, address);
+    return module.base_address;
+}
 
 pub const can_unwind: bool = switch (builtin.cpu.arch) {
     else => true,

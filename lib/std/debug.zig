@@ -21,6 +21,7 @@ const root = @import("root");
 pub const Dwarf = @import("debug/Dwarf.zig");
 pub const Pdb = @import("debug/Pdb.zig");
 pub const ElfFile = @import("debug/ElfFile.zig");
+pub const MachOFile = @import("debug/MachOFile.zig");
 pub const Info = @import("debug/Info.zig");
 pub const Coverage = @import("debug/Coverage.zig");
 pub const cpu_context = @import("debug/cpu_context.zig");
@@ -1366,7 +1367,7 @@ test printLineFromFile {
 
 /// The returned allocator should be thread-safe if the compilation is multi-threaded, because
 /// multiple threads could capture and/or print stack traces simultaneously.
-fn getDebugInfoAllocator() Allocator {
+pub fn getDebugInfoAllocator() Allocator {
     // Allow overriding the debug info allocator by exposing `root.debug.getDebugInfoAllocator`.
     if (@hasDecl(root, "debug") and @hasDecl(root.debug, "getDebugInfoAllocator")) {
         return root.debug.getDebugInfoAllocator();

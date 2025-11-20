@@ -80,6 +80,11 @@ pub fn getModuleName(si: *SelfInfo, gpa: Allocator, address: usize) Error![]cons
     if (module.name.len == 0) return error.MissingDebugInfo;
     return module.name;
 }
+pub fn getModuleSlide(si: *SelfInfo, gpa: Allocator, address: usize) Error!usize {
+    const module = try si.findModule(gpa, address, .shared);
+    defer si.rwlock.unlockShared();
+    return module.load_offset;
+}
 
 pub const can_unwind: bool = s: {
     // The DWARF code can't deal with ILP32 ABIs yet: https://github.com/ziglang/zig/issues/25447

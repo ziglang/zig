@@ -1902,74 +1902,76 @@ pub const data_in_code_entry = extern struct {
 };
 
 pub const LoadCommandIterator = struct {
+    next_index: usize,
     ncmds: usize,
-    buffer: []const u8,
-    index: usize = 0,
+    r: std.Io.Reader,
 
     pub const LoadCommand = struct {
         hdr: load_command,
         data: []const u8,
 
-        pub fn cmd(lc: LoadCommand) LC {
-            return lc.hdr.cmd;
-        }
-
-        pub fn cmdsize(lc: LoadCommand) u32 {
-            return lc.hdr.cmdsize;
-        }
-
         pub fn cast(lc: LoadCommand, comptime Cmd: type) ?Cmd {
             if (lc.data.len < @sizeOf(Cmd)) return null;
-            return @as(*align(1) const Cmd, @ptrCast(lc.data.ptr)).*;
+            const ptr: *align(1) const Cmd = @ptrCast(lc.data.ptr);
+            var cmd = ptr.*;
+            if (builtin.cpu.arch.endian() != .little) std.mem.byteSwapAllFields(Cmd, &cmd);
+            return cmd;
         }
 
         /// Asserts LoadCommand is of type segment_command_64.
+        /// If the native endian is not `.little`, the `section_64` values must be byte-swapped by the caller.
         pub fn getSections(lc: LoadCommand) []align(1) const section_64 {
             const segment_lc = lc.cast(segment_command_64).?;
-            if (segment_lc.nsects == 0) return &[0]section_64{};
-            const data = lc.data[@sizeOf(segment_command_64)..];
-            const sections = @as([*]align(1) const section_64, @ptrCast(data.ptr))[0..segment_lc.nsects];
-            return sections;
+            const sects_ptr: [*]align(1) const section_64 = @ptrCast(lc.data[@sizeOf(segment_command_64)..]);
+            return sects_ptr[0..segment_lc.nsects];
         }
 
         /// Asserts LoadCommand is of type dylib_command.
         pub fn getDylibPathName(lc: LoadCommand) []const u8 {
             const dylib_lc = lc.cast(dylib_command).?;
-            const data = lc.data[dylib_lc.dylib.name..];
-            return mem.sliceTo(data, 0);
+            return mem.sliceTo(lc.data[dylib_lc.dylib.name..], 0);
         }
 
         /// Asserts LoadCommand is of type rpath_command.
         pub fn getRpathPathName(lc: LoadCommand) []const u8 {
             const rpath_lc = lc.cast(rpath_command).?;
-            const data = lc.data[rpath_lc.path..];
-            return mem.sliceTo(data, 0);
+            return mem.sliceTo(lc.data[rpath_lc.path..], 0);
         }
 
         /// Asserts LoadCommand is of type build_version_command.
+        /// If the native endian is not `.little`, the `build_tool_version` values must be byte-swapped by the caller.
         pub fn getBuildVersionTools(lc: LoadCommand) []align(1) const build_tool_version {
             const build_lc = lc.cast(build_version_command).?;
-            const ntools = build_lc.ntools;
-            if (ntools == 0) return &[0]build_tool_version{};
-            const data = lc.data[@sizeOf(build_version_command)..];
-            const tools = @as([*]align(1) const build_tool_version, @ptrCast(data.ptr))[0..ntools];
-            return tools;
+            const tools_ptr: [*]align(1) const build_tool_version = @ptrCast(lc.data[@sizeOf(build_version_command)..]);
+            return tools_ptr[0..build_lc.ntools];
         }
     };
 
-    pub fn next(it: *LoadCommandIterator) ?LoadCommand {
-        if (it.index >= it.ncmds) return null;
+    pub fn next(it: *LoadCommandIterator) error{InvalidMachO}!?LoadCommand {
+        if (it.next_index >= it.ncmds) return null;
 
-        const hdr = @as(*align(1) const load_command, @ptrCast(it.buffer.ptr)).*;
-        const cmd = LoadCommand{
-            .hdr = hdr,
-            .data = it.buffer[0..hdr.cmdsize],
+        const hdr = it.r.peekStruct(load_command, .little) catch |err| switch (err) {
+            error.ReadFailed => unreachable,
+            error.EndOfStream => return error.InvalidMachO,
+        };
+        const data = it.r.take(hdr.cmdsize) catch |err| switch (err) {
+            error.ReadFailed => unreachable,
+            error.EndOfStream => return error.InvalidMachO,
         };
 
-        it.buffer = it.buffer[hdr.cmdsize..];
-        it.index += 1;
+        it.next_index += 1;
+        return .{ .hdr = hdr, .data = data };
+    }
 
-        return cmd;
+    pub fn init(hdr: *const mach_header_64, cmds_buf_overlong: []const u8) error{InvalidMachO}!LoadCommandIterator {
+        if (cmds_buf_overlong.len < hdr.sizeofcmds) return error.InvalidMachO;
+        if (hdr.ncmds > 0 and hdr.sizeofcmds < @sizeOf(load_command)) return error.InvalidMachO;
+        const cmds_buf = cmds_buf_overlong[0..hdr.sizeofcmds];
+        return .{
+            .next_index = 0,
+            .ncmds = hdr.ncmds,
+            .r = .fixed(cmds_buf),
+        };
     }
 };
 
