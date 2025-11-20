@@ -11,7 +11,6 @@ const assert = std.debug.assert;
 
 const SparcCpuinfoImpl = struct {
     model: ?*const Target.Cpu.Model = null,
-    is_64bit: bool = false,
 
     const cpu_names = .{
         .{ "SuperSparc", &Target.sparc.cpu.supersparc },
@@ -41,17 +40,12 @@ const SparcCpuinfoImpl = struct {
                     break;
                 }
             }
-        } else if (mem.eql(u8, key, "type")) {
-            self.is_64bit = mem.eql(u8, value, "sun4u") or mem.eql(u8, value, "sun4v");
         }
 
         return true;
     }
 
     fn finalize(self: *const SparcCpuinfoImpl, arch: Target.Cpu.Arch) ?Target.Cpu {
-        // At the moment we only support 64bit SPARC systems.
-        assert(self.is_64bit);
-
         const model = self.model orelse return null;
         return Target.Cpu{
             .arch = arch,
@@ -411,7 +405,7 @@ pub fn detectNativeCpuAndFeatures(io: Io) ?Target.Cpu {
             const core = @import("arm.zig").aarch64.detectNativeCpuAndFeatures(current_arch, registers);
             return core;
         },
-        .sparc64 => {
+        .sparc, .sparc64 => {
             return SparcCpuinfoParser.parse(current_arch, &file_reader.interface) catch null;
         },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => {
