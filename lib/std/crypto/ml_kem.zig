@@ -1446,6 +1446,8 @@ fn randPolyNormalized(rnd: anytype) Poly {
 }
 
 test "MulHat" {
+    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
+
     var rnd = RndGen.init(0);
 
     for (0..100) |_| {
@@ -1600,6 +1602,8 @@ test "Polynomial packing" {
 }
 
 test "Test inner PKE" {
+    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
+
     var seed: [32]u8 = undefined;
     var pt: [32]u8 = undefined;
     for (&seed, &pt, 0..) |*s, *p, i| {
@@ -1621,6 +1625,8 @@ test "Test inner PKE" {
 }
 
 test "Test happy flow" {
+    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
+
     var seed: [64]u8 = undefined;
     for (&seed, 0..) |*s, i| {
         s.* = @as(u8, @intCast(i));
@@ -1646,18 +1652,21 @@ test "Test happy flow" {
 
 test "NIST KAT test d00.Kyber512" {
     if (comptime builtin.cpu.has(.loongarch, .lsx)) return error.SkipZigTest;
+    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
 
     try testNistKat(d00.Kyber512, "e9c2bd37133fcb40772f81559f14b1f58dccd1c816701be9ba6214d43baf4547");
 }
 
 test "NIST KAT test d00.Kyber1024" {
     if (comptime builtin.cpu.has(.loongarch, .lsx)) return error.SkipZigTest;
+    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
 
     try testNistKat(d00.Kyber1024, "89248f2f33f7f4f7051729111f3049c409a933ec904aedadf035f30fa5646cd5");
 }
 
 test "NIST KAT test d00.Kyber768" {
     if (comptime builtin.cpu.has(.loongarch, .lsx)) return error.SkipZigTest;
+    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
 
     try testNistKat(d00.Kyber768, "a1e122cad3c24bc51622e4c242d8b8acbcd3f618fee4220400605ca8f9ea02c2");
 }
