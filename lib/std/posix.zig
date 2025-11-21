@@ -5466,6 +5466,9 @@ pub const SendError = error{
 
     /// The destination address is not listening.
     ConnectionRefused,
+
+    /// The connection timed out.
+    ConnectionTimedOut,
 } || UnexpectedError;
 
 pub const SendMsgError = SendError || error{
@@ -5552,6 +5555,7 @@ pub fn sendmsg(
                 .NETUNREACH => return error.NetworkUnreachable,
                 .NOTCONN => return error.SocketUnconnected,
                 .NETDOWN => return error.NetworkDown,
+                .TIMEDOUT => return error.ConnectionTimedOut,
                 else => |err| return unexpectedErrno(err),
             }
         }
@@ -5657,6 +5661,7 @@ pub fn sendto(
             .NETUNREACH => return error.NetworkUnreachable,
             .NOTCONN => return error.SocketUnconnected,
             .NETDOWN => return error.NetworkDown,
+            .TIMEDOUT => return error.ConnectionTimedOut,
             else => |err| return unexpectedErrno(err),
         }
     }
