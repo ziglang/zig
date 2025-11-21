@@ -13257,16 +13257,16 @@ fn detectLocalShadowing(
     scope: *Scope,
     ident_name: Zir.NullTerminatedString,
     name_token: Ast.TokenIndex,
-    token_bytes: []const u8,
+    ident_name_raw: []const u8,
     id_cat: Scope.IdCat,
 ) !void {
     const gpa = astgen.gpa;
-    if (token_bytes[0] != '@' and isPrimitive(token_bytes)) {
+    if (ident_name_raw[0] != '@' and isPrimitive(ident_name_raw)) {
         return astgen.failTokNotes(name_token, "name shadows primitive '{s}'", .{
-            token_bytes,
+            ident_name_raw,
         }, &[_]u32{
             try astgen.errNoteTok(name_token, "consider using @\"{s}\" to disambiguate", .{
-                token_bytes,
+                ident_name_raw,
             }),
         });
     }
