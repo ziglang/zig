@@ -1107,9 +1107,11 @@ pub const Writer = struct {
                 return sendFileBuffered(io_w, file_reader, reader_buffered);
             var off_in: i64 = undefined;
             var off_out: i64 = undefined;
+            var len: usize = @intFromEnum(limit);
             const off_in_ptr: ?*i64 = switch (file_reader.mode) {
                 .positional_reading, .streaming_reading => return error.Unimplemented,
                 .positional => p: {
+                    len = @min(len, std.math.maxInt(usize) - file_reader.pos);
                     off_in = @intCast(file_reader.pos);
                     break :p &off_in;
                 },
@@ -1119,13 +1121,14 @@ pub const Writer = struct {
             const off_out_ptr: ?*i64 = switch (w.mode) {
                 .positional_reading, .streaming_reading => return error.Unimplemented,
                 .positional => p: {
+                    len = @min(len, std.math.maxInt(usize) - w.pos);
                     off_out = @intCast(w.pos);
                     break :p &off_out;
                 },
                 .streaming => null,
                 .failure => return error.WriteFailed,
             };
-            const n = copy_file_range(in_fd, off_in_ptr, out_fd, off_out_ptr, @intFromEnum(limit), 0) catch |err| {
+            const n = copy_file_range(in_fd, off_in_ptr, out_fd, off_out_ptr, len, 0) catch |err| {
                 w.copy_file_range_err = err;
                 return 0;
             };
