@@ -2196,6 +2196,7 @@ fn generateVaListType(ts: *TypeStore, comp: *Compilation) !QualType {
         else
             return .char_pointer,
         .powerpc, .powerpcle => .powerpc_va_list,
+        .s390x => .s390x_va_list,
         .x86_64 => switch (comp.target.os.tag) {
             .uefi, .windows => return .char_pointer,
             else => .x86_64_va_list,
