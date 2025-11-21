@@ -103,7 +103,7 @@ pub fn init(
     /// here.
     gpa: Allocator,
 ) Threaded {
-    assert(!builtin.single_threaded); // use 'init_single_threaded' instead
+    if (builtin.single_threaded) return .init_single_threaded;
 
     var t: Threaded = .{
         .allocator = gpa,
