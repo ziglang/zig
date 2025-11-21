@@ -7,7 +7,11 @@ const expect = std.testing.expect;
 /// Returns x * 2^n.
 pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
     const T = @TypeOf(x);
-    const TBits = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
+    const TBits = switch (@typeInfo(T)) {
+        .float => |float| std.meta.Int(.unsigned, float.bits),
+        .comptime_float => u128,
+        else => @compileError("unknown floating point type " ++ @typeName(T)),
+    };
 
     const exponent_bits = math.floatExponentBits(T);
     const mantissa_bits = math.floatMantissaBits(T);
@@ -16,11 +20,13 @@ pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
     const max_biased_exponent = 2 * math.floatExponentMax(T);
     const mantissa_mask = @as(TBits, (1 << mantissa_bits) - 1);
 
-    const repr = @as(TBits, @bitCast(x));
+    const repr = bitCastAs(TBits, x);
     const sign_bit = repr & (1 << (exponent_bits + mantissa_bits));
 
-    if (math.isNan(x) or !math.isFinite(x))
+    if (math.isNan(x) or !math.isFinite(x)) {
+        if (T == comptime_float) unreachable;
         return x;
+    }
 
     var exponent: i32 = @as(i32, @intCast((repr << 1) >> (mantissa_bits + 1)));
     if (exponent == 0)
@@ -29,23 +35,23 @@ pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
     if (n >= 0) {
         if (n > max_biased_exponent - exponent) {
             // Overflow. Return +/- inf
-            return @as(T, @bitCast(@as(TBits, @bitCast(math.inf(T))) | sign_bit));
+            return bitCastAs(T, bitCastAs(TBits, math.inf(T)) | sign_bit);
         } else if (exponent + n <= 0) {
             // Result is subnormal
-            return @as(T, @bitCast((repr << @as(Log2Int(TBits), @intCast(n))) | sign_bit));
+            return bitCastAs(T, (repr << @as(Log2Int(TBits), @intCast(n))) | sign_bit);
         } else if (exponent <= 0) {
             // Result is normal, but needs shifting
             var result = @as(TBits, @intCast(n + exponent)) << mantissa_bits;
             result |= (repr << @as(Log2Int(TBits), @intCast(1 - exponent))) & mantissa_mask;
-            return @as(T, @bitCast(result | sign_bit));
+            return bitCastAs(T, result | sign_bit);
         }
 
         // Result needs no shifting
-        return @as(T, @bitCast(repr + (@as(TBits, @intCast(n)) << mantissa_bits)));
+        return bitCastAs(T, repr + (@as(TBits, @intCast(n)) << mantissa_bits));
     } else {
         if (n <= -exponent) {
             if (n < -(mantissa_bits + exponent))
-                return @as(T, @bitCast(sign_bit)); // Severe underflow. Return +/- 0
+                return bitCastAs(T, sign_bit); // Severe underflow. Return +/- 0
 
             // Result underflowed, we need to shift and round
             const shift = @as(Log2Int(TBits), @intCast(@min(-n, -(exponent + n) + 1)));
@@ -58,12 +64,20 @@ pub fn ldexp(x: anytype, n: i32) @TypeOf(x) {
 
             // Round result, including round-to-even for exact ties
             result = ((result + 1) >> 1) & ~@as(TBits, @intFromBool(exact_tie));
-            return @as(T, @bitCast(result | sign_bit));
+            return bitCastAs(T, result | sign_bit);
         }
 
         // Result is exact, and needs no shifting
-        return @as(T, @bitCast(repr - (@as(TBits, @intCast(-n)) << mantissa_bits)));
+        return bitCastAs(T, repr - (@as(TBits, @intCast(-n)) << mantissa_bits));
     }
+}
+
+inline fn bitCastAs(comptime T: type, x: anytype) T {
+    const y = if (@TypeOf(x) == comptime_float) @as(f128, x) else x;
+    return switch (T) {
+        comptime_float => @as(T, @as(f128, @bitCast(y))),
+        else => @as(T, @bitCast(y)),
+    };
 }
 
 test ldexp {
@@ -73,6 +87,7 @@ test ldexp {
     try expect(ldexp(@as(f64, 0x1.7FFFFFFFFFFFFp-1), -1022 - 51) == math.floatTrueMin(f64));
     try expect(ldexp(@as(f80, 0x1.7FFFFFFFFFFFFFFEp-1), -16382 - 62) == math.floatTrueMin(f80));
     try expect(ldexp(@as(f128, 0x1.7FFFFFFFFFFFFFFFFFFFFFFFFFFFp-1), -16382 - 111) == math.floatTrueMin(f128));
+    try expect(ldexp(@as(comptime_float, 0x1.7FFFFFFFFFFFFFFFFFFFFFFFFFFFp-1), -16382 - 111) == math.floatTrueMin(f128));
 
     try expect(ldexp(math.floatMax(f32), -128 - 149) > 0.0);
     try expect(ldexp(math.floatMax(f32), -128 - 149 - 1) == 0.0);
