@@ -90,8 +90,6 @@ const Closure = struct {
     }
 };
 
-pub const InitError = std.Thread.CpuCountError || Allocator.Error;
-
 /// Related:
 /// * `init_single_threaded`
 pub fn init(
