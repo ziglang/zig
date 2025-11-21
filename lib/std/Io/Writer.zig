@@ -764,29 +764,8 @@ test splatByteAll {
 }
 
 pub fn splatBytePreserve(w: *Writer, preserve: usize, byte: u8, n: usize) Error!void {
-    const new_end = w.end + n;
-    if (new_end <= w.buffer.len) {
-        @memset(w.buffer[w.end..][0..n], byte);
-        w.end = new_end;
-        return;
-    }
-    // If `n` is large, we can ignore `preserve` up to a point.
-    var remaining = n;
-    while (remaining > preserve) {
-        assert(remaining != 0);
-        remaining -= try splatByte(w, byte, remaining - preserve);
-        if (w.end + remaining <= w.buffer.len) {
-            @memset(w.buffer[w.end..][0..remaining], byte);
-            w.end += remaining;
-            return;
-        }
-    }
-    // All the next bytes received must be preserved.
-    if (preserve < w.end) {
-        @memmove(w.buffer[0..preserve], w.buffer[w.end - preserve ..][0..preserve]);
-        w.end = preserve;
-    }
-    while (remaining > 0) remaining -= try w.splatByte(byte, remaining);
+    const slice = try w.writableSlicePreserve(preserve, n);
+    @memset(slice, byte);
 }
 
 /// Writes the same byte many times, allowing short writes.
