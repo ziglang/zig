@@ -40,7 +40,7 @@ jobs:
           fetch-depth: 0
       - name: Build and Test
         run: sh ci/loongarch64-linux-debug.sh
-        timeout-minutes: 180
+        timeout-minutes: 240
   loongarch64-linux-release:
     runs-on: [self-hosted, loongarch64-linux]
     steps:
