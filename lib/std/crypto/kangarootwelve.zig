@@ -1234,7 +1234,7 @@ test "KT128 sequential and parallel produce same output for many random lengths"
     var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
 
-    const num_tests = 1000;
+    const num_tests = if (builtin.mode == .Debug) 10 else 1000;
     const max_length = 250000;
 
     for (0..num_tests) |_| {
