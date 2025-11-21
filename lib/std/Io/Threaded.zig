@@ -478,10 +478,15 @@ const AsyncClosure = struct {
         return ac;
     }
 
-    fn waitAndDeinit(ac: *AsyncClosure, gpa: Allocator, result: []u8) void {
-        ac.reset_event.waitUncancelable();
+    fn waitAndDeinit(ac: *AsyncClosure, t: *Threaded, result: []u8) void {
+        ac.reset_event.wait(t) catch |err| switch (err) {
+            error.Canceled => {
+                ac.closure.requestCancel();
+                ac.reset_event.waitUncancelable();
+            },
+        };
         @memcpy(result, ac.resultPointer()[0..result.len]);
-        ac.deinit(gpa);
+        ac.deinit(t.allocator);
     }
 
     fn deinit(ac: *AsyncClosure, gpa: Allocator) void {
@@ -796,7 +801,7 @@ fn await(
     _ = result_alignment;
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     const closure: *AsyncClosure = @ptrCast(@alignCast(any_future));
-    closure.waitAndDeinit(t.allocator, result);
+    closure.waitAndDeinit(t, result);
 }
 
 fn cancel(
@@ -809,7 +814,7 @@ fn cancel(
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     const ac: *AsyncClosure = @ptrCast(@alignCast(any_future));
     ac.closure.requestCancel();
-    ac.waitAndDeinit(t.allocator, result);
+    ac.waitAndDeinit(t, result);
 }
 
 fn cancelRequested(userdata: ?*anyopaque) bool {
