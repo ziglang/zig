@@ -4281,9 +4281,9 @@ pub const ErrorNoteHashContext = struct {
         if (key.src_loc != .none) {
             const src = eb.getSourceLocation(key.src_loc);
             hasher.update(eb.nullTerminatedString(src.src_path));
-            std.hash.autoHash(&hasher, src.line);
-            std.hash.autoHash(&hasher, src.column);
-            std.hash.autoHash(&hasher, src.span_main);
+            std.hash.auto(&hasher, src.line);
+            std.hash.auto(&hasher, src.column);
+            std.hash.auto(&hasher, src.span_main);
         }
 
         return @as(u32, @truncate(hasher.final()));

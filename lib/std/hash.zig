@@ -1,9 +1,18 @@
 pub const Adler32 = @import("hash/Adler32.zig");
 
 const auto_hash = @import("hash/auto_hash.zig");
-pub const autoHash = auto_hash.autoHash;
-pub const autoHashStrat = auto_hash.hash;
-pub const Strategy = auto_hash.HashStrategy;
+pub const auto = auto_hash.auto;
+pub const autoStrat = auto_hash.autoStrat;
+pub const Strategy = auto_hash.Strategy;
+
+/// Deprecated alias for `Strategy`
+pub const HashStrategy = Strategy;
+
+/// Deprecated alias for `auto`
+pub const autoHash = auto;
+
+/// Deprecated alias for `autoStrat`
+pub const autoHashStrat = autoStrat;
 
 // pub for polynomials + generic crc32 construction
 pub const crc = @import("hash/crc.zig");
@@ -44,7 +53,7 @@ pub fn int(input: anytype) @TypeOf(input) {
     // Convert input to unsigned integer (easier to deal with)
     const Uint = @Type(.{ .int = .{ .bits = bits, .signedness = .unsigned } });
     const u_input: Uint = @bitCast(input);
-    if (bits > 256) @compileError("bit widths > 256 are unsupported, use std.hash.autoHash functionality.");
+    if (bits > 256) @compileError("bit widths > 256 are unsupported, use std.hash.auto functionality.");
     // For bit widths that don't have a dedicated function, use a heuristic
     // construction with a multiplier suited to diffusion -
     // a mod 2^bits where a^2 - 46 * a + 1 = 0 mod 2^(bits + 4),

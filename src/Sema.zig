@@ -21111,10 +21111,10 @@ fn reifyEnum(
 
     // For deduplication purposes, we must create a hash including all details of this type.
     // TODO: use a longer hash!
-    var hasher = std.hash.Wyhash.init(0);
-    std.hash.autoHash(&hasher, tag_ty.toIntern());
-    std.hash.autoHash(&hasher, is_exhaustive);
-    std.hash.autoHash(&hasher, fields_len);
+    var hasher: std.hash.Wyhash = .init(0);
+    std.hash.auto(&hasher, tag_ty.toIntern());
+    std.hash.auto(&hasher, is_exhaustive);
+    std.hash.auto(&hasher, fields_len);
 
     for (0..fields_len) |field_idx| {
         const field_info = try fields_val.elemValue(pt, field_idx);
@@ -21124,7 +21124,7 @@ fn reifyEnum(
 
         const field_name = try sema.sliceToIpString(block, src, field_name_val, .{ .simple = .enum_field_name });
 
-        std.hash.autoHash(&hasher, .{
+        std.hash.auto(&hasher, .{
             field_name,
             field_value_val.toIntern(),
         });
@@ -21256,10 +21256,10 @@ fn reifyUnion(
 
     // For deduplication purposes, we must create a hash including all details of this type.
     // TODO: use a longer hash!
-    var hasher = std.hash.Wyhash.init(0);
-    std.hash.autoHash(&hasher, layout);
-    std.hash.autoHash(&hasher, opt_tag_type_val.toIntern());
-    std.hash.autoHash(&hasher, fields_len);
+    var hasher: std.hash.Wyhash = .init(0);
+    std.hash.auto(&hasher, layout);
+    std.hash.auto(&hasher, opt_tag_type_val.toIntern());
+    std.hash.auto(&hasher, fields_len);
 
     for (0..fields_len) |field_idx| {
         const field_info = try fields_val.elemValue(pt, field_idx);
@@ -21269,7 +21269,7 @@ fn reifyUnion(
         const field_align_val = try sema.resolveLazyValue(try field_info.fieldValue(pt, 2));
 
         const field_name = try sema.sliceToIpString(block, src, field_name_val, .{ .simple = .union_field_name });
-        std.hash.autoHash(&hasher, .{
+        std.hash.auto(&hasher, .{
             field_name,
             field_type_val.toIntern(),
             field_align_val.toIntern(),
@@ -21588,10 +21588,10 @@ fn reifyStruct(
 
     // For deduplication purposes, we must create a hash including all details of this type.
     // TODO: use a longer hash!
-    var hasher = std.hash.Wyhash.init(0);
-    std.hash.autoHash(&hasher, layout);
-    std.hash.autoHash(&hasher, opt_backing_int_val.toIntern());
-    std.hash.autoHash(&hasher, fields_len);
+    var hasher: std.hash.Wyhash = .init(0);
+    std.hash.auto(&hasher, layout);
+    std.hash.auto(&hasher, opt_backing_int_val.toIntern());
+    std.hash.auto(&hasher, fields_len);
 
     var any_comptime_fields = false;
     var any_default_inits = false;
@@ -21622,7 +21622,7 @@ fn reifyStruct(
             break :d (try sema.resolveLazyValue(val)).toIntern();
         } else .none;
 
-        std.hash.autoHash(&hasher, .{
+        std.hash.auto(&hasher, .{
             field_name,
             field_type_val.toIntern(),
             field_default_value,

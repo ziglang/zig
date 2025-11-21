@@ -1,76 +1,229 @@
 const std = @import("std");
-const assert = std.debug.assert;
 const mem = std.mem;
+const assert = std.debug.assert;
+const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
+const Wyhash = std.hash.Wyhash;
 
 /// Describes how pointer types should be hashed.
-pub const HashStrategy = enum {
+pub const Strategy = enum {
     /// Do not follow pointers, only hash their value.
-    Shallow,
+    shallow,
 
-    /// Follow pointers, hash the pointee content.
-    /// Only dereferences one level, ie. it is changed into .Shallow when a
+    /// Follow pointers once, hash the pointee content.
+    /// Only dereferences one level, ie. it is changed into `shallow` when a
     /// pointer type is encountered.
-    Deep,
+    deep,
 
-    /// Follow pointers, hash the pointee content.
+    /// Follow pointers recursively, hash the pointee content.
     /// Dereferences all pointers encountered.
     /// Assumes no cycle.
-    DeepRecursive,
+    deep_recursive,
+
+    /// Deprecated alias for `shallow`
+    pub const Shallow: Strategy = .shallow;
+
+    /// Deprecated alias for `deep`
+    pub const Deep: Strategy = .deep;
+
+    /// Deprecated alias for `deep_recursive`
+    pub const DeepRecursive: Strategy = .deep_recursive;
+
+    /// When hashing a pointer with `strat`,
+    /// this returns the strategy used to hash
+    /// the data at the pointer. If this returns
+    /// `null`, then the pointer itself should
+    /// be hashed.
+    fn deref(strat: Strategy) ?Strategy {
+        return switch (strat) {
+            .shallow => null,
+            .deep => .shallow,
+            .deep_recursive => .deep_recursive,
+        };
+    }
+
+    /// Returns a `Strategy` that is equivalent to `strat` for
+    /// use in hashing values of type `T`. Used for preventing
+    /// the explosion of generic instantiation.
+    fn deduplicate(comptime strat: Strategy, comptime T: type) ?Strategy {
+        if (strat != .shallow and !typeContains(T, .pointer)) {
+            return .shallow;
+        }
+        return null;
+    }
 };
 
+/// Whether the pointer type `P` points to directly hashable memory.
+/// This means non-volatile, non-nullable, and default address space.
+fn isMemoryHashable(comptime Pointer: type) bool {
+    // Instead of checking the is_volatile, address_space, and is_allowzero
+    // fields directly, we modify the fields we don't care about
+    // and check if reifying the info results in []const u8.
+    // This allows us to handle pointers to packed struct fields,
+    // which cannot be observed from @typeInfo.
+    comptime var info = @typeInfo(Pointer).pointer;
+    if (info.size == .c) {
+        // C pointers are nullable
+        return false;
+    }
+    info.child = u8;
+    info.size = .slice;
+    info.is_const = true;
+    info.alignment = 1;
+    info.sentinel_ptr = null;
+    return @Type(.{ .pointer = info }) == []const u8;
+}
+
+/// Whether `T` can be safely hashed by hashing its raw bytes
+fn hashByBytes(comptime T: type, strat: Strategy) bool {
+    if (strat == .shallow or !typeContains(T, .pointer)) {
+        // Don't include sentinels in the hashes
+        return std.meta.hasUniqueRepresentation(T) and !typeContains(T, .sentinel);
+    } else {
+        return false;
+    }
+}
+
+/// Whether an effort should be made to avoid copying values
+/// of type `T`. When this returns true,
+fn preferInPlaceHash(comptime T: type) bool {
+    return @sizeOf(T) > @sizeOf(usize);
+}
+
 /// Helper function to hash a pointer and mutate the strategy if needed.
-pub fn hashPointer(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
-    const info = @typeInfo(@TypeOf(key));
+fn hashInPlace(hasher: anytype, key: anytype, comptime strat: Strategy) void {
+    const KeyPtr = @TypeOf(key);
+    const info = @typeInfo(KeyPtr).pointer;
 
-    switch (info.pointer.size) {
-        .one => switch (strat) {
-            .Shallow => hash(hasher, @intFromPtr(key), .Shallow),
-            .Deep => hash(hasher, key.*, .Shallow),
-            .DeepRecursive => hash(hasher, key.*, .DeepRecursive),
-        },
+    const is_span = switch (info.size) {
+        .one => @typeInfo(info.child) == .array,
+        .slice => true,
+        .many, .c => if (strat != .shallow) @compileError(
+            \\ unknown-length pointers and C pointers cannot be hashed deeply.
+            \\ Consider providing your own hash function.
+        ),
+    };
 
-        .slice => {
-            switch (strat) {
-                .Shallow => {
-                    hashPointer(hasher, key.ptr, .Shallow);
-                },
-                .Deep => hashArray(hasher, key, .Shallow),
-                .DeepRecursive => hashArray(hasher, key, .DeepRecursive),
-            }
-            hash(hasher, key.len, .Shallow);
-        },
-
-        .many,
-        .c,
-        => switch (strat) {
-            .Shallow => hash(hasher, @intFromPtr(key), .Shallow),
-            else => @compileError(
-                \\ unknown-length pointers and C pointers cannot be hashed deeply.
-                \\ Consider providing your own hash function.
-            ),
-        },
+    if (comptime is_span) {
+        // hashArray already has logic to hash slices and
+        // array pointers optimally
+        return hashArray(hasher, key, strat);
+    } else if (comptime strat.deduplicate(info.child)) |new_strat| {
+        // Here we prevent the explosion of generic instantiation
+        // for all of the following logic. We do this after the
+        // is_span check because hashArray also does this.
+        return hashInPlace(hasher, key, new_strat);
+    } else if (comptime isMemoryHashable(KeyPtr) and hashByBytes(info.child, strat)) {
+        // If the memory is non-nullable, non-volatile,
+        // and byte-aligned, then we can try optimizing
+        // to hash the key in place. This is also attempted
+        // in autoStrat, but by doing it here, we can avoid
+        // a redundant copy of the data
+        const bytes: []const u8 = @ptrCast(key);
+        return hasher.update(bytes);
+    } else {
+        // In the general case, just dereference the key
+        // and pass it on to autoStrat
+        return autoStrat(hasher, key.*, strat);
     }
 }
 
 /// Helper function to hash a set of contiguous objects, from an array or slice.
-pub fn hashArray(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
-    for (key) |element| {
-        hash(hasher, element, strat);
+fn hashArray(hasher: anytype, key: anytype, comptime strat: Strategy) void {
+    // Exclude the sentinel in all of the following code
+    const no_sent = key[0..key.len];
+    const NoSent = @TypeOf(no_sent);
+
+    const info = @typeInfo(NoSent).pointer;
+
+    if (comptime strat.deduplicate(info.child)) |new_strat| {
+        // Prevent the explosion of generic instantiation
+        // by demoting strat to shallow when there are no
+        // pointers within the key
+        return hashArray(hasher, no_sent, new_strat);
+    }
+
+    const Child = std.meta.Elem(NoSent);
+
+    switch (@typeInfo(Child)) {
+        .array => |arr| if (arr.sentinel_ptr != null) {
+            // Attempt to flatten arrays of arrays when possible
+            comptime var flat_info = info;
+            flat_info.child = switch (info.size) {
+                .slice => arr.child,
+                else => [arr.len * no_sent.len]arr.child,
+            };
+            const Flat = @Type(.{ .pointer = flat_info });
+            const flat: Flat = @ptrCast(no_sent);
+            return hashArray(hasher, flat, strat);
+        },
+        else => {},
+    }
+
+    // If the memory is non-nullable, non-volatile,
+    // and byte-aligned, then we can try optimizing
+    // to hash the key in place
+    if (comptime isMemoryHashable(NoSent)) {
+        if (comptime preferInPlaceHash(Child)) {
+            // Otherwise, if the data is sufficiently large,
+            // we attempt to hash as much as possible in place
+            // by passing the elements to hashAtPointer
+            for (no_sent) |*element| {
+                hashInPlace(hasher, element, strat);
+            }
+            return;
+        }
+    }
+
+    // In the general case, we use a regular, by value for loop
+    for (no_sent) |element| {
+        autoStrat(hasher, element, strat);
+    }
+    return;
+}
+
+fn validateTypeInfo(comptime T: type) void {
+    switch (@typeInfo(T)) {
+        .noreturn,
+        .@"opaque",
+        .undefined,
+        .null,
+        .comptime_float,
+        .comptime_int,
+        .type,
+        .enum_literal,
+        .frame,
+        => @compileError("unable to hash type " ++ @typeName(T)),
+
+        .@"union" => |info| if (info.tag_type == null)
+            @compileError("cannot hash untagged union type: " ++ @typeName(T) ++ ", provide your own hash function"),
+
+        else => {},
     }
 }
 
 /// Provides generic hashing for any eligible type.
 /// Strategy is provided to determine if pointers should be followed or not.
-pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
+pub fn autoStrat(hasher: anytype, key: anytype, comptime strat: Strategy) void {
     const Key = @TypeOf(key);
-    const Hasher = switch (@typeInfo(@TypeOf(hasher))) {
-        .pointer => |ptr| ptr.child,
-        else => @TypeOf(hasher),
-    };
+    validateTypeInfo(Key);
 
-    if (strat == .Shallow and std.meta.hasUniqueRepresentation(Key)) {
-        @call(.always_inline, Hasher.update, .{ hasher, mem.asBytes(&key) });
-        return;
+    if (comptime strat.deduplicate(Key)) |new_strat| {
+        // Prevent the explosion of generic instantiation
+        // by demoting strat to shallow when there are no
+        // pointers within the key
+        return autoStrat(hasher, key, new_strat);
+    }
+
+    if (comptime hashByBytes(Key, strat)) {
+        // If it is safe to do so, we skip all of the
+        // field-by-field hashing logic and just directly
+        // hash the bytes of the value. It's generally better
+        // for this to happen inside hashInPlace so we aren't
+        // making unnecessary copies of the key, but it should
+        // be checked here too
+        const bytes: []const u8 = @ptrCast(&key);
+        return hasher.update(bytes);
     }
 
     switch (@typeInfo(Key)) {
@@ -83,218 +236,257 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
         .type,
         .enum_literal,
         .frame,
-        .float,
-        => @compileError("unable to hash type " ++ @typeName(Key)),
+        => comptime unreachable,
 
         .void => return,
 
-        // Help the optimizer see that hashing an int is easy by inlining!
-        // TODO Check if the situation is better after #561 is resolved.
-        .int => |int| switch (int.signedness) {
-            .signed => hash(hasher, @as(@Type(.{ .int = .{
-                .bits = int.bits,
-                .signedness = .unsigned,
-            } }), @bitCast(key)), strat),
-            .unsigned => {
-                if (std.meta.hasUniqueRepresentation(Key)) {
-                    @call(.always_inline, Hasher.update, .{ hasher, std.mem.asBytes(&key) });
-                } else {
-                    // Take only the part containing the key value, the remaining
-                    // bytes are undefined and must not be hashed!
-                    const byte_size = comptime std.math.divCeil(comptime_int, @bitSizeOf(Key), 8) catch unreachable;
-                    @call(.always_inline, Hasher.update, .{ hasher, std.mem.asBytes(&key)[0..byte_size] });
-                }
-            },
+        .int => |int| {
+            const byte_size = comptime std.math.divCeil(comptime_int, @bitSizeOf(Key), 8) catch unreachable;
+            const ByteAligned = std.meta.Int(int.signedness, byte_size * 8);
+            const byte_aligned: ByteAligned = key;
+            const bytes: [byte_size]u8 = @bitCast(byte_aligned);
+            return hasher.update(&bytes);
         },
 
-        .bool => hash(hasher, @intFromBool(key), strat),
-        .@"enum" => hash(hasher, @intFromEnum(key), strat),
-        .error_set => hash(hasher, @intFromError(key), strat),
-        .@"anyframe", .@"fn" => hash(hasher, @intFromPtr(key), strat),
+        .float => |float| {
+            const AsInt = std.meta.Int(.unsigned, float.bits);
+            const as_int: AsInt = @bitCast(key);
+            return autoStrat(hasher, as_int, .shallow);
+        },
 
-        .pointer => @call(.always_inline, hashPointer, .{ hasher, key, strat }),
+        .bool => return autoStrat(hasher, @intFromBool(key), strat),
+        .@"enum" => return autoStrat(hasher, @intFromEnum(key), strat),
+        .error_set => return autoStrat(hasher, @intFromError(key), strat),
+        .@"anyframe" => return autoStrat(hasher, @intFromPtr(key), strat),
+        .@"fn" => return autoStrat(hasher, @intFromPtr(&key), strat),
 
-        .optional => if (key) |k| hash(hasher, k, strat),
+        .array => return hashArray(hasher, key[0..key.len], strat),
 
-        .array => hashArray(hasher, key, strat),
-
-        .vector => |info| {
-            if (std.meta.hasUniqueRepresentation(Key)) {
-                hasher.update(mem.asBytes(&key));
+        .pointer => |info| {
+            if (comptime strat.deref()) |deref_strat| {
+                return hashInPlace(hasher, key, deref_strat);
             } else {
-                comptime var i = 0;
-                inline while (i < info.len) : (i += 1) {
-                    hash(hasher, key[i], strat);
+                switch (info.size) {
+                    .one, .many, .c => return autoStrat(hasher, @intFromPtr(key), .shallow),
+                    .slice => {
+                        const data: [2]usize = .{
+                            @intFromPtr(key.ptr),
+                            key.len,
+                        };
+                        return autoStrat(hasher, data, .shallow);
+                    },
                 }
             }
+        },
+
+        .optional => |info| {
+            if (comptime preferInPlaceHash(info.child)) {
+                if (key) |*k| {
+                    return hashInPlace(hasher, k, strat);
+                }
+            } else {
+                if (key) |k| {
+                    return autoStrat(hasher, k, strat);
+                }
+            }
+            return;
+        },
+
+        .vector => |info| {
+            inline for (0..info.len) |i| {
+                autoStrat(hasher, key[i], strat);
+            }
+            return;
         },
 
         .@"struct" => |info| {
             inline for (info.fields) |field| {
-                // We reuse the hash of the previous field as the seed for the
-                // next one so that they're dependant.
-                hash(hasher, @field(key, field.name), strat);
+                if (field.is_comptime) continue;
+
+                if (comptime info.layout != .@"packed" and preferInPlaceHash(field.type)) {
+                    hashInPlace(hasher, &@field(key, field.name), strat);
+                } else {
+                    autoStrat(hasher, @field(key, field.name), strat);
+                }
+            }
+            return;
+        },
+
+        .@"union" => |info| {
+            const tag: info.tag_type.? = key;
+            autoStrat(hasher, tag, .shallow);
+            switch (key) {
+                inline else => |*payload| {
+                    const Field = @TypeOf(payload.*);
+                    if (comptime preferInPlaceHash(Field)) {
+                        return hashInPlace(hasher, payload, strat);
+                    } else {
+                        return autoStrat(hasher, payload.*, strat);
+                    }
+                },
             }
         },
 
-        .@"union" => |info| blk: {
-            if (info.tag_type) |tag_type| {
-                const tag = std.meta.activeTag(key);
-                hash(hasher, tag, strat);
-                inline for (info.fields) |field| {
-                    if (@field(tag_type, field.name) == tag) {
-                        if (field.type != void) {
-                            hash(hasher, @field(key, field.name), strat);
-                        }
-                        break :blk;
-                    }
+        .error_union => |info| {
+            if (key) |*payload| {
+                if (comptime preferInPlaceHash(info.payload)) {
+                    return hashInPlace(hasher, payload, strat);
+                } else {
+                    return autoStrat(hasher, payload.*, strat);
                 }
-                unreachable;
-            } else @compileError("cannot hash untagged union type: " ++ @typeName(Key) ++ ", provide your own hash function");
-        },
-
-        .error_union => blk: {
-            const payload = key catch |err| {
-                hash(hasher, err, strat);
-                break :blk;
-            };
-            hash(hasher, payload, strat);
+            } else |err| {
+                return autoStrat(hasher, err, strat);
+            }
         },
     }
-}
-
-inline fn typeContainsSlice(comptime K: type) bool {
-    return switch (@typeInfo(K)) {
-        .pointer => |info| info.size == .slice,
-
-        inline .@"struct", .@"union" => |info| {
-            inline for (info.fields) |field| {
-                if (typeContainsSlice(field.type)) {
-                    return true;
-                }
-            }
-            return false;
-        },
-
-        else => false,
-    };
 }
 
 /// Provides generic hashing for any eligible type.
 /// Only hashes `key` itself, pointers are not followed.
 /// Slices as well as unions and structs containing slices are rejected to avoid
 /// ambiguity on the user's intention.
-pub fn autoHash(hasher: anytype, key: anytype) void {
+pub fn auto(hasher: anytype, key: anytype) void {
     const Key = @TypeOf(key);
-    if (comptime typeContainsSlice(Key)) {
-        @compileError("std.hash.autoHash does not allow slices as well as unions and structs containing slices here (" ++ @typeName(Key) ++
-            ") because the intent is unclear. Consider using std.hash.autoHashStrat or providing your own hash function instead.");
+    if (comptime typeContains(Key, .slice)) {
+        @compileError("std.hash.auto does not allow slices as well as unions and structs containing slices here (" ++ @typeName(Key) ++
+            ") because the intent is unclear. Consider using std.hash.autoStrat or providing your own hash function instead.");
     }
 
-    hash(hasher, key, .Shallow);
+    autoStrat(hasher, key, .shallow);
 }
 
-const testing = std.testing;
-const Wyhash = std.hash.Wyhash;
+inline fn typeContains(comptime K: type, comptime what: enum { slice, pointer, sentinel }) bool {
+    return switch (@typeInfo(K)) {
+        .pointer => |info| switch (what) {
+            .pointer => true,
+            .slice => info.size == .slice,
+            .sentinel => false,
+        },
+
+        .@"struct" => |info| inline for (info.fields) |field| {
+            if (!field.is_comptime) {
+                if (typeContains(field.type, what)) break true;
+            }
+        } else false,
+
+        .@"union" => |info| inline for (info.fields) |field| {
+            if (typeContains(field.type, what)) break true;
+        } else false,
+
+        .array => |info| switch (what) {
+            .sentinel => info.sentinel_ptr != null,
+            .pointer, .slice => false,
+        } or (info.len > 0 and typeContains(info.child, what)),
+
+        .vector => |info| info.len > 0 and typeContains(info.child, what),
+
+        .optional => |info| typeContains(info.child, what),
+        .error_union => |info| typeContains(info.payload, what),
+
+        else => false,
+    };
+}
+
+test typeContains {
+    try comptime expect(!typeContains(std.builtin.TypeId, .slice));
+    try comptime expect(typeContains([]const u8, .slice));
+    try comptime expect(!typeContains(u8, .slice));
+
+    const A = struct { x: []const u8 };
+    const B = struct { a: A };
+    const C = struct { b: B };
+    const D = struct { x: u8, y: [40:0]u16 };
+
+    try comptime expect(typeContains(A, .slice));
+    try comptime expect(typeContains(B, .slice));
+    try comptime expect(typeContains(C, .slice));
+    try comptime expect(!typeContains(D, .slice));
+    try comptime expect(typeContains(D, .sentinel));
+}
 
 fn testHash(key: anytype) u64 {
-    // Any hash could be used here, for testing autoHash.
-    var hasher = Wyhash.init(0);
-    hash(&hasher, key, .Shallow);
+    // Any hash could be used here, for testing autoStrat.
+    var hasher: Wyhash = .init(0);
+    auto(&hasher, key);
     return hasher.final();
 }
 
 fn testHashShallow(key: anytype) u64 {
-    // Any hash could be used here, for testing autoHash.
-    var hasher = Wyhash.init(0);
-    hash(&hasher, key, .Shallow);
+    // Any hash could be used here, for testing autoStrat.
+    var hasher: Wyhash = .init(0);
+    autoStrat(&hasher, key, .shallow);
     return hasher.final();
 }
 
 fn testHashDeep(key: anytype) u64 {
-    // Any hash could be used here, for testing autoHash.
-    var hasher = Wyhash.init(0);
-    hash(&hasher, key, .Deep);
+    // Any hash could be used here, for testing autoStrat.
+    var hasher: Wyhash = .init(0);
+    autoStrat(&hasher, key, .deep);
     return hasher.final();
 }
 
 fn testHashDeepRecursive(key: anytype) u64 {
-    // Any hash could be used here, for testing autoHash.
-    var hasher = Wyhash.init(0);
-    hash(&hasher, key, .DeepRecursive);
+    // Any hash could be used here, for testing auto.
+    var hasher: Wyhash = .init(0);
+    autoStrat(&hasher, key, .deep_recursive);
     return hasher.final();
 }
 
-test "typeContainsSlice" {
-    comptime {
-        try testing.expect(!typeContainsSlice(std.meta.Tag(std.builtin.Type)));
-
-        try testing.expect(typeContainsSlice([]const u8));
-        try testing.expect(!typeContainsSlice(u8));
-        const A = struct { x: []const u8 };
-        const B = struct { a: A };
-        const C = struct { b: B };
-        const D = struct { x: u8 };
-        try testing.expect(typeContainsSlice(A));
-        try testing.expect(typeContainsSlice(B));
-        try testing.expect(typeContainsSlice(C));
-        try testing.expect(!typeContainsSlice(D));
-    }
-}
-
 test "hash pointer" {
-    const array = [_]u32{ 123, 123, 123 };
+    const array: [3]u32 = .{ 123, 123, 123 };
     const a = &array[0];
     const b = &array[1];
     const c = &array[2];
     const d = a;
 
-    try testing.expect(testHashShallow(a) == testHashShallow(d));
-    try testing.expect(testHashShallow(a) != testHashShallow(c));
-    try testing.expect(testHashShallow(a) != testHashShallow(b));
+    try expectEqual(testHashShallow(a), testHashShallow(d));
+    try expect(testHashShallow(a) != testHashShallow(c));
+    try expect(testHashShallow(a) != testHashShallow(b));
 
-    try testing.expect(testHashDeep(a) == testHashDeep(a));
-    try testing.expect(testHashDeep(a) == testHashDeep(c));
-    try testing.expect(testHashDeep(a) == testHashDeep(b));
+    try expectEqual(testHashDeep(a), testHashDeep(a));
+    try expectEqual(testHashDeep(a), testHashDeep(c));
+    try expectEqual(testHashDeep(a), testHashDeep(b));
 
-    try testing.expect(testHashDeepRecursive(a) == testHashDeepRecursive(a));
-    try testing.expect(testHashDeepRecursive(a) == testHashDeepRecursive(c));
-    try testing.expect(testHashDeepRecursive(a) == testHashDeepRecursive(b));
+    try expectEqual(testHashDeepRecursive(a), testHashDeepRecursive(a));
+    try expectEqual(testHashDeepRecursive(a), testHashDeepRecursive(c));
+    try expectEqual(testHashDeepRecursive(a), testHashDeepRecursive(b));
 }
 
 test "hash slice shallow" {
-    // Allocate one array dynamically so that we're assured it is not merged
-    // with the other by the optimization passes.
-    const array1 = try std.testing.allocator.create([6]u32);
-    defer std.testing.allocator.destroy(array1);
-    array1.* = [_]u32{ 1, 2, 3, 4, 5, 6 };
-    const array2 = [_]u32{ 1, 2, 3, 4, 5, 6 };
-    // TODO audit deep/shallow - maybe it has the wrong behavior with respect to array pointers and slices
+    var array1: [6]u32 = undefined;
+    std.mem.doNotOptimizeAway(array1);
+    array1 = .{ 1, 2, 3, 4, 5, 6 };
+
+    const array2: [6]u32 = .{ 1, 2, 3, 4, 5, 6 };
+
     var runtime_zero: usize = 0;
-    _ = &runtime_zero;
+    std.mem.doNotOptimizeAway(&runtime_zero);
+
     const a = array1[runtime_zero..];
     const b = array2[runtime_zero..];
     const c = array1[runtime_zero..3];
-    try testing.expect(testHashShallow(a) == testHashShallow(a));
-    try testing.expect(testHashShallow(a) != testHashShallow(array1));
-    try testing.expect(testHashShallow(a) != testHashShallow(b));
-    try testing.expect(testHashShallow(a) != testHashShallow(c));
+
+    try expectEqual(testHashShallow(a), testHashShallow(a));
+    try expect(testHashShallow(a) != testHashShallow(array1));
+    try expect(testHashShallow(a) != testHashShallow(b));
+    try expect(testHashShallow(a) != testHashShallow(c));
 }
 
 test "hash slice deep" {
-    // Allocate one array dynamically so that we're assured it is not merged
-    // with the other by the optimization passes.
-    const array1 = try std.testing.allocator.create([6]u32);
-    defer std.testing.allocator.destroy(array1);
-    array1.* = [_]u32{ 1, 2, 3, 4, 5, 6 };
-    const array2 = [_]u32{ 1, 2, 3, 4, 5, 6 };
+    var array1: [6]u32 = undefined;
+    std.mem.doNotOptimizeAway(array1);
+    array1 = .{ 1, 2, 3, 4, 5, 6 };
+
+    const array2: [6]u32 = .{ 1, 2, 3, 4, 5, 6 };
+
     const a = array1[0..];
     const b = array2[0..];
     const c = array1[0..3];
-    try testing.expect(testHashDeep(a) == testHashDeep(a));
-    try testing.expect(testHashDeep(a) == testHashDeep(array1));
-    try testing.expect(testHashDeep(a) == testHashDeep(b));
-    try testing.expect(testHashDeep(a) != testHashDeep(c));
+
+    try expectEqual(testHashDeep(a), testHashDeep(a));
+    try expectEqual(testHashDeep(a), testHashDeep(array1));
+    try expectEqual(testHashDeep(a), testHashDeep(b));
+    try expect(testHashDeep(a) != testHashDeep(c));
 }
 
 test "hash struct deep" {
@@ -303,124 +495,149 @@ test "hash struct deep" {
         b: u16,
         c: *bool,
 
-        const Self = @This();
+        const Foo = @This();
 
-        pub fn init(allocator: mem.Allocator, a_: u32, b_: u16, c_: bool) !Self {
+        fn init(allocator: mem.Allocator, a: u32, b: u16, c: bool) mem.Allocator.Error!Foo {
             const ptr = try allocator.create(bool);
-            ptr.* = c_;
-            return Self{ .a = a_, .b = b_, .c = ptr };
+            ptr.* = c;
+            return .{
+                .a = a,
+                .b = b,
+                .c = ptr,
+            };
+        }
+
+        fn deinit(self: Foo, allocator: mem.Allocator) void {
+            allocator.destroy(self.c);
         }
     };
 
     const allocator = std.testing.allocator;
-    const foo = try Foo.init(allocator, 123, 10, true);
-    const bar = try Foo.init(allocator, 123, 10, true);
-    const baz = try Foo.init(allocator, 123, 10, false);
-    defer allocator.destroy(foo.c);
-    defer allocator.destroy(bar.c);
-    defer allocator.destroy(baz.c);
 
-    try testing.expect(testHashDeep(foo) == testHashDeep(bar));
-    try testing.expect(testHashDeep(foo) != testHashDeep(baz));
-    try testing.expect(testHashDeep(bar) != testHashDeep(baz));
+    const foo: Foo = try .init(allocator, 123, 10, true);
+    defer foo.deinit(allocator);
 
-    var hasher = Wyhash.init(0);
+    const bar: Foo = try .init(allocator, 123, 10, true);
+    defer bar.deinit(allocator);
+
+    const baz: Foo = try .init(allocator, 123, 10, false);
+    defer baz.deinit(allocator);
+
+    try expectEqual(testHashDeep(foo), testHashDeep(bar));
+    try expect(testHashDeep(foo) != testHashDeep(baz));
+    try expect(testHashDeep(bar) != testHashDeep(baz));
+
+    var hasher: Wyhash = .init(0);
     const h = testHashDeep(foo);
-    autoHash(&hasher, foo.a);
-    autoHash(&hasher, foo.b);
-    autoHash(&hasher, foo.c.*);
-    try testing.expectEqual(h, hasher.final());
+    auto(&hasher, foo.a);
+    auto(&hasher, foo.b);
+    auto(&hasher, foo.c.*);
+    try expectEqual(h, hasher.final());
 
     const h2 = testHashDeepRecursive(&foo);
-    try testing.expect(h2 != testHashDeep(&foo));
-    try testing.expect(h2 == testHashDeep(foo));
+    try expect(h2 != testHashDeep(&foo));
+    try expectEqual(h2, testHashDeep(foo));
 }
 
-test "testHash optional" {
+test "hash optional" {
     const a: ?u32 = 123;
     const b: ?u32 = null;
-    try testing.expectEqual(testHash(a), testHash(@as(u32, 123)));
-    try testing.expect(testHash(a) != testHash(b));
-    try testing.expectEqual(testHash(b), 0x409638ee2bde459); // wyhash empty input hash
+    try expectEqual(testHash(a), testHash(@as(u32, 123)));
+    try expect(testHash(a) != testHash(b));
+    try expectEqual(testHash(b), 0x409638ee2bde459); // wyhash empty input hash
 }
 
-test "testHash array" {
-    const a = [_]u32{ 1, 2, 3 };
+test "hash array" {
+    const a: [3]u32 = .{ 1, 2, 3 };
     const h = testHash(a);
-    var hasher = Wyhash.init(0);
-    autoHash(&hasher, @as(u32, 1));
-    autoHash(&hasher, @as(u32, 2));
-    autoHash(&hasher, @as(u32, 3));
-    try testing.expectEqual(h, hasher.final());
+    var hasher: Wyhash = .init(0);
+    auto(&hasher, @as(u32, 1));
+    auto(&hasher, @as(u32, 2));
+    auto(&hasher, @as(u32, 3));
+    try expectEqual(h, hasher.final());
 }
 
-test "testHash multi-dimensional array" {
-    const a = [_][]const u32{ &.{ 1, 2, 3 }, &.{ 4, 5 } };
-    const b = [_][]const u32{ &.{ 1, 2 }, &.{ 3, 4, 5 } };
-    try testing.expect(testHash(a) != testHash(b));
+test "hash array of slices" {
+    const a: [2][]const u32 = .{ &.{ 1, 2, 3 }, &.{ 4, 5 } };
+    const b: [2][]const u32 = .{ &.{ 1, 2 }, &.{ 3, 4, 5 } };
+    try expectEqual(testHashDeep(a), testHashDeep(b));
+    try expect(testHashShallow(a) != testHashShallow(b));
 }
 
-test "testHash struct" {
+test "hash struct" {
     const Foo = struct {
-        a: u32 = 1,
-        b: u32 = 2,
-        c: u32 = 3,
+        a: u32,
+        b: u32,
+        c: u32,
     };
-    const f = Foo{};
+
+    const f: Foo = .{
+        .a = 1,
+        .b = 2,
+        .c = 3,
+    };
+
     const h = testHash(f);
-    var hasher = Wyhash.init(0);
-    autoHash(&hasher, @as(u32, 1));
-    autoHash(&hasher, @as(u32, 2));
-    autoHash(&hasher, @as(u32, 3));
-    try testing.expectEqual(h, hasher.final());
+    var hasher: Wyhash = .init(0);
+    auto(&hasher, @as(u32, 1));
+    auto(&hasher, @as(u32, 2));
+    auto(&hasher, @as(u32, 3));
+    try expectEqual(h, hasher.final());
 }
 
-test "testHash union" {
+test "hash union" {
     const Foo = union(enum) {
-        A: u32,
-        B: bool,
-        C: u32,
-        D: void,
+        a: u32,
+        b: bool,
+        c: u32,
+        d: void,
     };
 
-    const a = Foo{ .A = 18 };
-    var b = Foo{ .B = true };
-    const c = Foo{ .C = 18 };
-    const d: Foo = .D;
-    try testing.expect(testHash(a) == testHash(a));
-    try testing.expect(testHash(a) != testHash(b));
-    try testing.expect(testHash(a) != testHash(c));
-    try testing.expect(testHash(a) != testHash(d));
+    const a: Foo = .{ .a = 18 };
+    var b: Foo = .{ .b = true };
+    const c: Foo = .{ .c = 18 };
+    const d: Foo = .d;
+    try expectEqual(testHash(a), testHash(a));
+    try expect(testHash(a) != testHash(b));
+    try expect(testHash(a) != testHash(c));
+    try expect(testHash(a) != testHash(d));
 
-    b = Foo{ .A = 18 };
-    try testing.expect(testHash(a) == testHash(b));
+    b = .{ .a = 18 };
+    try expectEqual(testHash(a), testHash(b));
 
-    b = .D;
-    try testing.expect(testHash(d) == testHash(b));
+    b = .d;
+    try expectEqual(testHash(d), testHash(b));
 }
 
-test "testHash vector" {
-    const a: @Vector(4, u32) = [_]u32{ 1, 2, 3, 4 };
-    const b: @Vector(4, u32) = [_]u32{ 1, 2, 3, 5 };
-    try testing.expect(testHash(a) == testHash(a));
-    try testing.expect(testHash(a) != testHash(b));
+test "hash vector" {
+    const a: @Vector(4, u32) = .{ 1, 2, 3, 4 };
+    const b: @Vector(4, u32) = .{ 1, 2, 3, 5 };
+    try expectEqual(testHash(a), testHash(a));
+    try expect(testHash(a) != testHash(b));
 
-    const c: @Vector(4, u31) = [_]u31{ 1, 2, 3, 4 };
-    const d: @Vector(4, u31) = [_]u31{ 1, 2, 3, 5 };
-    try testing.expect(testHash(c) == testHash(c));
-    try testing.expect(testHash(c) != testHash(d));
+    const c: @Vector(4, u31) = .{ 1, 2, 3, 4 };
+    const d: @Vector(4, u31) = .{ 1, 2, 3, 5 };
+    try expectEqual(testHash(c), testHash(c));
+    try expect(testHash(c) != testHash(d));
 }
 
-test "testHash error union" {
+test "hash error union" {
     const Errors = error{Test};
+
     const Foo = struct {
-        a: u32 = 1,
-        b: u32 = 2,
-        c: u32 = 3,
+        a: u32,
+        b: u32,
+        c: u32,
     };
-    const f = Foo{};
-    const g: Errors!Foo = Errors.Test;
-    try testing.expect(testHash(f) != testHash(g));
-    try testing.expect(testHash(f) == testHash(Foo{}));
-    try testing.expect(testHash(g) == testHash(Errors.Test));
+    const f: Foo = .{
+        .a = 1,
+        .b = 2,
+        .c = 3,
+    };
+
+    const g: Errors!Foo = error.Test;
+
+    try expect(testHash(f) != testHash(g));
+    try expectEqual(testHash(f), testHash(Foo{ .a = 1, .b = 2, .c = 3 }));
+    try expectEqual(testHash(g), testHash(Errors.Test));
 }

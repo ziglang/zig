@@ -2234,15 +2234,15 @@ pub const Key = union(enum) {
 
         pub fn hash(self: FuncType, hasher: *Hash, ip: *const InternPool) void {
             for (self.param_types.get(ip)) |param_type| {
-                std.hash.autoHash(hasher, param_type);
+                std.hash.auto(hasher, param_type);
             }
-            std.hash.autoHash(hasher, self.return_type);
-            std.hash.autoHash(hasher, self.comptime_bits);
-            std.hash.autoHash(hasher, self.noalias_bits);
-            std.hash.autoHash(hasher, self.cc);
-            std.hash.autoHash(hasher, self.is_var_args);
-            std.hash.autoHash(hasher, self.is_generic);
-            std.hash.autoHash(hasher, self.is_noinline);
+            std.hash.auto(hasher, self.return_type);
+            std.hash.auto(hasher, self.comptime_bits);
+            std.hash.auto(hasher, self.noalias_bits);
+            std.hash.auto(hasher, self.cc);
+            std.hash.auto(hasher, self.is_var_args);
+            std.hash.auto(hasher, self.is_generic);
+            std.hash.auto(hasher, self.is_noinline);
         }
     };
 
@@ -2649,7 +2649,6 @@ pub const Key = union(enum) {
         const KeyTag = @typeInfo(Key).@"union".tag_type.?;
         const seed = @intFromEnum(@as(KeyTag, key));
         return switch (key) {
-            // TODO: assert no padding in these types
             inline .ptr_type,
             .array_type,
             .vector_type,
@@ -2666,7 +2665,10 @@ pub const Key = union(enum) {
             .empty_enum_value,
             .inferred_error_set_type,
             .un,
-            => |x| Hash.hash(seed, asBytes(&x)),
+            => |x| raw_bytes: {
+                comptime assert(std.meta.hasUniqueRepresentation(@TypeOf(x)));
+                break :raw_bytes Hash.hash(seed, asBytes(&x));
+            },
 
             .int_type => |x| Hash.hash(seed + @intFromEnum(x.signedness), asBytes(&x.bits)),
 
@@ -2682,58 +2684,56 @@ pub const Key = union(enum) {
             .union_type,
             .struct_type,
             => |namespace_type| {
-                var hasher = Hash.init(seed);
-                std.hash.autoHash(&hasher, std.meta.activeTag(namespace_type));
+                var hasher: Hash = .init(seed);
+                std.hash.auto(&hasher, std.meta.activeTag(namespace_type));
                 switch (namespace_type) {
                     .declared => |declared| {
-                        std.hash.autoHash(&hasher, declared.zir_index);
+                        std.hash.auto(&hasher, declared.zir_index);
                         const captures = switch (declared.captures) {
                             .owned => |cvs| cvs.get(ip),
                             .external => |cvs| cvs,
                         };
-                        for (captures) |cv| {
-                            std.hash.autoHash(&hasher, cv);
-                        }
+                        std.hash.autoStrat(&hasher, captures, .deep);
                     },
                     .generated_tag => |generated_tag| {
-                        std.hash.autoHash(&hasher, generated_tag.union_type);
+                        std.hash.auto(&hasher, generated_tag.union_type);
                     },
                     .reified => |reified| {
-                        std.hash.autoHash(&hasher, reified.zir_index);
-                        std.hash.autoHash(&hasher, reified.type_hash);
+                        std.hash.auto(&hasher, reified.zir_index);
+                        std.hash.auto(&hasher, reified.type_hash);
                     },
                 }
                 return hasher.final();
             },
 
             .int => |int| {
-                var hasher = Hash.init(seed);
+                var hasher: Hash = .init(seed);
                 // Canonicalize all integers by converting them to BigIntConst.
                 switch (int.storage) {
                     .u64, .i64, .big_int => {
                         var buffer: Key.Int.Storage.BigIntSpace = undefined;
                         const big_int = int.storage.toBigInt(&buffer);
 
-                        std.hash.autoHash(&hasher, int.ty);
-                        std.hash.autoHash(&hasher, big_int.positive);
-                        for (big_int.limbs) |limb| std.hash.autoHash(&hasher, limb);
+                        std.hash.auto(&hasher, int.ty);
+                        std.hash.auto(&hasher, big_int.positive);
+                        for (big_int.limbs) |limb| std.hash.auto(&hasher, limb);
                     },
                     .lazy_align, .lazy_size => |lazy_ty| {
-                        std.hash.autoHash(
+                        std.hash.auto(
                             &hasher,
                             @as(@typeInfo(Key.Int.Storage).@"union".tag_type.?, int.storage),
                         );
-                        std.hash.autoHash(&hasher, lazy_ty);
+                        std.hash.auto(&hasher, lazy_ty);
                     },
                 }
                 return hasher.final();
             },
 
             .float => |float| {
-                var hasher = Hash.init(seed);
-                std.hash.autoHash(&hasher, float.ty);
+                var hasher: Hash = .init(seed);
+                std.hash.auto(&hasher, float.ty);
                 switch (float.storage) {
-                    inline else => |val| std.hash.autoHash(
+                    inline else => |val| std.hash.auto(
                         &hasher,
                         @as(std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(val))), @bitCast(val)),
                     ),
@@ -2768,8 +2768,8 @@ pub const Key = union(enum) {
             },
 
             .aggregate => |aggregate| {
-                var hasher = Hash.init(seed);
-                std.hash.autoHash(&hasher, aggregate.ty);
+                var hasher: Hash = .init(seed);
+                std.hash.auto(&hasher, aggregate.ty);
                 const len = ip.aggregateTypeLen(aggregate.ty);
                 const child = switch (ip.indexToKey(aggregate.ty)) {
                     .array_type => |array_type| array_type.child,
@@ -2781,15 +2781,15 @@ pub const Key = union(enum) {
                 if (child == .u8_type) {
                     switch (aggregate.storage) {
                         .bytes => |bytes| for (bytes.toSlice(len, ip)) |byte| {
-                            std.hash.autoHash(&hasher, KeyTag.int);
-                            std.hash.autoHash(&hasher, byte);
+                            std.hash.auto(&hasher, KeyTag.int);
+                            std.hash.auto(&hasher, byte);
                         },
                         .elems => |elems| for (elems[0..@intCast(len)]) |elem| {
                             const elem_key = ip.indexToKey(elem);
-                            std.hash.autoHash(&hasher, @as(KeyTag, elem_key));
+                            std.hash.auto(&hasher, @as(KeyTag, elem_key));
                             switch (elem_key) {
                                 .undef => {},
-                                .int => |int| std.hash.autoHash(
+                                .int => |int| std.hash.auto(
                                     &hasher,
                                     @as(u8, @intCast(int.storage.u64)),
                                 ),
@@ -2800,10 +2800,10 @@ pub const Key = union(enum) {
                             const elem_key = ip.indexToKey(elem);
                             var remaining = len;
                             while (remaining > 0) : (remaining -= 1) {
-                                std.hash.autoHash(&hasher, @as(KeyTag, elem_key));
+                                std.hash.auto(&hasher, @as(KeyTag, elem_key));
                                 switch (elem_key) {
                                     .undef => {},
-                                    .int => |int| std.hash.autoHash(
+                                    .int => |int| std.hash.auto(
                                         &hasher,
                                         @as(u8, @intCast(int.storage.u64)),
                                     ),
@@ -2817,11 +2817,10 @@ pub const Key = union(enum) {
 
                 switch (aggregate.storage) {
                     .bytes => unreachable,
-                    .elems => |elems| for (elems[0..@intCast(len)]) |elem|
-                        std.hash.autoHash(&hasher, elem),
+                    .elems => |elems| std.hash.autoStrat(&hasher, elems, .deep),
                     .repeated_elem => |elem| {
                         var remaining = len;
-                        while (remaining > 0) : (remaining -= 1) std.hash.autoHash(&hasher, elem);
+                        while (remaining > 0) : (remaining -= 1) std.hash.auto(&hasher, elem);
                     },
                 }
                 return hasher.final();
@@ -2830,22 +2829,22 @@ pub const Key = union(enum) {
             .error_set_type => |x| Hash.hash(seed, std.mem.sliceAsBytes(x.names.get(ip))),
 
             .tuple_type => |tuple_type| {
-                var hasher = Hash.init(seed);
-                for (tuple_type.types.get(ip)) |elem| std.hash.autoHash(&hasher, elem);
-                for (tuple_type.values.get(ip)) |elem| std.hash.autoHash(&hasher, elem);
+                var hasher: Hash = .init(seed);
+                std.hash.autoStrat(&hasher, tuple_type.types.get(ip), .deep);
+                std.hash.autoStrat(&hasher, tuple_type.values.get(ip), .deep);
                 return hasher.final();
             },
 
             .func_type => |func_type| {
-                var hasher = Hash.init(seed);
+                var hasher: Hash = .init(seed);
                 func_type.hash(&hasher, ip);
                 return hasher.final();
             },
 
             .memoized_call => |memoized_call| {
-                var hasher = Hash.init(seed);
-                std.hash.autoHash(&hasher, memoized_call.func);
-                for (memoized_call.arg_values) |arg| std.hash.autoHash(&hasher, arg);
+                var hasher: Hash = .init(seed);
+                std.hash.auto(&hasher, memoized_call.func);
+                std.hash.autoStrat(&hasher, memoized_call.arg_values, .deep);
                 return hasher.final();
             },
 
@@ -2861,12 +2860,12 @@ pub const Key = union(enum) {
                     return Hash.hash(seed, bytes);
                 }
 
-                var hasher = Hash.init(seed);
-                std.hash.autoHash(&hasher, func.generic_owner);
-                std.hash.autoHash(&hasher, func.uncoerced_ty == func.ty);
-                for (func.comptime_args.get(ip)) |arg| std.hash.autoHash(&hasher, arg);
+                var hasher: Hash = .init(seed);
+                std.hash.auto(&hasher, func.generic_owner);
+                std.hash.auto(&hasher, func.uncoerced_ty == func.ty);
+                std.hash.autoStrat(&hasher, func.comptime_args.get(ip), .deep);
                 if (func.resolved_error_set_extra_index == 0) {
-                    std.hash.autoHash(&hasher, func.ty);
+                    std.hash.auto(&hasher, func.ty);
                 } else {
                     var ty_info = ip.indexToFuncType(func.ty).?;
                     ty_info.return_type = ip.errorUnionPayload(ty_info.return_type);
