@@ -13,6 +13,7 @@ const net = std.Io.net;
 const HostName = std.Io.net.HostName;
 const IpAddress = std.Io.net.IpAddress;
 const Allocator = std.mem.Allocator;
+const Alignment = std.mem.Alignment;
 const assert = std.debug.assert;
 const posix = std.posix;
 
@@ -399,7 +400,7 @@ const AsyncClosure = struct {
     func: *const fn (context: *anyopaque, result: *anyopaque) void,
     reset_event: ResetEvent,
     select_condition: ?*ResetEvent,
-    context_alignment: std.mem.Alignment,
+    context_alignment: Alignment,
     result_offset: usize,
     alloc_len: usize,
 
@@ -445,9 +446,9 @@ const AsyncClosure = struct {
     fn init(
         gpa: Allocator,
         result_len: usize,
-        result_alignment: std.mem.Alignment,
+        result_alignment: Alignment,
         context: []const u8,
-        context_alignment: std.mem.Alignment,
+        context_alignment: Alignment,
         func: *const fn (context: *const anyopaque, result: *anyopaque) void,
     ) Allocator.Error!*AsyncClosure {
         const max_context_misalignment = context_alignment.toByteUnits() -| @alignOf(AsyncClosure);
@@ -492,9 +493,9 @@ const AsyncClosure = struct {
 fn async(
     userdata: ?*anyopaque,
     result: []u8,
-    result_alignment: std.mem.Alignment,
+    result_alignment: Alignment,
     context: []const u8,
-    context_alignment: std.mem.Alignment,
+    context_alignment: Alignment,
     start: *const fn (context: *const anyopaque, result: *anyopaque) void,
 ) ?*Io.AnyFuture {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
@@ -544,9 +545,9 @@ fn async(
 fn concurrent(
     userdata: ?*anyopaque,
     result_len: usize,
-    result_alignment: std.mem.Alignment,
+    result_alignment: Alignment,
     context: []const u8,
-    context_alignment: std.mem.Alignment,
+    context_alignment: Alignment,
     start: *const fn (context: *const anyopaque, result: *anyopaque) void,
 ) Io.ConcurrentError!*Io.AnyFuture {
     if (builtin.single_threaded) return error.ConcurrencyUnavailable;
@@ -591,7 +592,7 @@ const GroupClosure = struct {
     /// Points to sibling `GroupClosure`. Used for walking the group to cancel all.
     node: std.SinglyLinkedList.Node,
     func: *const fn (*Io.Group, context: *anyopaque) void,
-    context_alignment: std.mem.Alignment,
+    context_alignment: Alignment,
     alloc_len: usize,
 
     fn start(closure: *Closure) void {
@@ -632,7 +633,7 @@ const GroupClosure = struct {
         t: *Threaded,
         group: *Io.Group,
         context: []const u8,
-        context_alignment: std.mem.Alignment,
+        context_alignment: Alignment,
         func: *const fn (*Io.Group, context: *const anyopaque) void,
     ) Allocator.Error!*GroupClosure {
         const max_context_misalignment = context_alignment.toByteUnits() -| @alignOf(GroupClosure);
@@ -671,7 +672,7 @@ fn groupAsync(
     userdata: ?*anyopaque,
     group: *Io.Group,
     context: []const u8,
-    context_alignment: std.mem.Alignment,
+    context_alignment: Alignment,
     start: *const fn (*Io.Group, context: *const anyopaque) void,
 ) void {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
@@ -790,7 +791,7 @@ fn await(
     userdata: ?*anyopaque,
     any_future: *Io.AnyFuture,
     result: []u8,
-    result_alignment: std.mem.Alignment,
+    result_alignment: Alignment,
 ) void {
     _ = result_alignment;
     const t: *Threaded = @ptrCast(@alignCast(userdata));
@@ -802,7 +803,7 @@ fn cancel(
     userdata: ?*anyopaque,
     any_future: *Io.AnyFuture,
     result: []u8,
-    result_alignment: std.mem.Alignment,
+    result_alignment: Alignment,
 ) void {
     _ = result_alignment;
     const t: *Threaded = @ptrCast(@alignCast(userdata));
