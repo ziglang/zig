@@ -32117,9 +32117,15 @@ fn analyzeSlice(
     var runtime_src: ?LazySrcLoc = null;
 
     // requirement: start <= end
-    if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
-        if (try sema.resolveDefinedValue(block, start_src, start)) |start_val| {
-            if (!by_length and !(try sema.compareAll(start_val, .lte, end_val, .usize))) {
+    if (try sema.resolveDefinedValue(block, start_src, start)) |start_val| {
+        if (try sema.compareAll(start_val, .eq, .zero_usize, .usize)) {
+            checked_start_lte_end = true;
+        }
+        if (try sema.resolveDefinedValue(block, end_src, end)) |end_val| {
+            if (!checked_start_lte_end and
+                !by_length and
+                !(try sema.compareAll(start_val, .lte, end_val, .usize)))
+            {
                 return sema.fail(
                     block,
                     start_src,
@@ -32175,10 +32181,10 @@ fn analyzeSlice(
                 runtime_src = ptr_src;
             }
         } else {
-            runtime_src = start_src;
+            runtime_src = end_src;
         }
     } else {
-        runtime_src = end_src;
+        runtime_src = start_src;
     }
 
     if (!checked_start_lte_end and block.wantSafety() and !block.isComptime()) {
@@ -32241,7 +32247,8 @@ fn analyzeSlice(
                     else
                         end;
 
-                    try sema.addSafetyCheckIndexOob(block, src, actual_end, actual_len, .cmp_lte);
+                    if (try sema.resolveDefinedValue(block, src, actual_end) == null)
+                        try sema.addSafetyCheckIndexOob(block, src, actual_end, actual_len, .cmp_lte);
                 }
 
                 // requirement: result[new_len] == slice_sentinel
@@ -32306,9 +32313,6 @@ fn analyzeSlice(
                 end;
             try sema.addSafetyCheckIndexOob(block, src, actual_end, len_inst, .cmp_lte);
         }
-
-        // requirement: start <= end
-        try sema.addSafetyCheckIndexOob(block, src, start, end, .cmp_lte);
     }
     const result = try block.addInst(.{
         .tag = .slice,
