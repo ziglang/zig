@@ -251,3 +251,21 @@ test "load non byte-sized value in union" {
     try expect(pieces[1].type == .PAWN);
     try expect(pieces[1].color == .BLACK);
 }
+test "@as with nested @intCast in loop with optional" {
+    // Regression test for circular dependency bug in Sema.analyzeAs
+    // where @as(DestType, @intCast(value)) would cause compilation timeout
+    // in complex control flow contexts (loop + short-circuit OR + optional unwrap)
+    const arr = [_]bool{ true, false, true };
+    var opt: ?[]const bool = &arr;
+    var pid: u32 = 1;
+    _ = .{ &opt, &pid };
+
+    var i: usize = 0;
+    while (i < 3) : (i += 1) {
+        // This pattern previously caused infinite recursion during compilation
+        if (opt == null or (opt.?)[@as(usize, @intCast(pid))] == false) {
+            break;
+        }
+    }
+    try expect(i == 0); // Should break immediately since arr[1] == false
+}

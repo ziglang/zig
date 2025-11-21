@@ -9687,6 +9687,21 @@ fn zirAsShiftOperand(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
     return sema.analyzeAs(block, src, extra.dest_type, extra.operand, true);
 }
 
+fn validateCastDestType(
+    sema: *Sema,
+    block: *Block,
+    dest_ty: Type,
+    src: LazySrcLoc,
+) CompileError!void {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    switch (dest_ty.zigTypeTag(zcu)) {
+        .@"opaque" => return sema.fail(block, src, "cannot cast to opaque type '{f}'", .{dest_ty.fmt(pt)}),
+        .noreturn => return sema.fail(block, src, "cannot cast to noreturn", .{}),
+        else => {},
+    }
+}
+
 fn analyzeAs(
     sema: *Sema,
     block: *Block,
@@ -9697,13 +9712,48 @@ fn analyzeAs(
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
+
+    // Optimize nested cast builtins to prevent redundant coercion and circular dependencies.
+    if (zir_operand.toIndex()) |operand_index| {
+        const operand_tag = sema.code.instructions.items(.tag)[@intFromEnum(operand_index)];
+        switch (operand_tag) {
+            // These builtins perform their own type-directed casting
+            .int_cast, .float_cast, .ptr_cast, .truncate => {
+                // Resolve dest_ty first so inner cast can use it as type context
+                const dest_ty = try sema.resolveTypeOrPoison(block, src, zir_dest_type) orelse {
+                    return sema.resolveInst(zir_operand);
+                };
+
+                try sema.validateCastDestType(block, dest_ty, src);
+
+                // Now analyze inner cast with dest_ty already resolved
+                const operand = try sema.resolveInst(zir_operand);
+
+                // If inner cast already produced the correct type, skip redundant coercion
+                if (sema.typeOf(operand).eql(dest_ty, zcu)) {
+                    return operand;
+                }
+
+                // Otherwise perform outer coercion (handles vectors/arrays and other edge cases)
+                const is_ret = if (zir_dest_type.toIndex()) |ptr_index|
+                    sema.code.instructions.items(.tag)[@intFromEnum(ptr_index)] == .ret_type
+                else
+                    false;
+                return sema.coerceExtra(block, dest_ty, operand, src, .{
+                    .is_ret = is_ret,
+                    .no_cast_to_comptime_int = no_cast_to_comptime_int
+                }) catch |err| switch (err) {
+                    error.NotCoercible => unreachable,
+                    else => |e| return e,
+                };
+            },
+            else => {},
+        }
+    }
+
     const operand = try sema.resolveInst(zir_operand);
     const dest_ty = try sema.resolveTypeOrPoison(block, src, zir_dest_type) orelse return operand;
-    switch (dest_ty.zigTypeTag(zcu)) {
-        .@"opaque" => return sema.fail(block, src, "cannot cast to opaque type '{f}'", .{dest_ty.fmt(pt)}),
-        .noreturn => return sema.fail(block, src, "cannot cast to noreturn", .{}),
-        else => {},
-    }
+    try sema.validateCastDestType(block, dest_ty, src);
 
     const is_ret = if (zir_dest_type.toIndex()) |ptr_index|
         sema.code.instructions.items(.tag)[@intFromEnum(ptr_index)] == .ret_type
