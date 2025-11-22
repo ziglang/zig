@@ -366,7 +366,7 @@ pub const page_allocator: Allocator = if (@hasDecl(root, "os") and
     @hasDecl(root.os, "heap") and
     @hasDecl(root.os.heap, "page_allocator"))
     root.os.heap.page_allocator
-else if (builtin.target.cpu.arch.isWasm()) .{
+else if (builtin.target.cpu.arch.isWasm() and !builtin.link_libc) .{
     .ptr = undefined,
     .vtable = &WasmAllocator.vtable,
 } else if (builtin.target.os.tag == .plan9) .{

@@ -797,9 +797,10 @@ fn await(
     result_alignment: std.mem.Alignment,
 ) void {
     _ = result_alignment;
+    if (builtin.single_threaded) return;
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    const closure: *AsyncClosure = @ptrCast(@alignCast(any_future));
-    closure.waitAndDeinit(t.allocator, result);
+    const ac: *AsyncClosure = @ptrCast(@alignCast(any_future));
+    ac.waitAndDeinit(t.allocator, result);
 }
 
 fn cancel(
@@ -809,6 +810,7 @@ fn cancel(
     result_alignment: std.mem.Alignment,
 ) void {
     _ = result_alignment;
+    if (builtin.single_threaded) return;
     const t: *Threaded = @ptrCast(@alignCast(userdata));
     const ac: *AsyncClosure = @ptrCast(@alignCast(any_future));
     ac.closure.requestCancel();

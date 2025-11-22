@@ -1835,7 +1835,16 @@ pub const POLL = switch (native_os) {
 /// Basic memory protection flags
 pub const PROT = switch (native_os) {
     .linux => linux.PROT,
-    .emscripten => emscripten.PROT,
+    // https://github.com/emscripten-core/emscripten/blob/08e2de1031913e4ba7963b1c56f35f036a7d4d56/system/lib/libc/musl/include/sys/mman.h#L57-L62
+    // lib/libc/include/wasm-wasi-musl/sys/mman.h
+    .emscripten, .wasi => struct {
+        pub const NONE = 0;
+        pub const READ = 1;
+        pub const WRITE = 2;
+        pub const EXEC = 4;
+        pub const GROWSDOWN = 0x01000000;
+        pub const GROWSUP = 0x02000000;
+    },
     // https://github.com/SerenityOS/serenity/blob/6d59d4d3d9e76e39112842ec487840828f1c9bfe/Kernel/API/POSIX/sys/mman.h#L28-L31
     .openbsd, .haiku, .dragonfly, .netbsd, .illumos, .freebsd, .windows, .serenity => struct {
         /// page can not be accessed
@@ -8735,7 +8744,9 @@ pub const O = switch (native_os) {
 
 pub const MAP = switch (native_os) {
     .linux => linux.MAP,
-    .emscripten => packed struct(u32) {
+    // https://github.com/emscripten-core/emscripten/blob/08e2de1031913e4ba7963b1c56f35f036a7d4d56/system/lib/libc/musl/include/sys/mman.h#L21-L39
+    // lib/libc/include/wasm-wasi-musl/sys/mman.h
+    .emscripten, .wasi => packed struct(u32) {
         TYPE: enum(u4) {
             SHARED = 0x01,
             PRIVATE = 0x02,
