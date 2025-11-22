@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 
 comptime {
     if (builtin.target.isMinGW()) {
+        // Files specific to MinGW-w64.
         @export(&isnan, .{ .name = "isnan", .linkage = common.linkage, .visibility = common.visibility });
         @export(&isnan, .{ .name = "__isnan", .linkage = common.linkage, .visibility = common.visibility });
         @export(&isnanf, .{ .name = "isnanf", .linkage = common.linkage, .visibility = common.visibility });

@@ -17,11 +17,11 @@ comptime {
     _ = @import("c/inttypes.zig");
     _ = @import("c/stdlib.zig");
     _ = @import("c/math.zig");
+    _ = @import("c/string.zig");
+    _ = @import("c/strings.zig");
 
     if (builtin.target.isMuslLibC() or builtin.target.isWasiLibC()) {
         // Files specific to musl and wasi-libc.
-        _ = @import("c/string.zig");
-        _ = @import("c/strings.zig");
     }
 
     if (builtin.target.isMuslLibC()) {

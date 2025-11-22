@@ -740,7 +740,6 @@ const mingw32_generic_src = [_][]const u8{
     "stdio" ++ path.sep_str ++ "mingw_vswscanf.c",
     "stdio" ++ path.sep_str ++ "snprintf.c",
     "stdio" ++ path.sep_str ++ "snwprintf.c",
-    "stdio" ++ path.sep_str ++ "strtok_r.c",
     "stdio" ++ path.sep_str ++ "truncate.c",
     "stdio" ++ path.sep_str ++ "ulltoa.c",
     "stdio" ++ path.sep_str ++ "ulltow.c",
