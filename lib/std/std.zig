@@ -116,6 +116,8 @@ pub const Options = struct {
 
     /// Function used to implement `std.fs.cwd` for WASI.
     wasiCwd: fn () os.wasi.fd_t = fs.defaultWasiCwd,
+    /// Availability of synchronous wait in the main thread
+    wasi_main_thread_wait: bool = false,
 
     /// The current log level.
     log_level: log.Level = log.default_level,
