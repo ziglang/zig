@@ -53,6 +53,17 @@ pub fn init(file: std.Io.File, gpa: std.mem.Allocator) !MappedFile {
                     else => std.heap.page_size_max,
                 },
             };
+        } else if (is_linux) {
+            var statx: linux.Statx = undefined;
+            switch (linux.errno(linux.statx(mf.file.handle, "", linux.AT.EMPTY_PATH, linux.STATX_TYPE | linux.STATX_SIZE, &statx))) {
+                .SUCCESS => {},
+                .INVAL, .LOOP => unreachable,
+                .NOMEM => return error.SystemResources,
+                .ACCES => return error.AccessDenied,
+                else => |err| return std.posix.unexpectedErrno(err),
+            }
+            if (statx.mode != linux.S.IFREG) return error.PathAlreadyExists;
+            break :stat .{ statx.size, @max(std.heap.pageSize(), statx.blksize) };
         }
         const stat = try std.posix.fstat(mf.file.handle);
         if (!std.posix.S.ISREG(stat.mode)) return error.PathAlreadyExists;
