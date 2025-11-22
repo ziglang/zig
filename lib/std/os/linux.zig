@@ -3741,6 +3741,8 @@ pub const SIG = if (is_mips) enum(u32) {
     pub const IOT: SIG = .ABRT;
     pub const POLL: SIG = .IO;
 
+    INVAL = 0,
+
     // /arch/mips/include/uapi/asm/signal.h#L25
     HUP = 1,
     INT = 2,
@@ -3787,6 +3789,8 @@ pub const SIG = if (is_mips) enum(u32) {
     pub const PWR: SIG = .LOST;
     pub const POLL: SIG = .IO;
 
+    /// Perform error checking without sending signal.
+    INVAL = 0,
     HUP = 1,
     INT = 2,
     QUIT = 3,
@@ -3830,6 +3834,8 @@ pub const SIG = if (is_mips) enum(u32) {
     pub const POLL: SIG = .IO;
     pub const IOT: SIG = .ABRT;
 
+    /// Perform error checking without sending signal.
+    INVAL = 0,
     HUP = 1,
     INT = 2,
     QUIT = 3,
