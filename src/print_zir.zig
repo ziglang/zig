@@ -1185,12 +1185,9 @@ const Writer = struct {
         tmpl_is_expr: bool,
     ) !void {
         const extra = self.code.extraData(Zir.Inst.Asm, extended.operand);
-        const outputs_len = @as(u5, @truncate(extended.small));
-        const inputs_len = @as(u5, @truncate(extended.small >> 5));
-        const clobbers_len = @as(u5, @truncate(extended.small >> 10));
-        const is_volatile = @as(u1, @truncate(extended.small >> 15)) != 0;
+        const small: Zir.Inst.Asm.Small = @bitCast(extended.small);
 
-        try self.writeFlag(stream, "volatile, ", is_volatile);
+        try self.writeFlag(stream, "volatile, ", small.is_volatile);
         if (tmpl_is_expr) {
             try self.writeInstRef(stream, @enumFromInt(@intFromEnum(extra.data.asm_source)));
             try stream.writeAll(", ");
@@ -1204,7 +1201,7 @@ const Writer = struct {
         var output_type_bits = extra.data.output_type_bits;
         {
             var i: usize = 0;
-            while (i < outputs_len) : (i += 1) {
+            while (i < small.outputs_len) : (i += 1) {
                 const output = self.code.extraData(Zir.Inst.Asm.Output, extra_i);
                 extra_i = output.end;
 
@@ -1219,14 +1216,14 @@ const Writer = struct {
                 try self.writeFlag(stream, "->", is_type);
                 try self.writeInstRef(stream, output.data.operand);
                 try stream.writeAll(")");
-                if (i + 1 < outputs_len) {
+                if (i + 1 < small.outputs_len) {
                     try stream.writeAll("), ");
                 }
             }
         }
         {
             var i: usize = 0;
-            while (i < inputs_len) : (i += 1) {
+            while (i < small.inputs_len) : (i += 1) {
                 const input = self.code.extraData(Zir.Inst.Asm.Input, extra_i);
                 extra_i = input.end;
 
@@ -1237,23 +1234,16 @@ const Writer = struct {
                 });
                 try self.writeInstRef(stream, input.data.operand);
                 try stream.writeAll(")");
-                if (i + 1 < inputs_len) {
+                if (i + 1 < small.inputs_len) {
                     try stream.writeAll(", ");
                 }
             }
         }
-        {
-            var i: usize = 0;
-            while (i < clobbers_len) : (i += 1) {
-                const str_index = self.code.extra[extra_i];
-                extra_i += 1;
-                const clobber = self.code.nullTerminatedString(@enumFromInt(str_index));
-                try stream.print("{f}", .{std.zig.fmtIdP(clobber)});
-                if (i + 1 < clobbers_len) {
-                    try stream.writeAll(", ");
-                }
-            }
-        }
+
+        try stream.writeAll("clobbers(");
+        try self.writeInstRef(stream, extra.data.clobbers);
+        try stream.writeAll(")");
+
         try stream.writeAll(")) ");
         try self.writeSrcNode(stream, extra.data.src_node);
     }
