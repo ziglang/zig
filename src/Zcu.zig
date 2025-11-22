@@ -416,10 +416,13 @@ pub const BuiltinDecl = enum {
     Type,
     @"Type.Fn",
     @"Type.Fn.Param",
+    @"Type.Fn.Param.Attributes",
+    @"Type.Fn.Attributes",
     @"Type.Int",
     @"Type.Float",
     @"Type.Pointer",
     @"Type.Pointer.Size",
+    @"Type.Pointer.Attributes",
     @"Type.Array",
     @"Type.Vector",
     @"Type.Optional",
@@ -427,10 +430,13 @@ pub const BuiltinDecl = enum {
     @"Type.ErrorUnion",
     @"Type.EnumField",
     @"Type.Enum",
+    @"Type.Enum.Mode",
     @"Type.Union",
     @"Type.UnionField",
+    @"Type.UnionField.Attributes",
     @"Type.Struct",
     @"Type.StructField",
+    @"Type.StructField.Attributes",
     @"Type.ContainerLayout",
     @"Type.Opaque",
     @"Type.Declaration",
@@ -495,10 +501,13 @@ pub const BuiltinDecl = enum {
             .Type,
             .@"Type.Fn",
             .@"Type.Fn.Param",
+            .@"Type.Fn.Param.Attributes",
+            .@"Type.Fn.Attributes",
             .@"Type.Int",
             .@"Type.Float",
             .@"Type.Pointer",
             .@"Type.Pointer.Size",
+            .@"Type.Pointer.Attributes",
             .@"Type.Array",
             .@"Type.Vector",
             .@"Type.Optional",
@@ -506,10 +515,13 @@ pub const BuiltinDecl = enum {
             .@"Type.ErrorUnion",
             .@"Type.EnumField",
             .@"Type.Enum",
+            .@"Type.Enum.Mode",
             .@"Type.Union",
             .@"Type.UnionField",
+            .@"Type.UnionField.Attributes",
             .@"Type.Struct",
             .@"Type.StructField",
+            .@"Type.StructField.Attributes",
             .@"Type.ContainerLayout",
             .@"Type.Opaque",
             .@"Type.Declaration",
@@ -1745,28 +1757,28 @@ pub const SrcLoc = struct {
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return tree.nodeToSpan(full.ast.align_expr.unwrap().?);
+                return tree.nodeToSpan(full.ast.align_expr.unwrap() orelse node);
             },
             .node_offset_fn_type_addrspace => |node_off| {
                 const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return tree.nodeToSpan(full.ast.addrspace_expr.unwrap().?);
+                return tree.nodeToSpan(full.ast.addrspace_expr.unwrap() orelse node);
             },
             .node_offset_fn_type_section => |node_off| {
                 const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return tree.nodeToSpan(full.ast.section_expr.unwrap().?);
+                return tree.nodeToSpan(full.ast.section_expr.unwrap() orelse node);
             },
             .node_offset_fn_type_cc => |node_off| {
                 const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return tree.nodeToSpan(full.ast.callconv_expr.unwrap().?);
+                return tree.nodeToSpan(full.ast.callconv_expr.unwrap() orelse node);
             },
 
             .node_offset_fn_type_ret_ty => |node_off| {
@@ -2684,7 +2696,9 @@ pub const LazySrcLoc = struct {
                 .union_decl => zir.extraData(Zir.Inst.UnionDecl, inst.data.extended.operand).data.src_node,
                 .enum_decl => zir.extraData(Zir.Inst.EnumDecl, inst.data.extended.operand).data.src_node,
                 .opaque_decl => zir.extraData(Zir.Inst.OpaqueDecl, inst.data.extended.operand).data.src_node,
-                .reify => zir.extraData(Zir.Inst.Reify, inst.data.extended.operand).data.node,
+                .reify_enum => zir.extraData(Zir.Inst.ReifyEnum, inst.data.extended.operand).data.node,
+                .reify_struct => zir.extraData(Zir.Inst.ReifyStruct, inst.data.extended.operand).data.node,
+                .reify_union => zir.extraData(Zir.Inst.ReifyUnion, inst.data.extended.operand).data.node,
                 else => unreachable,
             },
             else => unreachable,

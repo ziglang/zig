@@ -6,10 +6,7 @@ const expect = std.testing.expect;
 pub fn signbit(x: anytype) bool {
     return switch (@typeInfo(@TypeOf(x))) {
         .int, .comptime_int => x,
-        .float => |float| @as(@Type(.{ .int = .{
-            .signedness = .signed,
-            .bits = float.bits,
-        } }), @bitCast(x)),
+        .float => |float| @as(@Int(.signed, float.bits), @bitCast(x)),
         .comptime_float => @as(i128, @bitCast(@as(f128, x))), // any float type will do
         else => @compileError("std.math.signbit does not support " ++ @typeName(@TypeOf(x))),
     } < 0;

@@ -8614,39 +8614,18 @@ pub const Metadata = packed struct(u32) {
             nodes: anytype,
             w: *Writer,
         ) !void {
-            comptime var fmt_str: []const u8 = "";
             const names = comptime std.meta.fieldNames(@TypeOf(nodes));
-            comptime var fields: [2 + names.len]std.builtin.Type.StructField = undefined;
-            inline for (fields[0..2], .{ "distinct", "node" }) |*field, name| {
-                fmt_str = fmt_str ++ "{[" ++ name ++ "]s}";
-                field.* = .{
-                    .name = name,
-                    .type = []const u8,
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = @alignOf([]const u8),
-                };
-            }
-            fmt_str = fmt_str ++ "(";
-            inline for (fields[2..], names) |*field, name| {
-                fmt_str = fmt_str ++ "{[" ++ name ++ "]f}";
-                const T = std.fmt.Alt(FormatData, format);
-                field.* = .{
-                    .name = name,
-                    .type = T,
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = @alignOf(T),
-                };
-            }
+
+            comptime var fmt_str: []const u8 = "{[distinct]s}{[node]s}(";
+            inline for (names) |name| fmt_str = fmt_str ++ "{[" ++ name ++ "]f}";
             fmt_str = fmt_str ++ ")\n";
 
-            var fmt_args: @Type(.{ .@"struct" = .{
-                .layout = .auto,
-                .fields = &fields,
-                .decls = &.{},
-                .is_tuple = false,
-            } }) = undefined;
+            const field_names = @as([]const []const u8, &.{ "distinct", "node" }) ++ names;
+            comptime var field_types: [2 + names.len]type = undefined;
+            @memset(field_types[0..2], []const u8);
+            @memset(field_types[2..], std.fmt.Alt(FormatData, format));
+
+            var fmt_args: @Struct(.auto, null, field_names, &field_types, &@splat(.{})) = undefined;
             fmt_args.distinct = @tagName(distinct);
             fmt_args.node = @tagName(node);
             inline for (names) |name| @field(fmt_args, name) = try formatter.fmt(

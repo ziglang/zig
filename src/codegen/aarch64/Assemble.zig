@@ -120,23 +120,13 @@ const matchers = matchers: {
             );
             var symbols: Symbols: {
                 const symbols = @typeInfo(@TypeOf(instruction.symbols)).@"struct".fields;
-                var symbol_fields: [symbols.len]std.builtin.Type.StructField = undefined;
-                for (&symbol_fields, symbols) |*symbol_field, symbol| {
-                    const Storage = zonCast(SymbolSpec, @field(instruction.symbols, symbol.name), .{}).Storage();
-                    symbol_field.* = .{
-                        .name = symbol.name,
-                        .type = Storage,
-                        .default_value_ptr = null,
-                        .is_comptime = false,
-                        .alignment = @alignOf(Storage),
-                    };
+                var field_names: [symbols.len][]const u8 = undefined;
+                var field_types: [symbols.len]type = undefined;
+                for (symbols, &field_names, &field_types) |symbol, *field_name, *FieldType| {
+                    field_name.* = symbol.name;
+                    FieldType.* = zonCast(SymbolSpec, @field(instruction.symbols, symbol.name), .{}).Storage();
                 }
-                break :Symbols @Type(.{ .@"struct" = .{
-                    .layout = .auto,
-                    .fields = &symbol_fields,
-                    .decls = &.{},
-                    .is_tuple = false,
-                } });
+                break :Symbols @Struct(.auto, null, &field_names, &field_types, &@splat(.{}));
             } = undefined;
             const Symbol = std.meta.FieldEnum(@TypeOf(instruction.symbols));
             comptime var unused_symbols: std.enums.EnumSet(Symbol) = .initFull();
@@ -334,7 +324,7 @@ const SymbolSpec = union(enum) {
             .reg => aarch64.encoding.Register,
             .arrangement => aarch64.encoding.Register.Arrangement,
             .systemreg => aarch64.encoding.Register.System,
-            .imm => |imm_spec| @Type(.{ .int = imm_spec.type }),
+            .imm => |imm_spec| @Int(imm_spec.type.signedness, imm_spec.type.bits),
             .fimm => f16,
             .extend => Instruction.DataProcessingRegister.AddSubtractExtendedRegister.Option,
             .shift => Instruction.DataProcessingRegister.Shift.Op,
@@ -413,13 +403,13 @@ const SymbolSpec = union(enum) {
                 return systemreg;
             },
             .imm => |imm_spec| {
-                const imm = std.fmt.parseInt(@Type(.{ .int = .{
-                    .signedness = imm_spec.type.signedness,
-                    .bits = switch (imm_spec.adjust) {
+                const imm = std.fmt.parseInt(@Int(
+                    imm_spec.type.signedness,
+                    switch (imm_spec.adjust) {
                         .none, .neg_wrap => imm_spec.type.bits,
                         .dec => imm_spec.type.bits + 1,
                     },
-                } }), token, 0) catch {
+                ), token, 0) catch {
                     log.debug("invalid immediate: \"{f}\"", .{std.zig.fmtString(token)});
                     return null;
                 };

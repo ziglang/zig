@@ -3,20 +3,18 @@ const std = @import("std");
 // big enums should not hit the eval branch quota
 pub fn main() void {
     const big = struct {
-        const Big = @Type(.{ .@"enum" = .{
-            .tag_type = u16,
-            .fields = make_fields: {
-                @setEvalBranchQuota(500000);
-                var fields: [1001]std.builtin.Type.EnumField = undefined;
-                for (&fields, 0..) |*field, i| {
-                    field.* = .{ .name = std.fmt.comptimePrint("field_{d}", .{i}), .value = i };
-                }
-                fields[1000] = .{ .name = "field_9999", .value = 9999 };
-                break :make_fields &fields;
-            },
-            .decls = &.{},
-            .is_exhaustive = true,
-        } });
+        const Big = Big: {
+            @setEvalBranchQuota(500000);
+            var names: [1001][]const u8 = undefined;
+            var values: [1001]u16 = undefined;
+            for (values[0..1000], names[0..1000], 0..1000) |*val, *name, i| {
+                name.* = std.fmt.comptimePrint("field_{d}", .{i});
+                val.* = i;
+            }
+            names[1000] = "field_9999";
+            values[1000] = 9999;
+            break :Big @Enum(u16, .exhaustive, &names, &values);
+        };
     };
 
     var set = std.enums.EnumSet(big.Big).init(.{});
@@ -29,10 +27,11 @@ pub fn main() void {
     var multiset = std.enums.EnumMultiset(big.Big).init(.{});
     _ = &multiset;
 
+    @setEvalBranchQuota(4000);
+
     var bounded_multiset = std.enums.BoundedEnumMultiset(big.Big, u8).init(.{});
     _ = &bounded_multiset;
 
-    @setEvalBranchQuota(3000);
     var array = std.enums.EnumArray(big.Big, u8).init(undefined);
     array = std.enums.EnumArray(big.Big, u8).initDefault(123, .{});
 }

@@ -1416,6 +1416,9 @@ pub const Pool = struct {
             .null_type,
             .undefined_type,
             .enum_literal_type,
+            .optional_type_type,
+            .manyptr_const_type_type,
+            .slice_const_type_type,
             => return .void,
             .u1_type, .u8_type => return .u8,
             .i8_type => return .i8,
@@ -1510,6 +1513,73 @@ pub const Pool = struct {
                         .name = .{ .index = .ptr },
                         .ctype = try pool.getPointer(allocator, .{
                             .elem_ctype = .u8,
+                            .@"const" = true,
+                        }),
+                        .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target)),
+                    },
+                    .{
+                        .name = .{ .index = .len },
+                        .ctype = .usize,
+                        .alignas = AlignAs.fromAbiAlignment(
+                            .fromByteUnits(std.zig.target.intAlignment(target, target.ptrBitWidth())),
+                        ),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+
+            .manyptr_const_slice_const_u8_type => {
+                const target = &mod.resolved_target.result;
+                var fields: [2]Info.Field = .{
+                    .{
+                        .name = .{ .index = .ptr },
+                        .ctype = try pool.getPointer(allocator, .{
+                            .elem_ctype = .u8,
+                            .@"const" = true,
+                            .nonstring = true,
+                        }),
+                        .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target)),
+                    },
+                    .{
+                        .name = .{ .index = .len },
+                        .ctype = .usize,
+                        .alignas = AlignAs.fromAbiAlignment(
+                            .fromByteUnits(std.zig.target.intAlignment(target, target.ptrBitWidth())),
+                        ),
+                    },
+                };
+                const slice_const_u8 = try pool.fromFields(allocator, .@"struct", &fields, kind);
+                return pool.getPointer(allocator, .{
+                    .elem_ctype = slice_const_u8,
+                    .@"const" = true,
+                });
+            },
+            .slice_const_slice_const_u8_type => {
+                const target = &mod.resolved_target.result;
+                var fields: [2]Info.Field = .{
+                    .{
+                        .name = .{ .index = .ptr },
+                        .ctype = try pool.getPointer(allocator, .{
+                            .elem_ctype = .u8,
+                            .@"const" = true,
+                            .nonstring = true,
+                        }),
+                        .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target)),
+                    },
+                    .{
+                        .name = .{ .index = .len },
+                        .ctype = .usize,
+                        .alignas = AlignAs.fromAbiAlignment(
+                            .fromByteUnits(std.zig.target.intAlignment(target, target.ptrBitWidth())),
+                        ),
+                    },
+                };
+                const slice_const_u8 = try pool.fromFields(allocator, .@"struct", &fields, .forward);
+                fields = .{
+                    .{
+                        .name = .{ .index = .ptr },
+                        .ctype = try pool.getPointer(allocator, .{
+                            .elem_ctype = slice_const_u8,
                             .@"const" = true,
                         }),
                         .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target)),

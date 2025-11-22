@@ -56,7 +56,7 @@ pub inline fn bigIntFromFloat(comptime signedness: std.builtin.Signedness, resul
         0 => return,
         inline 1...4 => |limbs_len| {
             result[0..limbs_len].* = @bitCast(@as(
-                @Type(.{ .int = .{ .signedness = signedness, .bits = 32 * limbs_len } }),
+                @Int(signedness, 32 * limbs_len),
                 @intFromFloat(a),
             ));
             return;
@@ -66,10 +66,7 @@ pub inline fn bigIntFromFloat(comptime signedness: std.builtin.Signedness, resul
 
     // sign implicit fraction
     const significand_bits = 1 + math.floatFractionalBits(@TypeOf(a));
-    const I = @Type(comptime .{ .int = .{
-        .signedness = signedness,
-        .bits = @as(u16, @intFromBool(signedness == .signed)) + significand_bits,
-    } });
+    const I = @Int(signedness, @as(u16, @intFromBool(signedness == .signed)) + significand_bits);
 
     const parts = math.frexp(a);
     const significand_bits_adjusted_to_handle_smin = @as(i32, significand_bits) +

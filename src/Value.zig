@@ -2824,6 +2824,29 @@ pub fn resolveLazy(
                     .val = resolved_val,
                 }));
         },
+        .error_union => |eu| switch (eu.val) {
+            .err_name => return val,
+            .payload => |payload| {
+                const resolved_payload = try Value.fromInterned(payload).resolveLazy(arena, pt);
+                if (resolved_payload.toIntern() == payload) return val;
+                return .fromInterned(try pt.intern(.{ .error_union = .{
+                    .ty = eu.ty,
+                    .val = .{ .payload = resolved_payload.toIntern() },
+                } }));
+            },
+        },
+        .opt => |opt| switch (opt.val) {
+            .none => return val,
+            else => |payload| {
+                const resolved_payload = try Value.fromInterned(payload).resolveLazy(arena, pt);
+                if (resolved_payload.toIntern() == payload) return val;
+                return .fromInterned(try pt.intern(.{ .opt = .{
+                    .ty = opt.ty,
+                    .val = resolved_payload.toIntern(),
+                } }));
+            },
+        },
+
         else => return val,
     }
 }

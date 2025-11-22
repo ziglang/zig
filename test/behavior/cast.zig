@@ -2446,9 +2446,14 @@ test "peer type resolution: pointer attributes are combined correctly" {
     };
 
     const NonAllowZero = comptime blk: {
-        var ti = @typeInfo(@TypeOf(r1, r2, r3, r4));
-        ti.pointer.is_allowzero = false;
-        break :blk @Type(ti);
+        const ptr = @typeInfo(@TypeOf(r1, r2, r3, r4)).pointer;
+        break :blk @Pointer(ptr.size, .{
+            .@"const" = ptr.is_const,
+            .@"volatile" = ptr.is_volatile,
+            .@"allowzero" = false,
+            .@"align" = ptr.alignment,
+            .@"addrspace" = ptr.address_space,
+        }, ptr.child, ptr.sentinel());
     };
     try expectEqualSlices(u8, std.mem.span(@volatileCast(@as(NonAllowZero, @ptrCast(r1)))), "foo");
     try expectEqualSlices(u8, std.mem.span(@volatileCast(@as(NonAllowZero, @ptrCast(r2)))), "bar");

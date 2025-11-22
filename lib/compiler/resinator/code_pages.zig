@@ -179,12 +179,13 @@ pub const UnsupportedCodePage = enum(u16) {
 
 pub const CodePage = blk: {
     const fields = @typeInfo(SupportedCodePage).@"enum".fields ++ @typeInfo(UnsupportedCodePage).@"enum".fields;
-    break :blk @Type(.{ .@"enum" = .{
-        .tag_type = u16,
-        .decls = &.{},
-        .fields = fields,
-        .is_exhaustive = true,
-    } });
+    var field_names: [fields.len][]const u8 = undefined;
+    var field_values: [fields.len]u16 = undefined;
+    for (fields, &field_names, &field_values) |field, *name, *val| {
+        name.* = field.name;
+        val.* = field.value;
+    }
+    break :blk @Enum(u16, .exhaustive, &field_names, &field_values);
 };
 
 pub fn isSupported(code_page: CodePage) bool {

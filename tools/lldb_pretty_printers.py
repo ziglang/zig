@@ -559,7 +559,7 @@ type_tag_handlers = {
     'extern_options': lambda payload: 'std.builtin.ExternOptions',
     'type_info': lambda payload: 'std.builtin.Type',
 
-    'enum_literal': lambda payload: '@TypeOf(.enum_literal)',
+    'enum_literal': lambda payload: '@EnumLiteral()',
     'null': lambda payload: '@TypeOf(null)',
     'undefined': lambda payload: '@TypeOf(undefined)',
     'empty_struct_literal': lambda payload: '@TypeOf(.{})',

@@ -20,24 +20,16 @@ pub fn TrailerFlags(comptime Fields: type) type {
 
         pub const ActiveFields = std.enums.EnumFieldStruct(FieldEnum, bool, false);
         pub const FieldValues = blk: {
-            var fields: [bit_count]Type.StructField = undefined;
-            for (@typeInfo(Fields).@"struct".fields, 0..) |struct_field, i| {
-                fields[i] = Type.StructField{
-                    .name = struct_field.name,
-                    .type = ?struct_field.type,
-                    .default_value_ptr = &@as(?struct_field.type, null),
-                    .is_comptime = false,
-                    .alignment = @alignOf(?struct_field.type),
-                };
+            var field_names: [bit_count][]const u8 = undefined;
+            var field_types: [bit_count]type = undefined;
+            var field_attrs: [bit_count]std.builtin.Type.StructField.Attributes = undefined;
+            for (@typeInfo(Fields).@"struct".fields, &field_names, &field_types, &field_attrs) |field, *new_name, *NewType, *new_attrs| {
+                new_name.* = field.name;
+                NewType.* = ?field.type;
+                const default: ?field.type = null;
+                new_attrs.* = .{ .default_value_ptr = &default };
             }
-            break :blk @Type(.{
-                .@"struct" = .{
-                    .layout = .auto,
-                    .fields = &fields,
-                    .decls = &.{},
-                    .is_tuple = false,
-                },
-            });
+            break :blk @Struct(.auto, null, &field_names, &field_types, &field_attrs);
         };
 
         pub const Self = @This();

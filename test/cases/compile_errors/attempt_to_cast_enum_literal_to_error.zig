@@ -6,4 +6,4 @@ export fn entry() void {
 
 // error
 //
-// :3:10: error: expected type 'error{Hi}', found '@Type(.enum_literal)'
+// :3:10: error: expected type 'error{Hi}', found '@EnumLiteral()'
