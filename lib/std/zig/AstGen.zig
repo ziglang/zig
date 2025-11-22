@@ -5071,18 +5071,14 @@ fn structDeclInner(
             .decl => continue,
             .field => |field| field,
         };
+        assert(!member.ast.tuple_like);
 
         astgen.src_hasher.update(tree.getNodeSource(member_node));
 
         const field_name = try astgen.identAsString(member.ast.main_token);
-        member.convertToNonTupleLike(astgen.tree);
-        assert(!member.ast.tuple_like);
         wip_members.appendToField(@intFromEnum(field_name));
 
-        const type_expr = member.ast.type_expr.unwrap() orelse {
-            return astgen.failTok(member.ast.main_token, "struct field missing type", .{});
-        };
-
+        const type_expr = member.ast.type_expr.unwrap().?;
         const field_type = try typeExpr(&block_scope, &namespace.base, type_expr);
         const have_type_body = !block_scope.isEmpty();
         const have_align = member.ast.align_expr != .none;
