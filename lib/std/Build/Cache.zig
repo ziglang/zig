@@ -104,9 +104,7 @@ fn findPrefixResolved(cache: *const Cache, resolved_path: []u8) !PrefixedPath {
 fn getPrefixSubpath(allocator: Allocator, prefix: []const u8, path: []u8) ![]u8 {
     const relative = try fs.path.relative(allocator, prefix, path);
     errdefer allocator.free(relative);
-    var component_iterator = fs.path.NativeComponentIterator.init(relative) catch {
-        return error.NotASubPath;
-    };
+    var component_iterator = fs.path.NativeComponentIterator.init(relative);
     if (component_iterator.root() != null) {
         return error.NotASubPath;
     }

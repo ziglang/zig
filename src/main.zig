@@ -3883,7 +3883,7 @@ fn createModule(
         if (create_module.sysroot) |root| {
             for (create_module.lib_dir_args.items) |lib_dir_arg| {
                 if (fs.path.isAbsolute(lib_dir_arg)) {
-                    const stripped_dir = lib_dir_arg[fs.path.diskDesignator(lib_dir_arg).len..];
+                    const stripped_dir = lib_dir_arg[fs.path.parsePath(lib_dir_arg).root.len..];
                     const full_path = try fs.path.join(arena, &[_][]const u8{ root, stripped_dir });
                     addLibDirectoryWarn(&create_module.lib_directories, full_path);
                 } else {

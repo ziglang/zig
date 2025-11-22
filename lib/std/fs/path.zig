@@ -20,10 +20,7 @@ const testing = std.testing;
 const mem = std.mem;
 const ascii = std.ascii;
 const Allocator = mem.Allocator;
-const math = std.math;
 const windows = std.os.windows;
-const os = std.os;
-const fs = std.fs;
 const process = std.process;
 const native_os = builtin.target.os.tag;
 
@@ -60,11 +57,12 @@ pub const PathType = enum {
     posix,
 
     /// Returns true if `c` is a valid path separator for the `path_type`.
+    /// If `T` is `u16`, `c` is assumed to be little-endian.
     pub inline fn isSep(comptime path_type: PathType, comptime T: type, c: T) bool {
         return switch (path_type) {
-            .windows => c == '/' or c == '\\',
-            .posix => c == '/',
-            .uefi => c == '\\',
+            .windows => c == mem.nativeToLittle(T, '/') or c == mem.nativeToLittle(T, '\\'),
+            .posix => c == mem.nativeToLittle(T, '/'),
+            .uefi => c == mem.nativeToLittle(T, '\\'),
         };
     }
 };
@@ -221,7 +219,7 @@ test join {
         try testJoinMaybeZWindows(&[_][]const u8{}, "", zero);
         try testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c", zero);
         try testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b", "c" }, "c:\\a\\b\\c", zero);
-        try testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b\\", "c" }, "c:\\a\\b\\c", zero);
+        try testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\b\\", "\\c" }, "c:\\a\\b\\c", zero);
 
         try testJoinMaybeZWindows(&[_][]const u8{ "c:\\", "a", "b\\", "c" }, "c:\\a\\b\\c", zero);
         try testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\", "b\\", "c" }, "c:\\a\\b\\c", zero);
@@ -283,26 +281,16 @@ pub fn isAbsolute(path: []const u8) bool {
 }
 
 fn isAbsoluteWindowsImpl(comptime T: type, path: []const T) bool {
-    if (path.len < 1)
-        return false;
-
-    if (path[0] == '/')
-        return true;
-
-    if (path[0] == '\\')
-        return true;
-
-    if (path.len < 3)
-        return false;
-
-    if (path[1] == ':') {
-        if (path[2] == '/')
-            return true;
-        if (path[2] == '\\')
-            return true;
-    }
-
-    return false;
+    return switch (windows.getWin32PathType(T, path)) {
+        // Unambiguously absolute
+        .drive_absolute, .unc_absolute, .local_device, .root_local_device => true,
+        // Unambiguously relative
+        .relative => false,
+        // Ambiguous, more absolute than relative
+        .rooted => true,
+        // Ambiguous, more relative than absolute
+        .drive_relative => false,
+    };
 }
 
 pub fn isAbsoluteWindows(path: []const u8) bool {
@@ -347,6 +335,9 @@ test isAbsoluteWindows {
     try testIsAbsoluteWindows("C:\\Users\\", true);
     try testIsAbsoluteWindows("C:cwd/another", false);
     try testIsAbsoluteWindows("C:cwd\\another", false);
+    try testIsAbsoluteWindows("λ:\\", true);
+    try testIsAbsoluteWindows("λ:", false);
+    try testIsAbsoluteWindows("\u{10000}:\\", false);
     try testIsAbsoluteWindows("directory/directory", false);
     try testIsAbsoluteWindows("directory\\directory", false);
     try testIsAbsoluteWindows("/usr/local", true);
@@ -362,12 +353,17 @@ test isAbsolutePosix {
 
 fn testIsAbsoluteWindows(path: []const u8, expected_result: bool) !void {
     try testing.expectEqual(expected_result, isAbsoluteWindows(path));
+    const path_w = try std.unicode.wtf8ToWtf16LeAllocZ(std.testing.allocator, path);
+    defer std.testing.allocator.free(path_w);
+    try testing.expectEqual(expected_result, isAbsoluteWindowsW(path_w));
+    try testing.expectEqual(expected_result, isAbsoluteWindowsWtf16(path_w));
 }
 
 fn testIsAbsolutePosix(path: []const u8, expected_result: bool) !void {
     try testing.expectEqual(expected_result, isAbsolutePosix(path));
 }
 
+/// Deprecated; see `WindowsPath2`
 pub const WindowsPath = struct {
     is_abs: bool,
     kind: Kind,
@@ -380,6 +376,7 @@ pub const WindowsPath = struct {
     };
 };
 
+/// Deprecated; see `parsePathWindows`
 pub fn windowsParsePath(path: []const u8) WindowsPath {
     if (path.len >= 2 and path[1] == ':') {
         return WindowsPath{
@@ -402,26 +399,18 @@ pub fn windowsParsePath(path: []const u8) WindowsPath {
         .disk_designator = &[_]u8{},
         .is_abs = false,
     };
-    if (path.len < "//a/b".len) {
-        return relative_path;
-    }
 
-    inline for ("/\\") |this_sep| {
-        const two_sep = [_]u8{ this_sep, this_sep };
-        if (mem.startsWith(u8, path, &two_sep)) {
-            if (path[2] == this_sep) {
-                return relative_path;
-            }
-
-            var it = mem.tokenizeAny(u8, path, "/\\");
-            _ = (it.next() orelse return relative_path);
-            _ = (it.next() orelse return relative_path);
-            return WindowsPath{
-                .is_abs = isAbsoluteWindows(path),
-                .kind = WindowsPath.Kind.NetworkShare,
-                .disk_designator = path[0..it.index],
-            };
-        }
+    if (path.len >= 2 and PathType.windows.isSep(u8, path[0]) and PathType.windows.isSep(u8, path[1])) {
+        const root_end = root_end: {
+            var server_end = mem.indexOfAnyPos(u8, path, 2, "/\\") orelse break :root_end path.len;
+            while (server_end < path.len and PathType.windows.isSep(u8, path[server_end])) server_end += 1;
+            break :root_end mem.indexOfAnyPos(u8, path, server_end, "/\\") orelse path.len;
+        };
+        return WindowsPath{
+            .is_abs = true,
+            .kind = WindowsPath.Kind.NetworkShare,
+            .disk_designator = path[0..root_end],
+        };
     }
     return relative_path;
 }
@@ -446,10 +435,22 @@ test windowsParsePath {
         try testing.expect(mem.eql(u8, parsed.disk_designator, "\\\\a/b"));
     }
     {
-        const parsed = windowsParsePath("\\\\a\\");
-        try testing.expect(!parsed.is_abs);
-        try testing.expect(parsed.kind == WindowsPath.Kind.None);
-        try testing.expect(mem.eql(u8, parsed.disk_designator, ""));
+        const parsed = windowsParsePath("\\/a\\");
+        try testing.expect(parsed.is_abs);
+        try testing.expect(parsed.kind == WindowsPath.Kind.NetworkShare);
+        try testing.expect(mem.eql(u8, parsed.disk_designator, "\\/a\\"));
+    }
+    {
+        const parsed = windowsParsePath("\\\\a\\\\b");
+        try testing.expect(parsed.is_abs);
+        try testing.expect(parsed.kind == WindowsPath.Kind.NetworkShare);
+        try testing.expect(mem.eql(u8, parsed.disk_designator, "\\\\a\\\\b"));
+    }
+    {
+        const parsed = windowsParsePath("\\\\a\\\\b\\c");
+        try testing.expect(parsed.is_abs);
+        try testing.expect(parsed.kind == WindowsPath.Kind.NetworkShare);
+        try testing.expect(mem.eql(u8, parsed.disk_designator, "\\\\a\\\\b"));
     }
     {
         const parsed = windowsParsePath("/usr/local");
@@ -465,6 +466,229 @@ test windowsParsePath {
     }
 }
 
+/// On Windows, this calls `parsePathWindows` and on POSIX it calls `parsePathPosix`.
+///
+/// Returns a platform-specific struct with two fields: `root` and `kind`.
+/// The `root` will be a slice of `path` (`/` for POSIX absolute paths, and things
+/// like `C:\`, `\\server\share\`, etc for Windows paths).
+/// If the path is of kind `.relative`, then `root` will be zero-length.
+pub fn parsePath(path: []const u8) switch (native_os) {
+    .windows => WindowsPath2(u8),
+    else => PosixPath,
+} {
+    switch (native_os) {
+        .windows => return parsePathWindows(u8, path),
+        else => return parsePathPosix(path),
+    }
+}
+
+const PosixPath = struct {
+    kind: enum { relative, absolute },
+    root: []const u8,
+};
+
+pub fn parsePathPosix(path: []const u8) PosixPath {
+    const abs = isAbsolutePosix(path);
+    return .{
+        .kind = if (abs) .absolute else .relative,
+        .root = if (abs) path[0..1] else path[0..0],
+    };
+}
+
+test parsePathPosix {
+    {
+        const parsed = parsePathPosix("a/b");
+        try testing.expectEqual(.relative, parsed.kind);
+        try testing.expectEqualStrings("", parsed.root);
+    }
+    {
+        const parsed = parsePathPosix("/a/b");
+        try testing.expectEqual(.absolute, parsed.kind);
+        try testing.expectEqualStrings("/", parsed.root);
+    }
+    {
+        const parsed = parsePathPosix("///a/b");
+        try testing.expectEqual(.absolute, parsed.kind);
+        try testing.expectEqualStrings("/", parsed.root);
+    }
+}
+
+pub fn WindowsPath2(comptime T: type) type {
+    return struct {
+        kind: windows.Win32PathType,
+        root: []const T,
+    };
+}
+
+pub fn parsePathWindows(comptime T: type, path: []const T) WindowsPath2(T) {
+    const kind = windows.getWin32PathType(T, path);
+    const root = root: switch (kind) {
+        .drive_absolute, .drive_relative => {
+            const drive_letter_len = getDriveLetter(T, path).len;
+            break :root path[0 .. drive_letter_len + @as(usize, if (kind == .drive_absolute) 2 else 1)];
+        },
+        .relative => path[0..0],
+        .local_device => path[0..4],
+        .root_local_device => path,
+        .rooted => path[0..1],
+        .unc_absolute => {
+            const unc = parseUNC(T, path);
+            // There may be any number of path separators between the server and the share,
+            // so take that into account by using pointer math to get the difference.
+            var root_len = 2 + (unc.share.ptr - unc.server.ptr) + unc.share.len;
+            if (unc.sep_after_share) root_len += 1;
+            break :root path[0..root_len];
+        },
+    };
+    return .{
+        .kind = kind,
+        .root = root,
+    };
+}
+
+test parsePathWindows {
+    {
+        const path = "//a/b";
+        const parsed = parsePathWindows(u8, path);
+        try testing.expectEqual(.unc_absolute, parsed.kind);
+        try testing.expectEqualStrings("//a/b", parsed.root);
+        try testWindowsParsePathHarmony(path);
+    }
+    {
+        const path = "\\\\a\\b";
+        const parsed = parsePathWindows(u8, path);
+        try testing.expectEqual(.unc_absolute, parsed.kind);
+        try testing.expectEqualStrings("\\\\a\\b", parsed.root);
+        try testWindowsParsePathHarmony(path);
+    }
+    {
+        const path = "\\/a/b/c";
+        const parsed = parsePathWindows(u8, path);
+        try testing.expectEqual(.unc_absolute, parsed.kind);
+        try testing.expectEqualStrings("\\/a/b/", parsed.root);
+        try testWindowsParsePathHarmony(path);
+    }
+    {
+        const path = "\\\\a\\";
+        const parsed = parsePathWindows(u8, path);
+        try testing.expectEqual(.unc_absolute, parsed.kind);
+        try testing.expectEqualStrings("\\\\a\\", parsed.root);
+        try testWindowsParsePathHarmony(path);
+    }
+    {
+        const path = "\\\\a\\b\\";
+        const parsed = parsePathWindows(u8, path);
+        try testing.expectEqual(.unc_absolute, parsed.kind);
+        try testing.expectEqualStrings("\\\\a\\b\\", parsed.root);
+        try testWindowsParsePathHarmony(path);
+    }
+    {
+        const path = "\\\\a\\/b\\/";
+        const parsed = parsePathWindows(u8, path);
+        try testing.expectEqual(.unc_absolute, parsed.kind);
+        try testing.expectEqualStrings("\\\\a\\/b\\", parsed.root);
+        try testWindowsParsePathHarmony(path);
+    }
+    {
+        const path = "\\\\кириллица\\ελληνικά\\português";
+        const parsed = parsePathWindows(u8, path);
+        try testing.expectEqual(.unc_absolute, parsed.kind);
+        try testing.expectEqualStrings("\\\\кириллица\\ελληνικά\\", parsed.root);
+        try testWindowsParsePathHarmony(path);
+    }
+    {
+        const path = "/usr/local";
+        const parsed = parsePathWindows(u8, path);
+        try testing.expectEqual(.rooted, parsed.kind);
+        try testing.expectEqualStrings("/", parsed.root);
+        try testWindowsParsePathHarmony(path);
+    }
+    {
+        const path = "\\\\.";
+        const parsed = parsePathWindows(u8, path);
+        try testing.expectEqual(.root_local_device, parsed.kind);
+        try testing.expectEqualStrings("\\\\.", parsed.root);
+        try testWindowsParsePathHarmony(path);
+    }
+    {
+        const path = "\\\\.\\a";
+        const parsed = parsePathWindows(u8, path);
+        try testing.expectEqual(.local_device, parsed.kind);
+        try testing.expectEqualStrings("\\\\.\\", parsed.root);
+        try testWindowsParsePathHarmony(path);
+    }
+    {
+        const path = "c:../";
+        const parsed = parsePathWindows(u8, path);
+        try testing.expectEqual(.drive_relative, parsed.kind);
+        try testing.expectEqualStrings("c:", parsed.root);
+        try testWindowsParsePathHarmony(path);
+    }
+    {
+        const path = "C:\\../";
+        const parsed = parsePathWindows(u8, path);
+        try testing.expectEqual(.drive_absolute, parsed.kind);
+        try testing.expectEqualStrings("C:\\", parsed.root);
+        try testWindowsParsePathHarmony(path);
+    }
+    {
+        // Non-ASCII code point that is encoded as one WTF-16 code unit is considered a valid drive letter
+        const path = "€:\\";
+        const parsed = parsePathWindows(u8, path);
+        try testing.expectEqual(.drive_absolute, parsed.kind);
+        try testing.expectEqualStrings("€:\\", parsed.root);
+        try testWindowsParsePathHarmony(path);
+    }
+    {
+        const path = "€:";
+        const parsed = parsePathWindows(u8, path);
+        try testing.expectEqual(.drive_relative, parsed.kind);
+        try testing.expectEqualStrings("€:", parsed.root);
+        try testWindowsParsePathHarmony(path);
+    }
+    {
+        // But code points that are encoded as two WTF-16 code units are not
+        const path = "\u{10000}:\\";
+        const parsed = parsePathWindows(u8, path);
+        try testing.expectEqual(.relative, parsed.kind);
+        try testing.expectEqualStrings("", parsed.root);
+        try testWindowsParsePathHarmony(path);
+    }
+    {
+        const path = "\u{10000}:";
+        const parsed = parsePathWindows(u8, path);
+        try testing.expectEqual(.relative, parsed.kind);
+        try testing.expectEqualStrings("", parsed.root);
+        try testWindowsParsePathHarmony(path);
+    }
+    {
+        // Paths are assumed to be in the Win32 namespace, so while this is
+        // likely a NT namespace path, it's treated as a rooted path.
+        const path = "\\??\\foo";
+        const parsed = parsePathWindows(u8, path);
+        try testing.expectEqual(.rooted, parsed.kind);
+        try testing.expectEqualStrings("\\", parsed.root);
+        try testWindowsParsePathHarmony(path);
+    }
+}
+
+fn testWindowsParsePathHarmony(wtf8: []const u8) !void {
+    var wtf16_buf: [256]u16 = undefined;
+    const wtf16_len = try std.unicode.wtf8ToWtf16Le(&wtf16_buf, wtf8);
+    const wtf16 = wtf16_buf[0..wtf16_len];
+
+    const wtf8_parsed = parsePathWindows(u8, wtf8);
+    const wtf16_parsed = parsePathWindows(u16, wtf16);
+
+    var wtf8_buf: [256]u8 = undefined;
+    const wtf16_root_as_wtf8_len = std.unicode.wtf16LeToWtf8(&wtf8_buf, wtf16_parsed.root);
+    const wtf16_root_as_wtf8 = wtf8_buf[0..wtf16_root_as_wtf8_len];
+
+    try std.testing.expectEqual(wtf8_parsed.kind, wtf16_parsed.kind);
+    try std.testing.expectEqualStrings(wtf8_parsed.root, wtf16_root_as_wtf8);
+}
+
+/// Deprecated; use `parsePath`
 pub fn diskDesignator(path: []const u8) []const u8 {
     if (native_os == .windows) {
         return diskDesignatorWindows(path);
@@ -473,41 +697,172 @@ pub fn diskDesignator(path: []const u8) []const u8 {
     }
 }
 
+/// Deprecated; use `parsePathWindows`
 pub fn diskDesignatorWindows(path: []const u8) []const u8 {
     return windowsParsePath(path).disk_designator;
 }
 
-fn networkShareServersEql(ns1: []const u8, ns2: []const u8) bool {
-    const sep1 = ns1[0];
-    const sep2 = ns2[0];
-
-    var it1 = mem.tokenizeScalar(u8, ns1, sep1);
-    var it2 = mem.tokenizeScalar(u8, ns2, sep2);
-
-    return windows.eqlIgnoreCaseWtf8(it1.next().?, it2.next().?);
+fn WindowsUNC(comptime T: type) type {
+    return struct {
+        server: []const T,
+        sep_after_server: bool,
+        share: []const T,
+        sep_after_share: bool,
+    };
 }
 
-fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8) bool {
-    switch (kind) {
-        WindowsPath.Kind.None => {
-            assert(p1.len == 0);
-            assert(p2.len == 0);
-            return true;
-        },
-        WindowsPath.Kind.Drive => {
-            return ascii.toUpper(p1[0]) == ascii.toUpper(p2[0]);
-        },
-        WindowsPath.Kind.NetworkShare => {
-            var it1 = mem.tokenizeAny(u8, p1, "/\\");
-            var it2 = mem.tokenizeAny(u8, p2, "/\\");
+/// Asserts that `path` starts with two path separators
+fn parseUNC(comptime T: type, path: []const T) WindowsUNC(T) {
+    assert(path.len >= 2 and PathType.windows.isSep(T, path[0]) and PathType.windows.isSep(T, path[1]));
+    const any_sep = switch (T) {
+        u8 => "/\\",
+        u16 => std.unicode.wtf8ToWtf16LeStringLiteral("/\\"),
+        else => @compileError("only u8 (WTF-8) and u16 (WTF-16LE) are supported"),
+    };
+    // For the server, the first path separator after the initial two is always
+    // the terminator of the server name, even if that means the server name is
+    // zero-length.
+    const server_end = mem.indexOfAnyPos(T, path, 2, any_sep) orelse return .{
+        .server = path[2..path.len],
+        .sep_after_server = false,
+        .share = path[path.len..path.len],
+        .sep_after_share = false,
+    };
+    // For the share, there can be any number of path separators between the server
+    // and the share, so we want to skip over all of them instead of just looking for
+    // the first one.
+    var it = std.mem.tokenizeAny(T, path[server_end + 1 ..], any_sep);
+    const share = it.next() orelse return .{
+        .server = path[2..server_end],
+        .sep_after_server = true,
+        .share = path[server_end + 1 .. server_end + 1],
+        .sep_after_share = false,
+    };
+    return .{
+        .server = path[2..server_end],
+        .sep_after_server = true,
+        .share = share,
+        .sep_after_share = it.index != it.buffer.len,
+    };
+}
 
-            return windows.eqlIgnoreCaseWtf8(it1.next().?, it2.next().?) and windows.eqlIgnoreCaseWtf8(it1.next().?, it2.next().?);
+test parseUNC {
+    {
+        const unc = parseUNC(u8, "//");
+        try std.testing.expectEqualStrings("", unc.server);
+        try std.testing.expect(!unc.sep_after_server);
+        try std.testing.expectEqualStrings("", unc.share);
+        try std.testing.expect(!unc.sep_after_share);
+    }
+    {
+        const unc = parseUNC(u8, "\\\\s");
+        try std.testing.expectEqualStrings("s", unc.server);
+        try std.testing.expect(!unc.sep_after_server);
+        try std.testing.expectEqualStrings("", unc.share);
+        try std.testing.expect(!unc.sep_after_share);
+    }
+    {
+        const unc = parseUNC(u8, "\\\\s/");
+        try std.testing.expectEqualStrings("s", unc.server);
+        try std.testing.expect(unc.sep_after_server);
+        try std.testing.expectEqualStrings("", unc.share);
+        try std.testing.expect(!unc.sep_after_share);
+    }
+    {
+        const unc = parseUNC(u8, "\\/server\\share");
+        try std.testing.expectEqualStrings("server", unc.server);
+        try std.testing.expect(unc.sep_after_server);
+        try std.testing.expectEqualStrings("share", unc.share);
+        try std.testing.expect(!unc.sep_after_share);
+    }
+    {
+        const unc = parseUNC(u8, "/\\server\\share/");
+        try std.testing.expectEqualStrings("server", unc.server);
+        try std.testing.expect(unc.sep_after_server);
+        try std.testing.expectEqualStrings("share", unc.share);
+        try std.testing.expect(unc.sep_after_share);
+    }
+    {
+        const unc = parseUNC(u8, "\\\\server/\\share\\/");
+        try std.testing.expectEqualStrings("server", unc.server);
+        try std.testing.expect(unc.sep_after_server);
+        try std.testing.expectEqualStrings("share", unc.share);
+        try std.testing.expect(unc.sep_after_share);
+    }
+    {
+        const unc = parseUNC(u8, "\\\\server\\/\\\\");
+        try std.testing.expectEqualStrings("server", unc.server);
+        try std.testing.expect(unc.sep_after_server);
+        try std.testing.expectEqualStrings("", unc.share);
+        try std.testing.expect(!unc.sep_after_share);
+    }
+}
+
+const DiskDesignatorKind = enum { drive, unc };
+
+/// `p1` and `p2` are both assumed to be the `kind` provided.
+fn compareDiskDesignators(comptime T: type, kind: DiskDesignatorKind, p1: []const T, p2: []const T) bool {
+    const eql = switch (T) {
+        u8 => windows.eqlIgnoreCaseWtf8,
+        u16 => windows.eqlIgnoreCaseWtf16,
+        else => @compileError("only u8 (WTF-8) and u16 (WTF-16LE) is supported"),
+    };
+    switch (kind) {
+        .drive => {
+            const drive_letter1 = getDriveLetter(T, p1);
+            const drive_letter2 = getDriveLetter(T, p2);
+
+            return eql(drive_letter1, drive_letter2);
+        },
+        .unc => {
+            var unc1 = parseUNC(T, p1);
+            var unc2 = parseUNC(T, p2);
+
+            return eql(unc1.server, unc2.server) and
+                eql(unc1.share, unc2.share);
         },
     }
 }
 
+/// `path` is assumed to be drive-relative or drive-absolute.
+fn getDriveLetter(comptime T: type, path: []const T) []const T {
+    const len: usize = switch (T) {
+        // getWin32PathType will only return .drive_absolute/.drive_relative when there is
+        // (1) a valid code point, and (2) a code point < U+10000, so we only need to
+        // get the length determined by the first byte.
+        u8 => std.unicode.utf8ByteSequenceLength(path[0]) catch unreachable,
+        u16 => 1,
+        else => @compileError("unsupported type: " ++ @typeName(T)),
+    };
+    return path[0..len];
+}
+
+test compareDiskDesignators {
+    try testCompareDiskDesignators(true, .drive, "c:", "C:\\");
+    try testCompareDiskDesignators(true, .drive, "C:\\", "C:");
+    try testCompareDiskDesignators(false, .drive, "C:\\", "D:\\");
+    // Case-insensitivity technically applies to non-ASCII drive letters
+    try testCompareDiskDesignators(true, .drive, "λ:\\", "Λ:");
+
+    try testCompareDiskDesignators(true, .unc, "\\\\server", "//server//");
+    try testCompareDiskDesignators(true, .unc, "\\\\server\\\\share", "/\\server/share");
+    try testCompareDiskDesignators(true, .unc, "\\\\server\\\\share", "/\\server/share\\\\foo");
+    try testCompareDiskDesignators(false, .unc, "\\\\server\\sharefoo", "/\\server/share\\foo");
+    try testCompareDiskDesignators(false, .unc, "\\\\serverfoo\\\\share", "//server/share");
+    try testCompareDiskDesignators(false, .unc, "\\\\server\\", "//server/share");
+}
+
+fn testCompareDiskDesignators(expected_result: bool, kind: DiskDesignatorKind, p1: []const u8, p2: []const u8) !void {
+    var wtf16_buf1: [256]u16 = undefined;
+    const w1_len = try std.unicode.wtf8ToWtf16Le(&wtf16_buf1, p1);
+    var wtf16_buf2: [256]u16 = undefined;
+    const w2_len = try std.unicode.wtf8ToWtf16Le(&wtf16_buf2, p2);
+    try std.testing.expectEqual(expected_result, compareDiskDesignators(u8, kind, p1, p2));
+    try std.testing.expectEqual(expected_result, compareDiskDesignators(u16, kind, wtf16_buf1[0..w1_len], wtf16_buf2[0..w2_len]));
+}
+
 /// On Windows, this calls `resolveWindows` and on POSIX it calls `resolvePosix`.
-pub fn resolve(allocator: Allocator, paths: []const []const u8) ![]u8 {
+pub fn resolve(allocator: Allocator, paths: []const []const u8) Allocator.Error![]u8 {
     if (native_os == .windows) {
         return resolveWindows(allocator, paths);
     } else {
@@ -516,184 +871,232 @@ pub fn resolve(allocator: Allocator, paths: []const []const u8) ![]u8 {
 }
 
 /// This function is like a series of `cd` statements executed one after another.
-/// It resolves "." and "..", but will not convert relative path to absolute path, use std.fs.Dir.realpath instead.
-/// The result does not have a trailing path separator.
-/// Each drive has its own current working directory.
+/// It resolves "." and ".." to the best of its ability, but will not convert relative paths to
+/// an absolute path, use std.fs.Dir.realpath instead.
+/// ".." components may persist in the resolved path if the resolved path is relative or drive-relative.
 /// Path separators are canonicalized to '\\' and drives are canonicalized to capital letters.
+///
+/// The result will not have a trailing path separator, except for the following scenarios:
+/// - The resolved path is drive-absolute with no components (e.g. `C:\`).
+/// - The resolved path is a UNC path with only a server name, and the input path contained a trailing separator
+///   (e.g. `\\server\`).
+/// - The resolved path is a UNC path with no components after the share name, and the input path contained a
+///   trailing separator (e.g. `\\server\share\`).
+///
+/// Each drive has its own current working directory, which is only resolved via the paths provided.
+/// In the scenario that the resolved path contains a drive-relative path that can't be resolved using the paths alone,
+/// the result will be a drive-relative path.
+/// Similarly, in the scenario that the resolved path contains a rooted path that can't be resolved using the paths alone,
+/// the result will be a rooted path.
+///
 /// Note: all usage of this function should be audited due to the existence of symlinks.
 /// Without performing actual syscalls, resolving `..` could be incorrect.
 /// This API may break in the future: https://github.com/ziglang/zig/issues/13613
-pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
-    assert(paths.len > 0);
+pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) Allocator.Error![]u8 {
+    // Avoid heap allocation when paths.len is <= @bitSizeOf(usize) * 2
+    // (we use `* 3` because stackFallback uses 1 usize as a length)
+    var bit_set_allocator_state = std.heap.stackFallback(@sizeOf(usize) * 3, allocator);
+    const bit_set_allocator = bit_set_allocator_state.get();
+    var relevant_paths = try std.bit_set.DynamicBitSetUnmanaged.initEmpty(bit_set_allocator, paths.len);
+    defer relevant_paths.deinit(bit_set_allocator);
 
-    // determine which disk designator we will result with, if any
-    var result_drive_buf = "_:".*;
-    var disk_designator: []const u8 = "";
-    var drive_kind = WindowsPath.Kind.None;
-    var have_abs_path = false;
-    var first_index: usize = 0;
-    for (paths, 0..) |p, i| {
-        const parsed = windowsParsePath(p);
-        if (parsed.is_abs) {
-            have_abs_path = true;
-            first_index = i;
-        }
-        switch (parsed.kind) {
-            .Drive => {
-                result_drive_buf[0] = ascii.toUpper(parsed.disk_designator[0]);
-                disk_designator = result_drive_buf[0..];
-                drive_kind = WindowsPath.Kind.Drive;
-            },
-            .NetworkShare => {
-                disk_designator = parsed.disk_designator;
-                drive_kind = WindowsPath.Kind.NetworkShare;
-            },
-            .None => {},
-        }
-    }
-
-    // if we will result with a disk designator, loop again to determine
-    // which is the last time the disk designator is absolutely specified, if any
-    // and count up the max bytes for paths related to this disk designator
-    if (drive_kind != WindowsPath.Kind.None) {
-        have_abs_path = false;
-        first_index = 0;
-        var correct_disk_designator = false;
-
-        for (paths, 0..) |p, i| {
-            const parsed = windowsParsePath(p);
-            if (parsed.kind != WindowsPath.Kind.None) {
-                if (parsed.kind == drive_kind) {
-                    correct_disk_designator = compareDiskDesignators(drive_kind, disk_designator, parsed.disk_designator);
-                } else {
-                    continue;
-                }
+    // Iterate the paths backwards, marking the relevant paths along the way.
+    // This also allows us to break from the loop whenever any earlier paths are known to be irrelevant.
+    var first_path_i: usize = paths.len;
+    const effective_root_path: WindowsPath2(u8) = root: {
+        var last_effective_root_path: WindowsPath2(u8) = .{ .kind = .relative, .root = "" };
+        var last_rooted_path_i: ?usize = null;
+        var last_drive_relative_path_i: usize = undefined;
+        while (first_path_i > 0) {
+            first_path_i -= 1;
+            const parsed = parsePathWindows(u8, paths[first_path_i]);
+            switch (parsed.kind) {
+                .unc_absolute, .root_local_device, .local_device => {
+                    switch (last_effective_root_path.kind) {
+                        .rooted => {},
+                        .drive_relative => continue,
+                        else => {
+                            relevant_paths.set(first_path_i);
+                        },
+                    }
+                    break :root parsed;
+                },
+                .drive_relative, .drive_absolute => {
+                    switch (last_effective_root_path.kind) {
+                        .drive_relative => if (!compareDiskDesignators(u8, .drive, parsed.root, last_effective_root_path.root)) {
+                            continue;
+                        } else if (last_rooted_path_i != null) {
+                            break :root .{ .kind = .drive_absolute, .root = parsed.root };
+                        },
+                        .relative => last_effective_root_path = parsed,
+                        .rooted => {
+                            // This is the end of the line, since the rooted path will always be relative
+                            // to this drive letter, and even if the current path is drive-relative, the
+                            // rooted-ness makes that irrelevant.
+                            //
+                            // Therefore, force the kind of the effective root to be drive-absolute in order to
+                            // properly resolve a rooted path against a drive-relative one, as the result should
+                            // always be drive-absolute.
+                            break :root .{ .kind = .drive_absolute, .root = parsed.root };
+                        },
+                        .drive_absolute, .unc_absolute, .root_local_device, .local_device => unreachable,
+                    }
+                    relevant_paths.set(first_path_i);
+                    last_drive_relative_path_i = first_path_i;
+                    if (parsed.kind == .drive_absolute) {
+                        break :root parsed;
+                    }
+                },
+                .relative => {
+                    switch (last_effective_root_path.kind) {
+                        .rooted => continue,
+                        .relative => last_effective_root_path = parsed,
+                        else => {},
+                    }
+                    relevant_paths.set(first_path_i);
+                },
+                .rooted => {
+                    switch (last_effective_root_path.kind) {
+                        .drive_relative => {},
+                        .relative => last_effective_root_path = parsed,
+                        .rooted => continue,
+                        .drive_absolute, .unc_absolute, .root_local_device, .local_device => unreachable,
+                    }
+                    if (last_rooted_path_i == null) {
+                        last_rooted_path_i = first_path_i;
+                        relevant_paths.set(first_path_i);
+                    }
+                },
             }
-            if (!correct_disk_designator) {
-                continue;
-            }
-            if (parsed.is_abs) {
-                first_index = i;
-                have_abs_path = true;
+        }
+        // After iterating, if the pending effective root is drive-relative then that means
+        // nothing has led to forcing a drive-absolute root (a path that allows resolving the
+        // drive-specific CWD would cause an early break), so we now need to ignore all paths
+        // before the most recent drive-relative one. For example, if we're resolving
+        // { "\\rooted", "relative", "C:drive-relative" }
+        // then the `\rooted` and `relative` needs to be ignored since we can't
+        // know what the rooted path is rooted against as that'd require knowing the CWD.
+        if (last_effective_root_path.kind == .drive_relative) {
+            for (0..last_drive_relative_path_i) |i| {
+                relevant_paths.unset(i);
             }
         }
-    }
-
-    // Allocate result and fill in the disk designator.
-    var result = std.array_list.Managed(u8).init(allocator);
-    defer result.deinit();
-
-    const disk_designator_len: usize = l: {
-        if (!have_abs_path) break :l 0;
-        switch (drive_kind) {
-            .Drive => {
-                try result.appendSlice(disk_designator);
-                break :l disk_designator.len;
-            },
-            .NetworkShare => {
-                var it = mem.tokenizeAny(u8, paths[first_index], "/\\");
-                const server_name = it.next().?;
-                const other_name = it.next().?;
-
-                try result.ensureUnusedCapacity(2 + 1 + server_name.len + other_name.len);
-                result.appendSliceAssumeCapacity("\\\\");
-                result.appendSliceAssumeCapacity(server_name);
-                result.appendAssumeCapacity('\\');
-                result.appendSliceAssumeCapacity(other_name);
-
-                break :l result.items.len;
-            },
-            .None => {
-                break :l 1;
-            },
-        }
+        break :root last_effective_root_path;
     };
 
-    var correct_disk_designator = true;
-    var negative_count: usize = 0;
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(allocator);
 
-    for (paths[first_index..]) |p| {
-        const parsed = windowsParsePath(p);
-
-        if (parsed.kind != .None) {
-            if (parsed.kind == drive_kind) {
-                const dd = result.items[0..disk_designator_len];
-                correct_disk_designator = compareDiskDesignators(drive_kind, dd, parsed.disk_designator);
-            } else {
-                continue;
+    var want_path_sep_between_root_and_component = false;
+    switch (effective_root_path.kind) {
+        .root_local_device, .local_device => {
+            try result.ensureUnusedCapacity(allocator, 3);
+            result.appendSliceAssumeCapacity("\\\\");
+            result.appendAssumeCapacity(effective_root_path.root[2]); // . or ?
+            want_path_sep_between_root_and_component = true;
+        },
+        .drive_absolute, .drive_relative => {
+            try result.ensureUnusedCapacity(allocator, effective_root_path.root.len);
+            result.appendAssumeCapacity(std.ascii.toUpper(effective_root_path.root[0]));
+            result.appendAssumeCapacity(':');
+            if (effective_root_path.kind == .drive_absolute) {
+                result.appendAssumeCapacity('\\');
             }
-        }
-        if (!correct_disk_designator) {
-            continue;
-        }
-        var it = mem.tokenizeAny(u8, p[parsed.disk_designator.len..], "/\\");
+        },
+        .unc_absolute => {
+            const unc = parseUNC(u8, effective_root_path.root);
+
+            const root_len = len: {
+                var len: usize = 2 + unc.server.len + unc.share.len;
+                if (unc.sep_after_server) len += 1;
+                if (unc.sep_after_share) len += 1;
+                break :len len;
+            };
+            try result.ensureUnusedCapacity(allocator, root_len);
+            result.appendSliceAssumeCapacity("\\\\");
+            if (unc.server.len > 0 or unc.sep_after_server) {
+                result.appendSliceAssumeCapacity(unc.server);
+                if (unc.sep_after_server)
+                    result.appendAssumeCapacity('\\')
+                else
+                    want_path_sep_between_root_and_component = true;
+            }
+            if (unc.share.len > 0) {
+                result.appendSliceAssumeCapacity(unc.share);
+                if (unc.sep_after_share)
+                    result.appendAssumeCapacity('\\')
+                else
+                    want_path_sep_between_root_and_component = true;
+            }
+        },
+        .rooted => {
+            try result.append(allocator, '\\');
+        },
+        .relative => {},
+    }
+
+    const root_len = result.items.len;
+    var negative_count: usize = 0;
+    for (paths[first_path_i..], first_path_i..) |path, i| {
+        if (!relevant_paths.isSet(i)) continue;
+
+        const parsed = parsePathWindows(u8, path);
+        const skip_len = parsed.root.len;
+        var it = mem.tokenizeAny(u8, path[skip_len..], "/\\");
         while (it.next()) |component| {
             if (mem.eql(u8, component, ".")) {
                 continue;
             } else if (mem.eql(u8, component, "..")) {
-                if (result.items.len == 0) {
+                if (result.items.len == 0 or (result.items.len == root_len and effective_root_path.kind == .drive_relative)) {
                     negative_count += 1;
                     continue;
                 }
                 while (true) {
-                    if (result.items.len == disk_designator_len) {
+                    if (result.items.len == root_len) {
                         break;
                     }
-                    const end_with_sep = switch (result.items[result.items.len - 1]) {
-                        '\\', '/' => true,
-                        else => false,
-                    };
+                    const end_with_sep = PathType.windows.isSep(u8, result.items[result.items.len - 1]);
                     result.items.len -= 1;
-                    if (end_with_sep or result.items.len == 0) break;
+                    if (end_with_sep) break;
                 }
-            } else if (!have_abs_path and result.items.len == 0) {
-                try result.appendSlice(component);
+            } else if (result.items.len == root_len and !want_path_sep_between_root_and_component) {
+                try result.appendSlice(allocator, component);
             } else {
-                try result.ensureUnusedCapacity(1 + component.len);
+                try result.ensureUnusedCapacity(allocator, 1 + component.len);
                 result.appendAssumeCapacity('\\');
                 result.appendSliceAssumeCapacity(component);
             }
         }
     }
 
-    if (disk_designator_len != 0 and result.items.len == disk_designator_len) {
-        try result.append('\\');
-        return result.toOwnedSlice();
+    if (root_len != 0 and result.items.len == root_len and negative_count == 0) {
+        return result.toOwnedSlice(allocator);
     }
 
-    if (result.items.len == 0) {
+    if (result.items.len == root_len) {
         if (negative_count == 0) {
             return allocator.dupe(u8, ".");
-        } else {
-            const real_result = try allocator.alloc(u8, 3 * negative_count - 1);
-            var count = negative_count - 1;
-            var i: usize = 0;
-            while (count > 0) : (count -= 1) {
-                real_result[i..][0..3].* = "..\\".*;
-                i += 3;
-            }
-            real_result[i..][0..2].* = "..".*;
-            return real_result;
+        }
+
+        try result.ensureTotalCapacityPrecise(allocator, 3 * negative_count - 1);
+        for (0..negative_count - 1) |_| {
+            result.appendSliceAssumeCapacity("..\\");
+        }
+        result.appendSliceAssumeCapacity("..");
+    } else {
+        const dest = try result.addManyAt(allocator, root_len, 3 * negative_count);
+        for (0..negative_count) |i| {
+            dest[i * 3 ..][0..3].* = "..\\".*;
         }
     }
 
-    if (negative_count == 0) {
-        return result.toOwnedSlice();
-    } else {
-        const real_result = try allocator.alloc(u8, 3 * negative_count + result.items.len);
-        var count = negative_count;
-        var i: usize = 0;
-        while (count > 0) : (count -= 1) {
-            real_result[i..][0..3].* = "..\\".*;
-            i += 3;
-        }
-        @memcpy(real_result[i..][0..result.items.len], result.items);
-        return real_result;
-    }
+    return result.toOwnedSlice(allocator);
 }
 
 /// This function is like a series of `cd` statements executed one after another.
-/// It resolves "." and "..", but will not convert relative path to absolute path, use std.fs.Dir.realpath instead.
+/// It resolves "." and ".." to the best of its ability, but will not convert relative paths to
+/// an absolute path, use std.fs.Dir.realpath instead.
+/// ".." components may persist in the resolved path if the resolved path is relative.
 /// The result does not have a trailing path separator.
 /// This function does not perform any syscalls. Executing this series of path
 /// lookups on the actual filesystem may produce different results due to
@@ -772,10 +1175,14 @@ pub fn resolvePosix(allocator: Allocator, paths: []const []const u8) Allocator.E
 }
 
 test resolve {
+    try testResolveWindows(&[_][]const u8{ "a", "..\\..\\.." }, "..\\..");
+    try testResolveWindows(&[_][]const u8{ "..", "", "..\\..\\foo" }, "..\\..\\..\\foo");
     try testResolveWindows(&[_][]const u8{ "a\\b\\c\\", "..\\..\\.." }, ".");
     try testResolveWindows(&[_][]const u8{"."}, ".");
     try testResolveWindows(&[_][]const u8{""}, ".");
 
+    try testResolvePosix(&[_][]const u8{ "a", "../../.." }, "../..");
+    try testResolvePosix(&[_][]const u8{ "..", "", "../../foo" }, "../../../foo");
     try testResolvePosix(&[_][]const u8{ "a/b/c/", "../../.." }, ".");
     try testResolvePosix(&[_][]const u8{"."}, ".");
     try testResolvePosix(&[_][]const u8{""}, ".");
@@ -792,22 +1199,81 @@ test resolveWindows {
     );
 
     try testResolveWindows(&[_][]const u8{ "c:\\a\\b\\c", "/hi", "ok" }, "C:\\hi\\ok");
+    try testResolveWindows(&[_][]const u8{ "c:\\a\\b\\c\\", ".\\..\\foo" }, "C:\\a\\b\\foo");
     try testResolveWindows(&[_][]const u8{ "c:/blah\\blah", "d:/games", "c:../a" }, "C:\\blah\\a");
     try testResolveWindows(&[_][]const u8{ "c:/blah\\blah", "d:/games", "C:../a" }, "C:\\blah\\a");
     try testResolveWindows(&[_][]const u8{ "c:/ignore", "d:\\a/b\\c/d", "\\e.exe" }, "D:\\e.exe");
     try testResolveWindows(&[_][]const u8{ "c:/ignore", "c:/some/file" }, "C:\\some\\file");
-    try testResolveWindows(&[_][]const u8{ "d:/ignore", "d:some/dir//" }, "D:\\ignore\\some\\dir");
+    // The first path "sets" the CWD, so the drive-relative path is then relative to that.
+    try testResolveWindows(&[_][]const u8{ "d:/foo", "d:some/dir//", "D:another" }, "D:\\foo\\some\\dir\\another");
     try testResolveWindows(&[_][]const u8{ "//server/share", "..", "relative\\" }, "\\\\server\\share\\relative");
     try testResolveWindows(&[_][]const u8{ "\\\\server/share", "..", "relative\\" }, "\\\\server\\share\\relative");
-    try testResolveWindows(&[_][]const u8{ "c:/", "//" }, "C:\\");
-    try testResolveWindows(&[_][]const u8{ "c:/", "//dir" }, "C:\\dir");
-    try testResolveWindows(&[_][]const u8{ "c:/", "//server/share" }, "\\\\server\\share\\");
-    try testResolveWindows(&[_][]const u8{ "c:/", "//server//share" }, "\\\\server\\share\\");
-    try testResolveWindows(&[_][]const u8{ "c:/", "///some//dir" }, "C:\\some\\dir");
+    try testResolveWindows(&[_][]const u8{ "\\\\server/share/ignore", "//server/share/bar" }, "\\\\server\\share\\bar");
+    try testResolveWindows(&[_][]const u8{ "\\/server\\share/", "..", "relative" }, "\\\\server\\share\\relative");
+    try testResolveWindows(&[_][]const u8{ "\\\\server\\share", "C:drive-relative" }, "C:drive-relative");
+    try testResolveWindows(&[_][]const u8{ "c:/", "//" }, "\\\\");
+    try testResolveWindows(&[_][]const u8{ "c:/", "//server" }, "\\\\server");
+    try testResolveWindows(&[_][]const u8{ "c:/", "//server/share" }, "\\\\server\\share");
+    try testResolveWindows(&[_][]const u8{ "c:/", "//server//share////" }, "\\\\server\\share\\");
+    try testResolveWindows(&[_][]const u8{ "c:/", "///some//dir" }, "\\\\\\some\\dir");
+    try testResolveWindows(&[_][]const u8{ "c:foo", "bar" }, "C:foo\\bar");
     try testResolveWindows(&[_][]const u8{ "C:\\foo\\tmp.3\\", "..\\tmp.3\\cycles\\root.js" }, "C:\\foo\\tmp.3\\cycles\\root.js");
+    // Drive-relative stays drive-relative if there's nothing to provide the drive-specific CWD
+    try testResolveWindows(&[_][]const u8{ "relative", "d:foo" }, "D:foo");
+    try testResolveWindows(&[_][]const u8{ "../..\\..", "d:foo" }, "D:foo");
+    try testResolveWindows(&[_][]const u8{ "../..\\..", "\\rooted", "d:foo" }, "D:foo");
+    try testResolveWindows(&[_][]const u8{ "C:\\foo", "../..\\..", "\\rooted", "d:foo" }, "D:foo");
+    try testResolveWindows(&[_][]const u8{ "D:relevant", "../..\\..", "d:foo" }, "D:..\\..\\foo");
+    try testResolveWindows(&[_][]const u8{ "D:relevant", "../..\\..", "\\\\.\\ignored", "C:\\ignored", "C:ignored", "\\\\ignored", "d:foo" }, "D:..\\..\\foo");
+    try testResolveWindows(&[_][]const u8{ "ignored", "\\\\.\\ignored", "C:\\ignored", "C:ignored", "\\\\ignored", "d:foo" }, "D:foo");
+    // Rooted paths remain rooted if there's no absolute path available to resolve the "root"
+    try testResolveWindows(&[_][]const u8{ "/foo", "bar" }, "\\foo\\bar");
+    // Rooted against a UNC path
+    try testResolveWindows(&[_][]const u8{ "//server/share/ignore", "/foo", "bar" }, "\\\\server\\share\\foo\\bar");
+    try testResolveWindows(&[_][]const u8{ "//server/share/", "/foo" }, "\\\\server\\share\\foo");
+    try testResolveWindows(&[_][]const u8{ "//server/share", "/foo" }, "\\\\server\\share\\foo");
+    try testResolveWindows(&[_][]const u8{ "//server/", "/foo" }, "\\\\server\\foo");
+    try testResolveWindows(&[_][]const u8{ "//server", "/foo" }, "\\\\server\\foo");
+    try testResolveWindows(&[_][]const u8{ "//", "/foo" }, "\\\\foo");
+    // Rooted against a drive-relative path
+    try testResolveWindows(&[_][]const u8{ "C:", "/foo", "bar" }, "C:\\foo\\bar");
+    try testResolveWindows(&[_][]const u8{ "C:\\ignore", "C:", "/foo", "bar" }, "C:\\foo\\bar");
+    try testResolveWindows(&[_][]const u8{ "C:\\ignore", "\\foo", "C:bar" }, "C:\\foo\\bar");
+    // Only the last rooted path is relevant
+    try testResolveWindows(&[_][]const u8{ "\\ignore", "\\foo" }, "\\foo");
+    try testResolveWindows(&[_][]const u8{ "c:ignore", "ignore", "\\ignore", "\\foo" }, "C:\\foo");
+    // Rooted is only relevant to a drive-relative if there's a previous drive-* path
+    try testResolveWindows(&[_][]const u8{ "\\ignore", "C:foo" }, "C:foo");
+    try testResolveWindows(&[_][]const u8{ "\\ignore", "\\ignore2", "C:foo" }, "C:foo");
+    try testResolveWindows(&[_][]const u8{ "c:ignore", "\\ignore", "\\rooted", "C:foo" }, "C:\\rooted\\foo");
+    try testResolveWindows(&[_][]const u8{ "c:\\ignore", "\\ignore", "\\rooted", "C:foo" }, "C:\\rooted\\foo");
+    try testResolveWindows(&[_][]const u8{ "d:\\ignore", "\\ignore", "\\ignore2", "C:foo" }, "C:foo");
+    // Root local device paths
+    try testResolveWindows(&[_][]const u8{"\\/."}, "\\\\.");
+    try testResolveWindows(&[_][]const u8{ "\\/.", "C:drive-relative" }, "C:drive-relative");
+    try testResolveWindows(&[_][]const u8{"/\\?"}, "\\\\?");
+    try testResolveWindows(&[_][]const u8{ "ignore", "c:\\ignore", "\\\\.", "foo" }, "\\\\.\\foo");
+    try testResolveWindows(&[_][]const u8{ "ignore", "c:\\ignore", "\\\\?", "foo" }, "\\\\?\\foo");
+    try testResolveWindows(&[_][]const u8{ "ignore", "c:\\ignore", "//.", "ignore", "\\foo" }, "\\\\.\\foo");
+    try testResolveWindows(&[_][]const u8{ "ignore", "c:\\ignore", "\\\\?", "ignore", "\\foo" }, "\\\\?\\foo");
 
     // Keep relative paths relative.
     try testResolveWindows(&[_][]const u8{"a/b"}, "a\\b");
+    try testResolveWindows(&[_][]const u8{".."}, "..");
+    try testResolveWindows(&[_][]const u8{"../.."}, "..\\..");
+    try testResolveWindows(&[_][]const u8{ "C:foo", "../.." }, "C:..");
+    try testResolveWindows(&[_][]const u8{ "d:foo", "../..\\.." }, "D:..\\..");
+
+    // Local device paths treat the \\.\ or \\?\ as the "root", everything afterwards is treated as a regular component.
+    try testResolveWindows(&[_][]const u8{ "\\\\?\\C:\\foo", "../bar", "baz" }, "\\\\?\\C:\\bar\\baz");
+    try testResolveWindows(&[_][]const u8{ "\\\\.\\C:/foo", "../../../../bar", "baz" }, "\\\\.\\bar\\baz");
+    try testResolveWindows(&[_][]const u8{ "//./C:/foo", "../../../../bar", "baz" }, "\\\\.\\bar\\baz");
+    try testResolveWindows(&[_][]const u8{ "\\\\.\\foo", ".." }, "\\\\.");
+    try testResolveWindows(&[_][]const u8{ "\\\\.\\foo", "..\\.." }, "\\\\.");
+
+    // Paths are assumed to be Win32, so paths that are likely NT paths are treated as a rooted path.
+    try testResolveWindows(&[_][]const u8{ "\\??\\C:\\foo", "/bar", "baz" }, "\\bar\\baz");
+    try testResolveWindows(&[_][]const u8{ "C:\\", "\\??\\C:\\foo", "bar" }, "C:\\??\\C:\\foo\\bar");
 }
 
 test resolvePosix {
@@ -855,63 +1321,18 @@ pub fn dirname(path: []const u8) ?[]const u8 {
 }
 
 pub fn dirnameWindows(path: []const u8) ?[]const u8 {
-    if (path.len == 0)
-        return null;
-
-    const root_slice = diskDesignatorWindows(path);
-    if (path.len == root_slice.len)
-        return null;
-
-    const have_root_slash = path.len > root_slice.len and (path[root_slice.len] == '/' or path[root_slice.len] == '\\');
-
-    var end_index: usize = path.len - 1;
-
-    while (path[end_index] == '/' or path[end_index] == '\\') {
-        if (end_index == 0)
-            return null;
-        end_index -= 1;
-    }
-
-    while (path[end_index] != '/' and path[end_index] != '\\') {
-        if (end_index == 0)
-            return null;
-        end_index -= 1;
-    }
-
-    if (have_root_slash and end_index == root_slice.len) {
-        end_index += 1;
-    }
-
-    if (end_index == 0)
-        return null;
-
-    return path[0..end_index];
+    return dirnameInner(.windows, path);
 }
 
 pub fn dirnamePosix(path: []const u8) ?[]const u8 {
-    if (path.len == 0)
-        return null;
+    return dirnameInner(.posix, path);
+}
 
-    var end_index: usize = path.len - 1;
-    while (path[end_index] == '/') {
-        if (end_index == 0)
-            return null;
-        end_index -= 1;
-    }
-
-    while (path[end_index] != '/') {
-        if (end_index == 0)
-            return null;
-        end_index -= 1;
-    }
-
-    if (end_index == 0 and path[0] == '/')
-        return path[0..1];
-
-    if (end_index == 0)
-        return null;
-
-    return path[0..end_index];
+fn dirnameInner(comptime path_type: PathType, path: []const u8) ?[]const u8 {
+    var it = ComponentIterator(path_type, u8).init(path);
+    _ = it.last() orelse return null;
+    const up = it.previous() orelse return it.root();
+    return up.path;
 }
 
 test dirnamePosix {
@@ -930,11 +1351,12 @@ test dirnamePosix {
 
 test dirnameWindows {
     try testDirnameWindows("c:\\", null);
+    try testDirnameWindows("c:\\\\", null);
     try testDirnameWindows("c:\\foo", "c:\\");
-    try testDirnameWindows("c:\\foo\\", "c:\\");
+    try testDirnameWindows("c:\\\\foo\\", "c:\\");
     try testDirnameWindows("c:\\foo\\bar", "c:\\foo");
     try testDirnameWindows("c:\\foo\\bar\\", "c:\\foo");
-    try testDirnameWindows("c:\\foo\\bar\\baz", "c:\\foo\\bar");
+    try testDirnameWindows("c:\\\\foo\\bar\\baz", "c:\\\\foo\\bar");
     try testDirnameWindows("\\", null);
     try testDirnameWindows("\\foo", "\\");
     try testDirnameWindows("\\foo\\", "\\");
@@ -942,19 +1364,30 @@ test dirnameWindows {
     try testDirnameWindows("\\foo\\bar\\", "\\foo");
     try testDirnameWindows("\\foo\\bar\\baz", "\\foo\\bar");
     try testDirnameWindows("c:", null);
-    try testDirnameWindows("c:foo", null);
-    try testDirnameWindows("c:foo\\", null);
+    try testDirnameWindows("c:foo", "c:");
+    try testDirnameWindows("c:foo\\", "c:");
     try testDirnameWindows("c:foo\\bar", "c:foo");
     try testDirnameWindows("c:foo\\bar\\", "c:foo");
     try testDirnameWindows("c:foo\\bar\\baz", "c:foo\\bar");
     try testDirnameWindows("file:stream", null);
     try testDirnameWindows("dir\\file:stream", "dir");
     try testDirnameWindows("\\\\unc\\share", null);
+    try testDirnameWindows("\\\\unc\\share\\\\", null);
     try testDirnameWindows("\\\\unc\\share\\foo", "\\\\unc\\share\\");
     try testDirnameWindows("\\\\unc\\share\\foo\\", "\\\\unc\\share\\");
     try testDirnameWindows("\\\\unc\\share\\foo\\bar", "\\\\unc\\share\\foo");
     try testDirnameWindows("\\\\unc\\share\\foo\\bar\\", "\\\\unc\\share\\foo");
     try testDirnameWindows("\\\\unc\\share\\foo\\bar\\baz", "\\\\unc\\share\\foo\\bar");
+    try testDirnameWindows("\\\\.", null);
+    try testDirnameWindows("\\\\.\\", null);
+    try testDirnameWindows("\\\\.\\device", "\\\\.\\");
+    try testDirnameWindows("\\\\.\\device\\", "\\\\.\\");
+    try testDirnameWindows("\\\\.\\device\\foo", "\\\\.\\device");
+    try testDirnameWindows("\\\\?", null);
+    try testDirnameWindows("\\\\?\\", null);
+    try testDirnameWindows("\\\\?\\device", "\\\\?\\");
+    try testDirnameWindows("\\\\?\\device\\", "\\\\?\\");
+    try testDirnameWindows("\\\\?\\device\\foo", "\\\\?\\device");
     try testDirnameWindows("/a/b/", "/a");
     try testDirnameWindows("/a/b", "/a");
     try testDirnameWindows("/a", "/");
@@ -974,7 +1407,7 @@ fn testDirnamePosix(input: []const u8, expected_output: ?[]const u8) !void {
 
 fn testDirnameWindows(input: []const u8, expected_output: ?[]const u8) !void {
     if (dirnameWindows(input)) |output| {
-        try testing.expect(mem.eql(u8, output, expected_output.?));
+        try testing.expectEqualStrings(expected_output.?, output);
     } else {
         try testing.expect(expected_output == null);
     }
@@ -989,56 +1422,17 @@ pub fn basename(path: []const u8) []const u8 {
 }
 
 pub fn basenamePosix(path: []const u8) []const u8 {
-    if (path.len == 0)
-        return &[_]u8{};
-
-    var end_index: usize = path.len - 1;
-    while (path[end_index] == '/') {
-        if (end_index == 0)
-            return &[_]u8{};
-        end_index -= 1;
-    }
-    var start_index: usize = end_index;
-    end_index += 1;
-    while (path[start_index] != '/') {
-        if (start_index == 0)
-            return path[0..end_index];
-        start_index -= 1;
-    }
-
-    return path[start_index + 1 .. end_index];
+    return basenameInner(.posix, path);
 }
 
 pub fn basenameWindows(path: []const u8) []const u8 {
-    if (path.len == 0)
-        return &[_]u8{};
+    return basenameInner(.windows, path);
+}
 
-    var end_index: usize = path.len - 1;
-    while (true) {
-        const byte = path[end_index];
-        if (byte == '/' or byte == '\\') {
-            if (end_index == 0)
-                return &[_]u8{};
-            end_index -= 1;
-            continue;
-        }
-        if (byte == ':' and end_index == 1) {
-            return &[_]u8{};
-        }
-        break;
-    }
-
-    var start_index: usize = end_index;
-    end_index += 1;
-    while (path[start_index] != '/' and path[start_index] != '\\' and
-        !(path[start_index] == ':' and start_index == 1))
-    {
-        if (start_index == 0)
-            return path[0..end_index];
-        start_index -= 1;
-    }
-
-    return path[start_index + 1 .. end_index];
+fn basenameInner(comptime path_type: PathType, path: []const u8) []const u8 {
+    var it = ComponentIterator(path_type, u8).init(path);
+    const last = it.last() orelse return &[_]u8{};
+    return last.name;
 }
 
 test basename {
@@ -1053,7 +1447,9 @@ test basename {
     try testBasename("/aaa/", "aaa");
     try testBasename("/aaa/b", "b");
     try testBasename("/a/b", "b");
-    try testBasename("//a", "a");
+
+    // For Windows, this is a UNC path that only has a server name component.
+    try testBasename("//a", if (native_os == .windows) "" else "a");
 
     try testBasenamePosix("\\dir\\basename.ext", "\\dir\\basename.ext");
     try testBasenamePosix("\\basename.ext", "\\basename.ext");
@@ -1076,6 +1472,12 @@ test basename {
     try testBasenameWindows("C:basename.ext", "basename.ext");
     try testBasenameWindows("C:basename.ext\\", "basename.ext");
     try testBasenameWindows("C:basename.ext\\\\", "basename.ext");
+    try testBasenameWindows("\\\\.", "");
+    try testBasenameWindows("\\\\.\\", "");
+    try testBasenameWindows("\\\\.\\basename.ext", "basename.ext");
+    try testBasenameWindows("\\\\?", "");
+    try testBasenameWindows("\\\\?\\", "");
+    try testBasenameWindows("\\\\?\\basename.ext", "basename.ext");
     try testBasenameWindows("C:foo", "foo");
     try testBasenameWindows("file:stream", "file:stream");
 }
@@ -1092,11 +1494,15 @@ fn testBasenameWindows(input: []const u8, expected_output: []const u8) !void {
     try testing.expectEqualSlices(u8, expected_output, basenameWindows(input));
 }
 
+pub const RelativeError = std.process.GetCwdAllocError;
+
 /// Returns the relative path from `from` to `to`. If `from` and `to` each
 /// resolve to the same path (after calling `resolve` on each), a zero-length
 /// string is returned.
-/// On Windows this canonicalizes the drive to a capital letter and paths to `\\`.
-pub fn relative(allocator: Allocator, from: []const u8, to: []const u8) ![]u8 {
+/// On Windows, the result is not guaranteed to be relative, as the paths may be
+/// on different volumes. In that case, the result will be the canonicalized absolute
+/// path of `to`.
+pub fn relative(allocator: Allocator, from: []const u8, to: []const u8) RelativeError![]u8 {
     if (native_os == .windows) {
         return relativeWindows(allocator, from, to);
     } else {
@@ -1105,30 +1511,53 @@ pub fn relative(allocator: Allocator, from: []const u8, to: []const u8) ![]u8 {
 }
 
 pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) ![]u8 {
-    const cwd = try process.getCwdAlloc(allocator);
-    defer allocator.free(cwd);
-    const resolved_from = try resolveWindows(allocator, &[_][]const u8{ cwd, from });
-    defer allocator.free(resolved_from);
+    if (native_os != .windows) @compileError("this function relies on Windows-specific semantics");
 
+    const parsed_from = parsePathWindows(u8, from);
+    const parsed_to = parsePathWindows(u8, to);
+
+    const result_is_always_to = x: {
+        if (parsed_from.kind != parsed_to.kind) {
+            break :x false;
+        }
+        switch (parsed_from.kind) {
+            .drive_relative, .drive_absolute => {
+                break :x !compareDiskDesignators(u8, .drive, parsed_from.root, parsed_to.root);
+            },
+            .unc_absolute => {
+                break :x !compareDiskDesignators(u8, .unc, parsed_from.root, parsed_to.root);
+            },
+            .relative, .rooted, .local_device => break :x false,
+            .root_local_device => break :x true,
+        }
+    };
+
+    if (result_is_always_to) {
+        return windowsResolveAgainstCwd(allocator, to, parsed_to);
+    }
+
+    const resolved_from = try windowsResolveAgainstCwd(allocator, from, parsed_from);
+    defer allocator.free(resolved_from);
     var clean_up_resolved_to = true;
-    const resolved_to = try resolveWindows(allocator, &[_][]const u8{ cwd, to });
+    const resolved_to = try windowsResolveAgainstCwd(allocator, to, parsed_to);
     defer if (clean_up_resolved_to) allocator.free(resolved_to);
 
-    const parsed_from = windowsParsePath(resolved_from);
-    const parsed_to = windowsParsePath(resolved_to);
+    const parsed_resolved_from = parsePathWindows(u8, resolved_from);
+    const parsed_resolved_to = parsePathWindows(u8, resolved_to);
+
     const result_is_to = x: {
-        if (parsed_from.kind != parsed_to.kind) {
+        if (parsed_resolved_from.kind != parsed_resolved_to.kind) {
             break :x true;
-        } else switch (parsed_from.kind) {
-            .NetworkShare => {
-                break :x !networkShareServersEql(parsed_to.disk_designator, parsed_from.disk_designator);
+        }
+        switch (parsed_resolved_from.kind) {
+            .drive_absolute, .drive_relative => {
+                break :x !compareDiskDesignators(u8, .drive, parsed_resolved_from.root, parsed_resolved_to.root);
             },
-            .Drive => {
-                break :x ascii.toUpper(parsed_from.disk_designator[0]) != ascii.toUpper(parsed_to.disk_designator[0]);
+            .unc_absolute => {
+                break :x !compareDiskDesignators(u8, .unc, parsed_resolved_from.root, parsed_resolved_to.root);
             },
-            .None => {
-                break :x false;
-            },
+            .relative, .rooted, .local_device => break :x false,
+            .root_local_device => break :x true,
         }
     };
 
@@ -1137,8 +1566,8 @@ pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) !
         return resolved_to;
     }
 
-    var from_it = mem.tokenizeAny(u8, resolved_from, "/\\");
-    var to_it = mem.tokenizeAny(u8, resolved_to, "/\\");
+    var from_it = mem.tokenizeAny(u8, resolved_from[parsed_resolved_from.root.len..], "/\\");
+    var to_it = mem.tokenizeAny(u8, resolved_to[parsed_resolved_to.root.len..], "/\\");
     while (true) {
         const from_component = from_it.next() orelse return allocator.dupe(u8, to_it.rest());
         const to_rest = to_it.rest();
@@ -1170,11 +1599,101 @@ pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) !
 
         return allocator.realloc(result, result_index);
     }
-
     return [_]u8{};
 }
 
+fn windowsResolveAgainstCwd(allocator: Allocator, path: []const u8, parsed: WindowsPath2(u8)) ![]u8 {
+    // Space for 256 WTF-16 code units; potentially 3 WTF-8 bytes per WTF-16 code unit
+    var temp_allocator_state = std.heap.stackFallback(256 * 3, allocator);
+    return switch (parsed.kind) {
+        .drive_absolute,
+        .unc_absolute,
+        .root_local_device,
+        .local_device,
+        => try resolveWindows(allocator, &.{path}),
+        .relative => blk: {
+            const temp_allocator = temp_allocator_state.get();
+
+            const peb_cwd = windows.peb().ProcessParameters.CurrentDirectory.DosPath;
+            const cwd_w = (peb_cwd.Buffer.?)[0 .. peb_cwd.Length / 2];
+
+            const wtf8_len = std.unicode.calcWtf8Len(cwd_w);
+            const wtf8_buf = try temp_allocator.alloc(u8, wtf8_len);
+            defer temp_allocator.free(wtf8_buf);
+            assert(std.unicode.wtf16LeToWtf8(wtf8_buf, cwd_w) == wtf8_len);
+
+            break :blk try resolveWindows(allocator, &.{ wtf8_buf, path });
+        },
+        .rooted => blk: {
+            const peb_cwd = windows.peb().ProcessParameters.CurrentDirectory.DosPath;
+            const cwd_w = (peb_cwd.Buffer.?)[0 .. peb_cwd.Length / 2];
+            const parsed_cwd = parsePathWindows(u16, cwd_w);
+            switch (parsed_cwd.kind) {
+                .drive_absolute => {
+                    var drive_buf = "_:\\".*;
+                    drive_buf[0] = @truncate(cwd_w[0]);
+                    break :blk try resolveWindows(allocator, &.{ &drive_buf, path });
+                },
+                .unc_absolute => {
+                    const temp_allocator = temp_allocator_state.get();
+                    var root_buf = try temp_allocator.alloc(u8, parsed_cwd.root.len * 3);
+                    defer temp_allocator.free(root_buf);
+
+                    const wtf8_len = std.unicode.wtf16LeToWtf8(root_buf, parsed_cwd.root);
+                    const root = root_buf[0..wtf8_len];
+                    break :blk try resolveWindows(allocator, &.{ root, path });
+                },
+                // Effectively a malformed CWD, give up and just return a normalized path
+                else => break :blk try resolveWindows(allocator, &.{path}),
+            }
+        },
+        .drive_relative => blk: {
+            const temp_allocator = temp_allocator_state.get();
+            const drive_cwd = drive_cwd: {
+                const peb_cwd = windows.peb().ProcessParameters.CurrentDirectory.DosPath;
+                const cwd_w = (peb_cwd.Buffer.?)[0 .. peb_cwd.Length / 2];
+                const parsed_cwd = parsePathWindows(u16, cwd_w);
+
+                if (parsed_cwd.kind == .drive_absolute) {
+                    const drive_letter_w = parsed_cwd.root[0];
+                    const drive_letters_match = drive_letter_w <= 0x7F and
+                        ascii.toUpper(@intCast(drive_letter_w)) == ascii.toUpper(parsed.root[0]);
+                    if (drive_letters_match) {
+                        const wtf8_len = std.unicode.calcWtf8Len(cwd_w);
+                        const wtf8_buf = try temp_allocator.alloc(u8, wtf8_len);
+                        assert(std.unicode.wtf16LeToWtf8(wtf8_buf, cwd_w) == wtf8_len);
+                        break :drive_cwd wtf8_buf[0..];
+                    }
+
+                    // Per-drive CWD's are stored in special semi-hidden environment variables
+                    // of the format `=<drive-letter>:`, e.g. `=C:`. This type of CWD is
+                    // purely a shell concept, so there's no guarantee that it'll be set
+                    // or that it'll even be accurate.
+                    var key_buf = std.unicode.wtf8ToWtf16LeStringLiteral("=_:").*;
+                    key_buf[1] = parsed.root[0];
+                    if (std.process.getenvW(&key_buf)) |drive_cwd_w| {
+                        const wtf8_len = std.unicode.calcWtf8Len(drive_cwd_w);
+                        const wtf8_buf = try temp_allocator.alloc(u8, wtf8_len);
+                        assert(std.unicode.wtf16LeToWtf8(wtf8_buf, drive_cwd_w) == wtf8_len);
+                        break :drive_cwd wtf8_buf[0..];
+                    }
+                }
+
+                const drive_buf = try temp_allocator.alloc(u8, 3);
+                drive_buf[0] = parsed.root[0];
+                drive_buf[1] = ':';
+                drive_buf[2] = '\\';
+                break :drive_cwd drive_buf;
+            };
+            defer temp_allocator.free(drive_cwd);
+            break :blk try resolveWindows(allocator, &.{ drive_cwd, path });
+        },
+    };
+}
+
 pub fn relativePosix(allocator: Allocator, from: []const u8, to: []const u8) ![]u8 {
+    if (native_os == .windows) @compileError("this function relies on semantics that do not apply to Windows");
+
     const cwd = try process.getCwdAlloc(allocator);
     defer allocator.free(cwd);
     const resolved_from = try resolvePosix(allocator, &[_][]const u8{ cwd, from });
@@ -1217,51 +1736,59 @@ pub fn relativePosix(allocator: Allocator, from: []const u8, to: []const u8) ![]
 }
 
 test relative {
-    try testRelativeWindows("c:/blah\\blah", "d:/games", "D:\\games");
-    try testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa", "..");
-    try testRelativeWindows("c:/aaaa/bbbb", "c:/cccc", "..\\..\\cccc");
-    try testRelativeWindows("c:/aaaa/bbbb", "C:/aaaa/bbbb", "");
-    try testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa/cccc", "..\\cccc");
-    try testRelativeWindows("c:/aaaa/", "c:/aaaa/cccc", "cccc");
-    try testRelativeWindows("c:/", "c:\\aaaa\\bbbb", "aaaa\\bbbb");
-    try testRelativeWindows("c:/aaaa/bbbb", "d:\\", "D:\\");
-    try testRelativeWindows("c:/AaAa/bbbb", "c:/aaaa/bbbb", "");
-    try testRelativeWindows("c:/aaaaa/", "c:/aaaa/cccc", "..\\aaaa\\cccc");
-    try testRelativeWindows("C:\\foo\\bar\\baz\\quux", "C:\\", "..\\..\\..\\..");
-    try testRelativeWindows("C:\\foo\\test", "C:\\foo\\test\\bar\\package.json", "bar\\package.json");
-    try testRelativeWindows("C:\\foo\\bar\\baz-quux", "C:\\foo\\bar\\baz", "..\\baz");
-    try testRelativeWindows("C:\\foo\\bar\\baz", "C:\\foo\\bar\\baz-quux", "..\\baz-quux");
-    try testRelativeWindows("\\\\foo\\bar", "\\\\foo\\bar\\baz", "baz");
-    try testRelativeWindows("\\\\foo\\bar\\baz", "\\\\foo\\bar", "..");
-    try testRelativeWindows("\\\\foo\\bar\\baz-quux", "\\\\foo\\bar\\baz", "..\\baz");
-    try testRelativeWindows("\\\\foo\\bar\\baz", "\\\\foo\\bar\\baz-quux", "..\\baz-quux");
-    try testRelativeWindows("C:\\baz-quux", "C:\\baz", "..\\baz");
-    try testRelativeWindows("C:\\baz", "C:\\baz-quux", "..\\baz-quux");
-    try testRelativeWindows("\\\\foo\\baz-quux", "\\\\foo\\baz", "..\\baz");
-    try testRelativeWindows("\\\\foo\\baz", "\\\\foo\\baz-quux", "..\\baz-quux");
-    try testRelativeWindows("C:\\baz", "\\\\foo\\bar\\baz", "\\\\foo\\bar\\baz");
-    try testRelativeWindows("\\\\foo\\bar\\baz", "C:\\baz", "C:\\baz");
+    if (native_os == .windows) {
+        try testRelativeWindows("c:/blah\\blah", "d:/games", "D:\\games");
+        try testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa", "..");
+        try testRelativeWindows("c:/aaaa/bbbb", "c:/cccc", "..\\..\\cccc");
+        try testRelativeWindows("c:/aaaa/bbbb", "C:/aaaa/bbbb", "");
+        try testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa/cccc", "..\\cccc");
+        try testRelativeWindows("c:/aaaa/", "c:/aaaa/cccc", "cccc");
+        try testRelativeWindows("c:/", "c:\\aaaa\\bbbb", "aaaa\\bbbb");
+        try testRelativeWindows("c:/aaaa/bbbb", "d:\\", "D:\\");
+        try testRelativeWindows("c:/AaAa/bbbb", "c:/aaaa/bbbb", "");
+        try testRelativeWindows("c:/aaaaa/", "c:/aaaa/cccc", "..\\aaaa\\cccc");
+        try testRelativeWindows("C:\\foo\\bar\\baz\\quux", "C:\\", "..\\..\\..\\..");
+        try testRelativeWindows("C:\\foo\\test", "C:\\foo\\test\\bar\\package.json", "bar\\package.json");
+        try testRelativeWindows("C:\\foo\\bar\\baz-quux", "C:\\foo\\bar\\baz", "..\\baz");
+        try testRelativeWindows("C:\\foo\\bar\\baz", "C:\\foo\\bar\\baz-quux", "..\\baz-quux");
+        try testRelativeWindows("\\\\foo\\bar", "\\\\foo\\bar\\baz", "baz");
+        try testRelativeWindows("\\\\foo\\bar\\baz", "\\\\foo\\bar", "..");
+        try testRelativeWindows("\\\\foo\\bar\\baz-quux", "\\\\foo\\bar\\baz", "..\\baz");
+        try testRelativeWindows("\\\\foo/bar\\baz-quux", "//foo\\bar/baz", "..\\baz");
+        try testRelativeWindows("\\\\foo\\bar\\baz", "\\\\foo\\bar\\baz-quux", "..\\baz-quux");
+        try testRelativeWindows("C:\\baz-quux", "C:\\baz", "..\\baz");
+        try testRelativeWindows("C:\\baz", "C:\\baz-quux", "..\\baz-quux");
+        try testRelativeWindows("\\\\foo\\baz-quux", "\\\\foo\\baz", "\\\\foo\\baz");
+        try testRelativeWindows("\\\\foo\\baz", "\\\\foo\\baz-quux", "\\\\foo\\baz-quux");
+        try testRelativeWindows("C:\\baz", "\\\\foo\\bar\\baz", "\\\\foo\\bar\\baz");
+        try testRelativeWindows("\\\\foo\\bar\\baz", "C:\\baz", "C:\\baz");
 
-    try testRelativeWindows("a/b/c", "a\\b", "..");
-    try testRelativeWindows("a/b/c", "a", "..\\..");
-    try testRelativeWindows("a/b/c", "a\\b\\c\\d", "d");
+        try testRelativeWindows("c:blah\\blah", "c:foo", "..\\..\\foo");
+        try testRelativeWindows("c:foo", "c:foo\\bar", "bar");
+        try testRelativeWindows("\\blah\\blah", "\\foo", "..\\..\\foo");
+        try testRelativeWindows("\\foo", "\\foo\\bar", "bar");
 
-    try testRelativeWindows("\\\\FOO\\bar\\baz", "\\\\foo\\BAR\\BAZ", "");
-    // Unicode-aware case-insensitive path comparison
-    try testRelativeWindows("\\\\кириллица\\ελληνικά\\português", "\\\\КИРИЛЛИЦА\\ΕΛΛΗΝΙΚΆ\\PORTUGUÊS", "");
+        try testRelativeWindows("a/b/c", "a\\b", "..");
+        try testRelativeWindows("a/b/c", "a", "..\\..");
+        try testRelativeWindows("a/b/c", "a\\b\\c\\d", "d");
 
-    try testRelativePosix("/var/lib", "/var", "..");
-    try testRelativePosix("/var/lib", "/bin", "../../bin");
-    try testRelativePosix("/var/lib", "/var/lib", "");
-    try testRelativePosix("/var/lib", "/var/apache", "../apache");
-    try testRelativePosix("/var/", "/var/lib", "lib");
-    try testRelativePosix("/", "/var/lib", "var/lib");
-    try testRelativePosix("/foo/test", "/foo/test/bar/package.json", "bar/package.json");
-    try testRelativePosix("/Users/a/web/b/test/mails", "/Users/a/web/b", "../..");
-    try testRelativePosix("/foo/bar/baz-quux", "/foo/bar/baz", "../baz");
-    try testRelativePosix("/foo/bar/baz", "/foo/bar/baz-quux", "../baz-quux");
-    try testRelativePosix("/baz-quux", "/baz", "../baz");
-    try testRelativePosix("/baz", "/baz-quux", "../baz-quux");
+        try testRelativeWindows("\\\\FOO\\bar\\baz", "\\\\foo\\BAR\\BAZ", "");
+        // Unicode-aware case-insensitive path comparison
+        try testRelativeWindows("\\\\кириллица\\ελληνικά\\português", "\\\\КИРИЛЛИЦА\\ΕΛΛΗΝΙΚΆ\\PORTUGUÊS", "");
+    } else {
+        try testRelativePosix("/var/lib", "/var", "..");
+        try testRelativePosix("/var/lib", "/bin", "../../bin");
+        try testRelativePosix("/var/lib", "/var/lib", "");
+        try testRelativePosix("/var/lib", "/var/apache", "../apache");
+        try testRelativePosix("/var/", "/var/lib", "lib");
+        try testRelativePosix("/", "/var/lib", "var/lib");
+        try testRelativePosix("/foo/test", "/foo/test/bar/package.json", "bar/package.json");
+        try testRelativePosix("/Users/a/web/b/test/mails", "/Users/a/web/b", "../..");
+        try testRelativePosix("/foo/bar/baz-quux", "/foo/bar/baz", "../baz");
+        try testRelativePosix("/foo/bar/baz", "/foo/bar/baz-quux", "../baz-quux");
+        try testRelativePosix("/baz-quux", "/baz", "../baz");
+        try testRelativePosix("/baz", "/baz-quux", "../baz-quux");
+    }
 }
 
 fn testRelativePosix(from: []const u8, to: []const u8, expected_output: []const u8) !void {
@@ -1391,7 +1918,10 @@ test stem {
 pub fn ComponentIterator(comptime path_type: PathType, comptime T: type) type {
     return struct {
         path: []const T,
-        root_end_index: usize = 0,
+        /// Length of the root with at most one trailing path separator included (e.g. `C:/`).
+        root_len: usize,
+        /// Length of the root with all trailing path separators included (e.g. `C://///`).
+        root_end_index: usize,
         start_index: usize = 0,
         end_index: usize = 0,
 
@@ -1406,100 +1936,45 @@ pub fn ComponentIterator(comptime path_type: PathType, comptime T: type) type {
             path: []const T,
         };
 
-        const InitError = switch (path_type) {
-            .windows => error{BadPathName},
-            else => error{},
-        };
-
         /// After `init`, `next` will return the first component after the root
         /// (there is no need to call `first` after `init`).
         /// To iterate backwards (from the end of the path to the beginning), call `last`
         /// after `init` and then iterate via `previous` calls.
-        /// For Windows paths, `error.BadPathName` is returned if the `path` has an explicit
-        /// namespace prefix (`\\.\`, `\\?\`, or `\??\`) or if it is a UNC path with more
-        /// than two path separators at the beginning.
-        pub fn init(path: []const T) InitError!Self {
-            const root_end_index: usize = switch (path_type) {
+        /// For Windows paths, paths are assumed to be in the Win32 namespace.
+        pub fn init(path: []const T) Self {
+            const root_len: usize = switch (path_type) {
                 .posix, .uefi => posix: {
                     // Root on UEFI and POSIX only differs by the path separator
-                    var root_end_index: usize = 0;
-                    while (true) : (root_end_index += 1) {
-                        if (root_end_index >= path.len or !path_type.isSep(T, path[root_end_index])) {
-                            break;
-                        }
-                    }
-                    break :posix root_end_index;
+                    break :posix if (path.len > 0 and path_type.isSep(T, path[0])) 1 else 0;
                 },
                 .windows => windows: {
-                    // Namespaces other than the Win32 file namespace are tricky
-                    // and basically impossible to determine a 'root' for, since it's
-                    // possible to construct an effectively arbitrarily long 'root',
-                    // e.g. `\\.\GLOBALROOT\??\UNC\localhost\C$\foo` is a
-                    // possible path that would be effectively equivalent to
-                    // `C:\foo`, and the `GLOBALROOT\??\` part can also be recursive,
-                    // so `GLOBALROOT\??\GLOBALROOT\??\...` would work for any number
-                    // of repetitions. Therefore, paths with an explicit namespace prefix
-                    // (\\.\, \??\, \\?\) are not allowed here.
-                    if (std.os.windows.getNamespacePrefix(T, path) != .none) {
-                        return error.BadPathName;
-                    }
-                    const windows_path_type = std.os.windows.getUnprefixedPathType(T, path);
-                    break :windows switch (windows_path_type) {
-                        .relative => 0,
-                        .root_local_device => path.len,
-                        .rooted => 1,
-                        .unc_absolute => unc: {
-                            var end_index: usize = 2;
-                            // Any extra separators between the first two and the server name are not allowed
-                            // and will always lead to STATUS_OBJECT_PATH_INVALID if it is attempted
-                            // to be used.
-                            if (end_index < path.len and path_type.isSep(T, path[end_index])) {
-                                return error.BadPathName;
-                            }
-                            // Server
-                            while (end_index < path.len and !path_type.isSep(T, path[end_index])) {
-                                end_index += 1;
-                            }
-                            // Slash(es) after server
-                            while (end_index < path.len and path_type.isSep(T, path[end_index])) {
-                                end_index += 1;
-                            }
-                            // Share
-                            while (end_index < path.len and !path_type.isSep(T, path[end_index])) {
-                                end_index += 1;
-                            }
-                            // Slash(es) after share
-                            while (end_index < path.len and path_type.isSep(T, path[end_index])) {
-                                end_index += 1;
-                            }
-                            break :unc end_index;
-                        },
-                        .drive_absolute => drive: {
-                            var end_index: usize = 3;
-                            while (end_index < path.len and path_type.isSep(T, path[end_index])) {
-                                end_index += 1;
-                            }
-                            break :drive end_index;
-                        },
-                        .drive_relative => 2,
-                    };
+                    break :windows parsePathWindows(T, path).root.len;
                 },
             };
+            // If there are repeated path separators directly after the root,
+            // keep track of that info so that they don't have to be dealt with when
+            // iterating components.
+            var root_end_index = root_len;
+            for (path[root_len..]) |c| {
+                if (!path_type.isSep(T, c)) break;
+                root_end_index += 1;
+            }
             return .{
                 .path = path,
+                .root_len = root_len,
                 .root_end_index = root_end_index,
                 .start_index = root_end_index,
                 .end_index = root_end_index,
             };
         }
 
-        /// Returns the root of the path if it is an absolute path, or null otherwise.
+        /// Returns the root of the path if it is not a relative path, or null otherwise.
         /// For POSIX paths, this will be `/`.
         /// For Windows paths, this will be something like `C:\`, `\\server\share\`, etc.
         /// For UEFI paths, this will be `\`.
         pub fn root(self: Self) ?[]const T {
             if (self.root_end_index == 0) return null;
-            return self.path[0..self.root_end_index];
+            return self.path[0..self.root_len];
         }
 
         /// Returns the first component (from the beginning of the path).
@@ -1614,7 +2089,7 @@ pub const NativeComponentIterator = ComponentIterator(switch (native_os) {
     else => .posix,
 }, u8);
 
-pub fn componentIterator(path: []const u8) !NativeComponentIterator {
+pub fn componentIterator(path: []const u8) NativeComponentIterator {
     return NativeComponentIterator.init(path);
 }
 
@@ -1622,8 +2097,9 @@ test "ComponentIterator posix" {
     const PosixComponentIterator = ComponentIterator(.posix, u8);
     {
         const path = "a/b/c/";
-        var it = try PosixComponentIterator.init(path);
-        try std.testing.expectEqual(@as(usize, 0), it.root_end_index);
+        var it = PosixComponentIterator.init(path);
+        try std.testing.expectEqual(0, it.root_len);
+        try std.testing.expectEqual(0, it.root_end_index);
         try std.testing.expect(null == it.root());
         {
             try std.testing.expect(null == it.previous());
@@ -1669,8 +2145,9 @@ test "ComponentIterator posix" {
 
     {
         const path = "/a/b/c/";
-        var it = try PosixComponentIterator.init(path);
-        try std.testing.expectEqual(@as(usize, 1), it.root_end_index);
+        var it = PosixComponentIterator.init(path);
+        try std.testing.expectEqual(1, it.root_len);
+        try std.testing.expectEqual(1, it.root_end_index);
         try std.testing.expectEqualStrings("/", it.root().?);
         {
             try std.testing.expect(null == it.previous());
@@ -1715,9 +2192,58 @@ test "ComponentIterator posix" {
     }
 
     {
+        const path = "////a///b///c////";
+        var it = PosixComponentIterator.init(path);
+        try std.testing.expectEqual(1, it.root_len);
+        try std.testing.expectEqual(4, it.root_end_index);
+        try std.testing.expectEqualStrings("/", it.root().?);
+        {
+            try std.testing.expect(null == it.previous());
+
+            const first_via_next = it.next().?;
+            try std.testing.expectEqualStrings("a", first_via_next.name);
+            try std.testing.expectEqualStrings("////a", first_via_next.path);
+
+            const first = it.first().?;
+            try std.testing.expectEqualStrings("a", first.name);
+            try std.testing.expectEqualStrings("////a", first.path);
+
+            try std.testing.expect(null == it.previous());
+
+            const second = it.next().?;
+            try std.testing.expectEqualStrings("b", second.name);
+            try std.testing.expectEqualStrings("////a///b", second.path);
+
+            const third = it.next().?;
+            try std.testing.expectEqualStrings("c", third.name);
+            try std.testing.expectEqualStrings("////a///b///c", third.path);
+
+            try std.testing.expect(null == it.next());
+        }
+        {
+            const last = it.last().?;
+            try std.testing.expectEqualStrings("c", last.name);
+            try std.testing.expectEqualStrings("////a///b///c", last.path);
+
+            try std.testing.expect(null == it.next());
+
+            const second_to_last = it.previous().?;
+            try std.testing.expectEqualStrings("b", second_to_last.name);
+            try std.testing.expectEqualStrings("////a///b", second_to_last.path);
+
+            const third_to_last = it.previous().?;
+            try std.testing.expectEqualStrings("a", third_to_last.name);
+            try std.testing.expectEqualStrings("////a", third_to_last.path);
+
+            try std.testing.expect(null == it.previous());
+        }
+    }
+
+    {
         const path = "/";
-        var it = try PosixComponentIterator.init(path);
-        try std.testing.expectEqual(@as(usize, 1), it.root_end_index);
+        var it = PosixComponentIterator.init(path);
+        try std.testing.expectEqual(1, it.root_len);
+        try std.testing.expectEqual(1, it.root_end_index);
         try std.testing.expectEqualStrings("/", it.root().?);
 
         try std.testing.expect(null == it.first());
@@ -1733,8 +2259,9 @@ test "ComponentIterator posix" {
 
     {
         const path = "";
-        var it = try PosixComponentIterator.init(path);
-        try std.testing.expectEqual(@as(usize, 0), it.root_end_index);
+        var it = PosixComponentIterator.init(path);
+        try std.testing.expectEqual(0, it.root_len);
+        try std.testing.expectEqual(0, it.root_end_index);
         try std.testing.expect(null == it.root());
 
         try std.testing.expect(null == it.first());
@@ -1753,8 +2280,9 @@ test "ComponentIterator windows" {
     const WindowsComponentIterator = ComponentIterator(.windows, u8);
     {
         const path = "a/b\\c//";
-        var it = try WindowsComponentIterator.init(path);
-        try std.testing.expectEqual(@as(usize, 0), it.root_end_index);
+        var it = WindowsComponentIterator.init(path);
+        try std.testing.expectEqual(0, it.root_len);
+        try std.testing.expectEqual(0, it.root_end_index);
         try std.testing.expect(null == it.root());
         {
             try std.testing.expect(null == it.previous());
@@ -1800,8 +2328,9 @@ test "ComponentIterator windows" {
 
     {
         const path = "C:\\a/b/c/";
-        var it = try WindowsComponentIterator.init(path);
-        try std.testing.expectEqual(@as(usize, 3), it.root_end_index);
+        var it = WindowsComponentIterator.init(path);
+        try std.testing.expectEqual(3, it.root_len);
+        try std.testing.expectEqual(3, it.root_end_index);
         try std.testing.expectEqualStrings("C:\\", it.root().?);
         {
             const first = it.first().?;
@@ -1836,9 +2365,48 @@ test "ComponentIterator windows" {
     }
 
     {
+        const path = "C:\\\\//a/\\/\\b///c////";
+        var it = WindowsComponentIterator.init(path);
+        try std.testing.expectEqual(3, it.root_len);
+        try std.testing.expectEqual(6, it.root_end_index);
+        try std.testing.expectEqualStrings("C:\\", it.root().?);
+        {
+            const first = it.first().?;
+            try std.testing.expectEqualStrings("a", first.name);
+            try std.testing.expectEqualStrings("C:\\\\//a", first.path);
+
+            const second = it.next().?;
+            try std.testing.expectEqualStrings("b", second.name);
+            try std.testing.expectEqualStrings("C:\\\\//a/\\/\\b", second.path);
+
+            const third = it.next().?;
+            try std.testing.expectEqualStrings("c", third.name);
+            try std.testing.expectEqualStrings("C:\\\\//a/\\/\\b///c", third.path);
+
+            try std.testing.expect(null == it.next());
+        }
+        {
+            const last = it.last().?;
+            try std.testing.expectEqualStrings("c", last.name);
+            try std.testing.expectEqualStrings("C:\\\\//a/\\/\\b///c", last.path);
+
+            const second_to_last = it.previous().?;
+            try std.testing.expectEqualStrings("b", second_to_last.name);
+            try std.testing.expectEqualStrings("C:\\\\//a/\\/\\b", second_to_last.path);
+
+            const third_to_last = it.previous().?;
+            try std.testing.expectEqualStrings("a", third_to_last.name);
+            try std.testing.expectEqualStrings("C:\\\\//a", third_to_last.path);
+
+            try std.testing.expect(null == it.previous());
+        }
+    }
+
+    {
         const path = "/";
-        var it = try WindowsComponentIterator.init(path);
-        try std.testing.expectEqual(@as(usize, 1), it.root_end_index);
+        var it = WindowsComponentIterator.init(path);
+        try std.testing.expectEqual(1, it.root_len);
+        try std.testing.expectEqual(1, it.root_end_index);
         try std.testing.expectEqualStrings("/", it.root().?);
 
         try std.testing.expect(null == it.first());
@@ -1854,8 +2422,9 @@ test "ComponentIterator windows" {
 
     {
         const path = "";
-        var it = try WindowsComponentIterator.init(path);
-        try std.testing.expectEqual(@as(usize, 0), it.root_end_index);
+        var it = WindowsComponentIterator.init(path);
+        try std.testing.expectEqual(0, it.root_len);
+        try std.testing.expectEqual(0, it.root_end_index);
         try std.testing.expect(null == it.root());
 
         try std.testing.expect(null == it.first());
@@ -1871,17 +2440,13 @@ test "ComponentIterator windows" {
 }
 
 test "ComponentIterator windows WTF-16" {
-    // TODO: Fix on big endian architectures
-    if (builtin.cpu.arch.endian() != .little) {
-        return error.SkipZigTest;
-    }
-
     const WindowsComponentIterator = ComponentIterator(.windows, u16);
     const L = std.unicode.utf8ToUtf16LeStringLiteral;
 
     const path = L("C:\\a/b/c/");
-    var it = try WindowsComponentIterator.init(path);
-    try std.testing.expectEqual(@as(usize, 3), it.root_end_index);
+    var it = WindowsComponentIterator.init(path);
+    try std.testing.expectEqual(3, it.root_len);
+    try std.testing.expectEqual(3, it.root_end_index);
     try std.testing.expectEqualSlices(u16, L("C:\\"), it.root().?);
     {
         const first = it.first().?;
@@ -1918,55 +2483,60 @@ test "ComponentIterator windows WTF-16" {
 test "ComponentIterator roots" {
     // UEFI
     {
-        var it = try ComponentIterator(.uefi, u8).init("\\\\a");
-        try std.testing.expectEqualStrings("\\\\", it.root().?);
+        var it = ComponentIterator(.uefi, u8).init("\\\\a");
+        try std.testing.expectEqualStrings("\\", it.root().?);
 
-        it = try ComponentIterator(.uefi, u8).init("//a");
+        it = ComponentIterator(.uefi, u8).init("//a");
         try std.testing.expect(null == it.root());
     }
     // POSIX
     {
-        var it = try ComponentIterator(.posix, u8).init("//a");
-        try std.testing.expectEqualStrings("//", it.root().?);
+        var it = ComponentIterator(.posix, u8).init("//a");
+        try std.testing.expectEqualStrings("/", it.root().?);
 
-        it = try ComponentIterator(.posix, u8).init("\\\\a");
+        it = ComponentIterator(.posix, u8).init("\\\\a");
         try std.testing.expect(null == it.root());
     }
     // Windows
     {
         // Drive relative
-        var it = try ComponentIterator(.windows, u8).init("C:a");
+        var it = ComponentIterator(.windows, u8).init("C:a");
         try std.testing.expectEqualStrings("C:", it.root().?);
 
         // Drive absolute
-        it = try ComponentIterator(.windows, u8).init("C://a");
-        try std.testing.expectEqualStrings("C://", it.root().?);
-        it = try ComponentIterator(.windows, u8).init("C:\\a");
+        it = ComponentIterator(.windows, u8).init("C:/a");
+        try std.testing.expectEqualStrings("C:/", it.root().?);
+        it = ComponentIterator(.windows, u8).init("C:\\a");
         try std.testing.expectEqualStrings("C:\\", it.root().?);
+        it = ComponentIterator(.windows, u8).init("C:///a");
+        try std.testing.expectEqualStrings("C:/", it.root().?);
 
         // Rooted
-        it = try ComponentIterator(.windows, u8).init("\\a");
+        it = ComponentIterator(.windows, u8).init("\\a");
         try std.testing.expectEqualStrings("\\", it.root().?);
-        it = try ComponentIterator(.windows, u8).init("/a");
+        it = ComponentIterator(.windows, u8).init("/a");
         try std.testing.expectEqualStrings("/", it.root().?);
 
         // Root local device
-        it = try ComponentIterator(.windows, u8).init("\\\\.");
+        it = ComponentIterator(.windows, u8).init("\\\\.");
         try std.testing.expectEqualStrings("\\\\.", it.root().?);
-        it = try ComponentIterator(.windows, u8).init("//?");
+        it = ComponentIterator(.windows, u8).init("//?");
         try std.testing.expectEqualStrings("//?", it.root().?);
 
         // UNC absolute
-        it = try ComponentIterator(.windows, u8).init("//");
+        it = ComponentIterator(.windows, u8).init("//");
         try std.testing.expectEqualStrings("//", it.root().?);
-        it = try ComponentIterator(.windows, u8).init("\\\\a");
+        it = ComponentIterator(.windows, u8).init("\\\\a");
         try std.testing.expectEqualStrings("\\\\a", it.root().?);
-        it = try ComponentIterator(.windows, u8).init("\\\\a\\b\\\\c");
-        try std.testing.expectEqualStrings("\\\\a\\b\\\\", it.root().?);
-        it = try ComponentIterator(.windows, u8).init("//a");
+        it = ComponentIterator(.windows, u8).init("\\\\a\\b\\\\c");
+        try std.testing.expectEqualStrings("\\\\a\\b\\", it.root().?);
+        it = ComponentIterator(.windows, u8).init("//a");
         try std.testing.expectEqualStrings("//a", it.root().?);
-        it = try ComponentIterator(.windows, u8).init("//a/b//c");
-        try std.testing.expectEqualStrings("//a/b//", it.root().?);
+        it = ComponentIterator(.windows, u8).init("//a/b//c");
+        try std.testing.expectEqualStrings("//a/b/", it.root().?);
+        // Malformed UNC path with empty server name
+        it = ComponentIterator(.windows, u8).init("\\\\\\a\\b\\c");
+        try std.testing.expectEqualStrings("\\\\\\a\\", it.root().?);
     }
 }
 

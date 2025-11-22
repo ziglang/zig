@@ -22,16 +22,17 @@ pub const GetCwdError = posix.GetCwdError;
 /// The result is a slice of `out_buffer`, from index `0`.
 /// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
-pub fn getCwd(out_buffer: []u8) ![]u8 {
+pub fn getCwd(out_buffer: []u8) GetCwdError![]u8 {
     return posix.getcwd(out_buffer);
 }
 
-pub const GetCwdAllocError = Allocator.Error || posix.GetCwdError;
+// Same as GetCwdError, minus error.NameTooLong + Allocator.Error
+pub const GetCwdAllocError = Allocator.Error || error{CurrentWorkingDirectoryUnlinked} || posix.UnexpectedError;
 
 /// Caller must free the returned memory.
 /// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
-pub fn getCwdAlloc(allocator: Allocator) ![]u8 {
+pub fn getCwdAlloc(allocator: Allocator) GetCwdAllocError![]u8 {
     // The use of max_path_bytes here is just a heuristic: most paths will fit
     // in stack_buf, avoiding an extra allocation in the common case.
     var stack_buf: [fs.max_path_bytes]u8 = undefined;
@@ -529,6 +530,7 @@ pub fn hasNonEmptyEnvVar(allocator: Allocator, key: []const u8) HasEnvVarError!b
 }
 
 /// Windows-only. Get an environment variable with a null-terminated, WTF-16 encoded name.
+/// The returned slice points to memory in the PEB.
 ///
 /// This function performs a Unicode-aware case-insensitive lookup using RtlEqualUnicodeString.
 ///
@@ -564,7 +566,7 @@ pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
         };
 
         const this_key = key_value[0..equal_index];
-        if (windows.eqlIgnoreCaseWTF16(key_slice, this_key)) {
+        if (windows.eqlIgnoreCaseWtf16(key_slice, this_key)) {
             return key_value[equal_index + 1 ..];
         }
 
