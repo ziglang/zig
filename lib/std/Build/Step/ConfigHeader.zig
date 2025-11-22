@@ -13,6 +13,10 @@ pub const Style = union(enum) {
     /// The configure format supported by CMake. It uses `@FOO@`, `${}` and
     /// `#cmakedefine` for template substitution.
     cmake: std.Build.LazyPath,
+    /// Start with input file and replace occurrences of names with their values.
+    custom: std.Build.LazyPath,
+    /// Start with input file like custom, and output a nasm .asm file.
+    custom_nasm: std.Build.LazyPath,
     /// Instead of starting with an input file, start with nothing.
     blank,
     /// Start with nothing, like blank, and output a nasm .asm file.
@@ -20,7 +24,7 @@ pub const Style = union(enum) {
 
     pub fn getPath(style: Style) ?std.Build.LazyPath {
         switch (style) {
-            .autoconf_undef, .autoconf_at, .cmake => |s| return s,
+            .autoconf_undef, .autoconf_at, .cmake, .custom, .custom_nasm => |s| return s,
             .blank, .nasm => return null,
         }
     }
@@ -236,6 +240,26 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         .nasm => {
             try bw.writeAll(asm_generated_line);
             try render_nasm(bw, config_header.values);
+        },
+        .custom => |file_source| {
+            try bw.writeAll(c_generated_line);
+            const src_path = file_source.getPath2(b, step);
+            const contents = std.fs.cwd().readFileAlloc(src_path, arena, .limited(config_header.max_bytes)) catch |err| {
+                return step.fail("unable to read custom input file '{s}': {s}", .{
+                    src_path, @errorName(err),
+                });
+            };
+            try render_custom(step, contents, bw, config_header.values);
+        },
+        .custom_nasm => |file_source| {
+            try bw.writeAll(asm_generated_line);
+            const src_path = file_source.getPath2(b, step);
+            const contents = std.fs.cwd().readFileAlloc(src_path, arena, .limited(config_header.max_bytes)) catch |err| {
+                return step.fail("unable to read custom NASM input file '{s}': {s}", .{
+                    src_path, @errorName(err),
+                });
+            };
+            try render_custom(step, contents, bw, config_header.values);
         },
     }
 
@@ -543,6 +567,51 @@ fn render_blank(
 
 fn render_nasm(bw: *Writer, defines: std.StringArrayHashMap(Value)) !void {
     for (defines.keys(), defines.values()) |name, value| try renderValueNasm(bw, name, value);
+}
+
+fn render_custom(
+    step: *Step,
+    contents: []const u8,
+    bw: *Writer,
+    dict: std.StringArrayHashMap(Value),
+) !void {
+    const build = step.owner;
+    const allocator = build.allocator;
+
+    var contents_copy = try allocator.dupe(u8, contents);
+    defer allocator.free(contents_copy);
+
+    var any_errors = false;
+    const values = dict.values();
+    for (dict.keys(), 0..) |name, x| {
+        if (std.mem.indexOf(u8, contents, name) == null) {
+            try step.addError("error: config header value unused: '{s}'", .{name});
+            any_errors = true;
+            continue;
+        }
+
+        const value = values[x];
+        const value_str: []const u8 = switch (value) {
+            .undef => continue,
+            .defined => try allocator.dupe(u8, ""),
+            .boolean => |b| try allocator.dupe(u8, if (b) "1" else "0"),
+            .int => |i| try std.fmt.allocPrint(allocator, "{d}", .{i}),
+            .ident => |ident| try std.fmt.allocPrint(allocator, "{s}", .{ident}),
+            // TODO: use C-specific escaping instead of zig string literals
+            .string => |string| try std.fmt.allocPrint(allocator, "\"{f}\"", .{std.zig.fmtString(string)}),
+        };
+        defer allocator.free(value_str);
+
+        const replaced = try std.mem.replaceOwned(u8, allocator, contents_copy, name, value_str);
+        defer allocator.free(replaced);
+
+        allocator.free(contents_copy);
+        contents_copy = try allocator.dupe(u8, replaced);
+    }
+
+    try bw.writeAll(contents_copy);
+
+    if (any_errors) return error.MakeFailed;
 }
 
 fn renderValueC(bw: *Writer, name: []const u8, value: Value) !void {
