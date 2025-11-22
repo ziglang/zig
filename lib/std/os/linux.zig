@@ -4,6 +4,7 @@
 //! * Implement all the syscalls in the same way that libc functions will
 //!   provide `rename` when only the `renameat` syscall exists.
 const std = @import("../std.zig");
+const atomic = std.atomic;
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
@@ -22,6 +23,7 @@ const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
 const winsize = std.posix.winsize;
 const ACCMODE = std.posix.ACCMODE;
+pub const IoUring = @import("linux/IoUring.zig");
 
 test {
     if (builtin.os.tag == .linux) {
@@ -493,6 +495,72 @@ pub const O = switch (native_arch) {
     else => @compileError("missing std.os.linux.O constants for this architecture"),
 };
 
+/// flags for `pipe2` and `IoUring.pipe`
+/// matches flags in `O` but specific to `pipe2` syscall
+pub const Pipe2 = switch (native_arch) {
+    .x86_64, .x86, .riscv32, .riscv64, .loongarch64, .hexagon, .or1k, .s390x => packed struct(u32) {
+        _: u7 = 0,
+        /// Parameter to `pipe2` selecting notification pipe
+        notification_pipe: bool = false,
+        _9: u3 = 0,
+        nonblock: bool = false,
+        _13: u2 = 0,
+        direct: bool = false,
+        _16: u4 = 0,
+        cloexec: bool = false,
+        _21: u12 = 0,
+    },
+    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb, .m68k => packed struct(u32) {
+        _: u7 = 0,
+        /// Parameter to `pipe2` selecting notification pipe
+        notification_pipe: bool = false,
+        _9: u3 = 0,
+        nonblock: bool = false,
+        _13: u4 = 0,
+        direct: bool = false,
+        _18: u2 = 0,
+        cloexec: bool = false,
+        _21: u12 = 0,
+    },
+    .sparc64 => packed struct(u32) {
+        _: u11 = 0,
+        /// Parameter to `pipe2` selecting notification pipe
+        notification_pipe: bool = false,
+        _13: u2 = 0,
+        nonblock: bool = false,
+        _16: u5 = 0,
+        direct: bool = false,
+        _22: u1 = 0,
+        cloexec: bool = false,
+        _24: u9 = 0,
+    },
+    .mips, .mipsel, .mips64, .mips64el => packed struct(u32) {
+        _: u7 = 0,
+        nonblock: bool = false,
+        _9: u2 = 0,
+        /// Parameter to `pipe2` selecting notification pipe
+        notification_pipe: bool = false,
+        _12: u4 = 0,
+        direct: bool = false,
+        _17: u3 = 0,
+        cloexec: bool = false,
+        _21: u12 = 0,
+    },
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
+        _: u7 = 0,
+        /// Parameter to `pipe2` selecting notification pipe
+        notification_pipe: bool = false,
+        _9: u3 = 0,
+        nonblock: bool = false,
+        _13: u5 = 0,
+        direct: bool = false,
+        _19: u1 = 0,
+        cloexec: bool = false,
+        _21: u12 = 0,
+    },
+    else => @compileError("missing std.os.linux.Pipe2 flags for this architecture"),
+};
+
 /// Set by startup code, used by `getauxval`.
 pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
 
@@ -686,7 +754,14 @@ pub const futex_param4 = extern union {
 ///
 /// The futex_op parameter is a sub-command and flags.  The sub-command
 /// defines which of the subsequent paramters are relevant.
-pub fn futex(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, val2timeout: futex_param4, uaddr2: ?*const anyopaque, val3: u32) usize {
+pub fn futex(
+    uaddr: *const atomic.Value(u32),
+    futex_op: FUTEX_OP,
+    val: u32,
+    val2timeout: futex_param4,
+    uaddr2: ?*const anyopaque,
+    val3: u32,
+) usize {
     return syscall6(
         if (@hasField(SYS, "futex") and native_arch != .hexagon) .futex else .futex_time64,
         @intFromPtr(uaddr),
@@ -700,7 +775,7 @@ pub fn futex(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, val2timeout:
 
 /// Three-argument variation of the v1 futex call.  Only suitable for a
 /// futex_op that ignores the remaining arguments (e.g., FUTUX_OP.WAKE).
-pub fn futex_3arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32) usize {
+pub fn futex_3arg(uaddr: *const atomic.Value(u32), futex_op: FUTEX_OP, val: u32) usize {
     return syscall3(
         if (@hasField(SYS, "futex") and native_arch != .hexagon) .futex else .futex_time64,
         @intFromPtr(uaddr),
@@ -711,7 +786,7 @@ pub fn futex_3arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32) usize {
 
 /// Four-argument variation on the v1 futex call.  Only suitable for
 /// futex_op that ignores the remaining arguments (e.g., FUTEX_OP.WAIT).
-pub fn futex_4arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, timeout: ?*const timespec) usize {
+pub fn futex_4arg(uaddr: *const atomic.Value(u32), futex_op: FUTEX_OP, val: u32, timeout: ?*const timespec) usize {
     return syscall4(
         if (@hasField(SYS, "futex") and native_arch != .hexagon) .futex else .futex_time64,
         @intFromPtr(uaddr),
@@ -721,13 +796,13 @@ pub fn futex_4arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, timeout
     );
 }
 
-/// Given an array of `futex2_waitone`, wait on each uaddr.
+/// Given an array of `Futex2.WaitOne`, wait on each uaddr.
 /// The thread wakes if a futex_wake() is performed at any uaddr.
 /// The syscall returns immediately if any futex has *uaddr != val.
 /// timeout is an optional, absolute timeout value for the operation.
 /// The `flags` argument is for future use and currently should be `.{}`.
 /// Flags for private futexes, sizes, etc. should be set on the
-/// individual flags of each `futex2_waitone`.
+/// individual flags of each `Futex2.WaitOne`.
 ///
 /// Returns the array index of one of the woken futexes.
 /// No further information is provided: any number of other futexes may also
@@ -738,19 +813,19 @@ pub fn futex_4arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, timeout
 ///
 /// Requires at least kernel v5.16.
 pub fn futex2_waitv(
-    futexes: [*]const futex2_waitone,
-    /// Length of `futexes`.  Max of FUTEX2_WAITONE_MAX.
-    nr_futexes: u32,
-    flags: FUTEX2_FLAGS_WAITV,
+    /// The length of `futexes` slice must not exceed `Futex2.waitone_max`
+    futexes: []const Futex2.WaitOne,
+    flags: Futex2.Waitv,
     /// Optional absolute timeout.  Always 64-bit, even on 32-bit platforms.
     timeout: ?*const kernel_timespec,
     /// Clock to be used for the timeout, realtime or monotonic.
     clockid: clockid_t,
 ) usize {
+    assert(futexes.len <= Futex2.waitone_max);
     return syscall5(
         .futex_waitv,
-        @intFromPtr(futexes),
-        nr_futexes,
+        @intFromPtr(futexes.ptr),
+        @intCast(futexes.len),
         @as(u32, @bitCast(flags)),
         @intFromPtr(timeout),
         @intFromEnum(clockid),
@@ -764,12 +839,12 @@ pub fn futex2_waitv(
 /// Requires at least kernel v6.7.
 pub fn futex2_wait(
     /// Address of the futex to wait on.
-    uaddr: *const anyopaque,
+    uaddr: *const atomic.Value(u32),
     /// Value of `uaddr`.
     val: usize,
     /// Bitmask to match against incoming wakeup masks.  Must not be zero.
-    mask: usize,
-    flags: FUTEX2_FLAGS,
+    mask: Futex2.Bitset,
+    flags: Futex2.Wait,
     /// Optional absolute timeout.  Always 64-bit, even on 32-bit platforms.
     timeout: ?*const kernel_timespec,
     /// Clock to be used for the timeout, realtime or monotonic.
@@ -779,7 +854,7 @@ pub fn futex2_wait(
         .futex_wait,
         @intFromPtr(uaddr),
         val,
-        mask,
+        @intCast(mask.toInt()),
         @as(u32, @bitCast(flags)),
         @intFromPtr(timeout),
         @intFromEnum(clockid),
@@ -793,18 +868,18 @@ pub fn futex2_wait(
 /// Requires at least kernel v6.7.
 pub fn futex2_wake(
     /// Futex to wake
-    uaddr: *const anyopaque,
+    uaddr: *const atomic.Value(u32),
     /// Bitmask to match against waiters.
-    mask: usize,
+    mask: Futex2.Bitset,
     /// Maximum number of waiters on the futex to wake.
     nr_wake: i32,
-    flags: FUTEX2_FLAGS,
+    flags: Futex2.Wake,
 ) usize {
     return syscall4(
         .futex_wake,
         @intFromPtr(uaddr),
-        mask,
-        @as(u32, @bitCast(nr_wake)),
+        @intCast(mask.toInt()),
+        @intCast(nr_wake),
         @as(u32, @bitCast(flags)),
     );
 }
@@ -815,9 +890,9 @@ pub fn futex2_wake(
 /// Requires at least kernel v6.7.
 pub fn futex2_requeue(
     /// The source and destination futexes.  Must be a 2-element array.
-    waiters: [*]const futex2_waitone,
+    waiters: *const [2]Futex2.WaitOne,
     /// Currently unused.
-    flags: FUTEX2_FLAGS_REQUEUE,
+    flags: Futex2.Requeue,
     /// Maximum number of waiters to wake on the source futex.
     nr_wake: i32,
     /// Maximum number of waiters to transfer to the destination futex.
@@ -827,8 +902,8 @@ pub fn futex2_requeue(
         .futex_requeue,
         @intFromPtr(waiters),
         @as(u32, @bitCast(flags)),
-        @as(u32, @bitCast(nr_wake)),
-        @as(u32, @bitCast(nr_requeue)),
+        @intCast(nr_wake),
+        @intCast(nr_requeue),
     );
 }
 
@@ -921,7 +996,7 @@ pub fn readlink(noalias path: [*:0]const u8, noalias buf_ptr: [*]u8, buf_len: us
     if (@hasField(SYS, "readlink")) {
         return syscall3(.readlink, @intFromPtr(path), @intFromPtr(buf_ptr), buf_len);
     } else {
-        return syscall4(.readlinkat, @as(usize, @bitCast(@as(isize, AT.FDCWD))), @intFromPtr(path), @intFromPtr(buf_ptr), buf_len);
+        return syscall4(.readlinkat, @as(usize, @bitCast(@as(isize, At.fdcwd))), @intFromPtr(path), @intFromPtr(buf_ptr), buf_len);
     }
 }
 
@@ -933,7 +1008,7 @@ pub fn mkdir(path: [*:0]const u8, mode: mode_t) usize {
     if (@hasField(SYS, "mkdir")) {
         return syscall2(.mkdir, @intFromPtr(path), mode);
     } else {
-        return syscall3(.mkdirat, @as(usize, @bitCast(@as(isize, AT.FDCWD))), @intFromPtr(path), mode);
+        return syscall3(.mkdirat, @as(usize, @bitCast(@as(isize, At.fdcwd))), @intFromPtr(path), mode);
     }
 }
 
@@ -945,7 +1020,7 @@ pub fn mknod(path: [*:0]const u8, mode: u32, dev: u32) usize {
     if (@hasField(SYS, "mknod")) {
         return syscall3(.mknod, @intFromPtr(path), mode, dev);
     } else {
-        return mknodat(AT.FDCWD, path, mode, dev);
+        return mknodat(At.fdcwd, path, mode, dev);
     }
 }
 
@@ -1178,7 +1253,7 @@ pub fn rmdir(path: [*:0]const u8) usize {
     if (@hasField(SYS, "rmdir")) {
         return syscall1(.rmdir, @intFromPtr(path));
     } else {
-        return syscall3(.unlinkat, @as(usize, @bitCast(@as(isize, AT.FDCWD))), @intFromPtr(path), AT.REMOVEDIR);
+        return syscall3(.unlinkat, @as(usize, @bitCast(@as(isize, At.fdcwd))), @intFromPtr(path), @as(u32, @bitCast(At{ .removedir = true })));
     }
 }
 
@@ -1186,7 +1261,7 @@ pub fn symlink(existing: [*:0]const u8, new: [*:0]const u8) usize {
     if (@hasField(SYS, "symlink")) {
         return syscall2(.symlink, @intFromPtr(existing), @intFromPtr(new));
     } else {
-        return syscall3(.symlinkat, @intFromPtr(existing), @as(usize, @bitCast(@as(isize, AT.FDCWD))), @intFromPtr(new));
+        return syscall3(.symlinkat, @intFromPtr(existing), @as(usize, @bitCast(@as(isize, At.fdcwd))), @intFromPtr(new));
     }
 }
 
@@ -1237,7 +1312,7 @@ pub fn access(path: [*:0]const u8, mode: u32) usize {
     if (@hasField(SYS, "access")) {
         return syscall2(.access, @intFromPtr(path), mode);
     } else {
-        return faccessat(AT.FDCWD, path, mode, 0);
+        return faccessat(At.fdcwd, path, mode, 0);
     }
 }
 
@@ -1338,9 +1413,9 @@ pub fn rename(old: [*:0]const u8, new: [*:0]const u8) usize {
     if (@hasField(SYS, "rename")) {
         return syscall2(.rename, @intFromPtr(old), @intFromPtr(new));
     } else if (@hasField(SYS, "renameat")) {
-        return syscall4(.renameat, @as(usize, @bitCast(@as(isize, AT.FDCWD))), @intFromPtr(old), @as(usize, @bitCast(@as(isize, AT.FDCWD))), @intFromPtr(new));
+        return syscall4(.renameat, @as(usize, @bitCast(@as(isize, At.fdcwd))), @intFromPtr(old), @as(usize, @bitCast(@as(isize, At.fdcwd))), @intFromPtr(new));
     } else {
-        return syscall5(.renameat2, @as(usize, @bitCast(@as(isize, AT.FDCWD))), @intFromPtr(old), @as(usize, @bitCast(@as(isize, AT.FDCWD))), @intFromPtr(new), 0);
+        return syscall5(.renameat2, @as(usize, @bitCast(@as(isize, At.fdcwd))), @intFromPtr(old), @as(usize, @bitCast(@as(isize, At.fdcwd))), @intFromPtr(new), 0);
     }
 }
 
@@ -1382,7 +1457,7 @@ pub fn open(path: [*:0]const u8, flags: O, perm: mode_t) usize {
     } else {
         return syscall4(
             .openat,
-            @bitCast(@as(isize, AT.FDCWD)),
+            @bitCast(@as(isize, At.fdcwd)),
             @intFromPtr(path),
             @as(u32, @bitCast(flags)),
             perm,
@@ -1395,7 +1470,7 @@ pub fn create(path: [*:0]const u8, perm: mode_t) usize {
 }
 
 pub fn openat(dirfd: i32, path: [*:0]const u8, flags: O, mode: mode_t) usize {
-    // dirfd could be negative, for example AT.FDCWD is -100
+    // dirfd could be negative, for example At.fdcwd is -100
     return syscall4(.openat, @bitCast(@as(isize, dirfd)), @intFromPtr(path), @as(u32, @bitCast(flags)), mode);
 }
 
@@ -1421,7 +1496,7 @@ pub fn chmod(path: [*:0]const u8, mode: mode_t) usize {
     if (@hasField(SYS, "chmod")) {
         return syscall2(.chmod, @intFromPtr(path), mode);
     } else {
-        return fchmodat(AT.FDCWD, path, mode, 0);
+        return fchmodat(At.fdcwd, path, mode, 0);
     }
 }
 
@@ -1553,9 +1628,9 @@ pub fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8) usize {
     } else {
         return syscall5(
             .linkat,
-            @as(usize, @bitCast(@as(isize, AT.FDCWD))),
+            @as(usize, @bitCast(@as(isize, At.fdcwd))),
             @intFromPtr(oldpath),
-            @as(usize, @bitCast(@as(isize, AT.FDCWD))),
+            @as(usize, @bitCast(@as(isize, At.fdcwd))),
             @intFromPtr(newpath),
             0,
         );
@@ -1577,7 +1652,7 @@ pub fn unlink(path: [*:0]const u8) usize {
     if (@hasField(SYS, "unlink")) {
         return syscall1(.unlink, @intFromPtr(path));
     } else {
-        return syscall3(.unlinkat, @as(usize, @bitCast(@as(isize, AT.FDCWD))), @intFromPtr(path), 0);
+        return syscall3(.unlinkat, @as(usize, @bitCast(@as(isize, At.fdcwd))), @intFromPtr(path), 0);
     }
 }
 
@@ -2237,25 +2312,37 @@ pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
     }
 }
 
-pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usize {
+pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: At) usize {
     if (native_arch == .riscv32 or native_arch.isLoongArch()) {
         // riscv32 and loongarch have made the interesting decision to not implement some of
         // the older stat syscalls, including this one.
         @compileError("No fstatat syscall on this architecture.");
     } else if (@hasField(SYS, "fstatat64")) {
-        return syscall4(.fstatat64, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
+        return syscall4(
+            .fstatat64,
+            @as(usize, @bitCast(@as(isize, dirfd))),
+            @intFromPtr(path),
+            @intFromPtr(stat_buf),
+            @intCast(@as(u32, @bitCast(flags))),
+        );
     } else {
-        return syscall4(.fstatat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
+        return syscall4(
+            .fstatat,
+            @as(usize, @bitCast(@as(isize, dirfd))),
+            @intFromPtr(path),
+            @intFromPtr(stat_buf),
+            @bitCast(flags),
+        );
     }
 }
 
-pub fn statx(dirfd: i32, path: [*:0]const u8, flags: u32, mask: u32, statx_buf: *Statx) usize {
+pub fn statx(dirfd: i32, path: [*:0]const u8, flags: At, mask: Statx.Mask, statx_buf: *Statx) usize {
     return syscall5(
         .statx,
         @as(usize, @bitCast(@as(isize, dirfd))),
         @intFromPtr(path),
-        flags,
-        mask,
+        @intCast(@as(u32, @bitCast(flags))),
+        @intCast(@as(u32, @bitCast(mask))),
         @intFromPtr(statx_buf),
     );
 }
@@ -2415,8 +2502,14 @@ pub fn epoll_create1(flags: usize) usize {
     return syscall1(.epoll_create1, flags);
 }
 
-pub fn epoll_ctl(epoll_fd: i32, op: u32, fd: i32, ev: ?*epoll_event) usize {
-    return syscall4(.epoll_ctl, @as(usize, @bitCast(@as(isize, epoll_fd))), @as(usize, @intCast(op)), @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(ev));
+pub fn epoll_ctl(epoll_fd: i32, op: EpollOp, fd: i32, ev: ?*epoll_event) usize {
+    return syscall4(
+        .epoll_ctl,
+        @as(usize, @bitCast(@as(isize, epoll_fd))),
+        @as(usize, @intFromEnum(op)),
+        @as(usize, @bitCast(@as(isize, fd))),
+        @intFromPtr(ev),
+    );
 }
 
 pub fn epoll_wait(epoll_fd: i32, events: [*]epoll_event, maxevents: u32, timeout: i32) usize {
@@ -2509,15 +2602,15 @@ pub fn uname(uts: *utsname) usize {
     return syscall1(.uname, @intFromPtr(uts));
 }
 
-pub fn io_uring_setup(entries: u32, p: *io_uring_params) usize {
+pub fn io_uring_setup(entries: u32, p: *IoUring.Params) usize {
     return syscall2(.io_uring_setup, entries, @intFromPtr(p));
 }
 
-pub fn io_uring_enter(fd: i32, to_submit: u32, min_complete: u32, flags: u32, sig: ?*sigset_t) usize {
-    return syscall6(.io_uring_enter, @as(usize, @bitCast(@as(isize, fd))), to_submit, min_complete, flags, @intFromPtr(sig), NSIG / 8);
+pub fn io_uring_enter(fd: i32, to_submit: u32, min_complete: u32, flags: IoUring.uflags.Enter, sig: ?*sigset_t) usize {
+    return syscall6(.io_uring_enter, @as(usize, @bitCast(@as(isize, fd))), to_submit, min_complete, @intCast(@as(u32, @bitCast(flags))), @intFromPtr(sig), NSIG / 8);
 }
 
-pub fn io_uring_register(fd: i32, opcode: IORING_REGISTER, arg: ?*const anyopaque, nr_args: u32) usize {
+pub fn io_uring_register(fd: i32, opcode: IoUring.RegisterOp, arg: ?*const anyopaque, nr_args: u32) usize {
     return syscall4(.io_uring_register, @as(usize, @bitCast(@as(isize, fd))), @intFromEnum(opcode), @intFromPtr(arg), nr_args);
 }
 
@@ -3476,41 +3569,72 @@ pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
 
-pub const AT = struct {
-    /// Special value used to indicate openat should use the current working directory
-    pub const FDCWD = -100;
-
+/// Deprecated alias to At
+pub const AT = At;
+/// matches AT_* and AT_STATX_*
+pub const At = packed struct(u32) {
+    _1: u8 = 0,
     /// Do not follow symbolic links
-    pub const SYMLINK_NOFOLLOW = 0x100;
-
+    symlink_nofollow: bool = false,
     /// Remove directory instead of unlinking file
-    pub const REMOVEDIR = 0x200;
-
+    removedir: bool = false,
     /// Follow symbolic links.
-    pub const SYMLINK_FOLLOW = 0x400;
-
+    symlink_follow: bool = false,
     /// Suppress terminal automount traversal
-    pub const NO_AUTOMOUNT = 0x800;
-
+    no_automount: bool = false,
     /// Allow empty relative pathname
-    pub const EMPTY_PATH = 0x1000;
-
-    /// Type of synchronisation required from statx()
-    pub const STATX_SYNC_TYPE = 0x6000;
-
-    /// - Do whatever stat() does
-    pub const STATX_SYNC_AS_STAT = 0x0000;
-
-    /// - Force the attributes to be sync'd with the server
-    pub const STATX_FORCE_SYNC = 0x2000;
-
-    /// - Don't sync attributes with the server
-    pub const STATX_DONT_SYNC = 0x4000;
-
+    empty_path: bool = false,
+    /// Force the attributes to be sync'd with the server
+    statx_force_sync: bool = false,
+    /// Don't sync attributes with the server
+    statx_dont_sync: bool = false,
     /// Apply to the entire subtree
-    pub const RECURSIVE = 0x8000;
+    recursive: bool = false,
+    _17: u16 = 0,
 
-    pub const HANDLE_FID = REMOVEDIR;
+    /// File handle is needed to compare object identity and may not be usable
+    /// with open_by_handle_at(2)
+    pub const handle_fid: At = .{ .removedir = true };
+
+    /// Special value used to indicate openat should use the current working directory
+    pub const fdcwd = -100;
+
+    // https://github.com/torvalds/linux/blob/d3479214c05dbd07bc56f8823e7bd8719fcd39a9/tools/perf/trace/beauty/fs_at_flags.sh#L15
+    /// AT_STATX_SYNC_TYPE is not a bit, its a mask of
+    /// AT_STATX_SYNC_AS_STAT, AT_STATX_FORCE_SYNC and AT_STATX_DONT_SYNC
+    /// Type of synchronisation required from statx()
+    pub const statx_sync_type = 0x6000;
+
+    /// Do whatever stat() does
+    /// This is the default and is very much filesystem-specific
+    pub const statx_sync_as_stat: At = .{};
+
+    // DEPRECATED ALIASES
+    //
+    //
+    /// Special value used to indicate openat should use the current working directory
+    pub const FDCWD = fdcwd;
+    /// Do not follow symbolic links
+    pub const SYMLINK_NOFOLLOW: u32 = @bitCast(At{ .symlink_nofollow = true });
+    /// Remove directory instead of unlinking file
+    pub const REMOVEDIR: u32 = @bitCast(At{ .removedir = true });
+    pub const HANDLE_FID: u32 = @bitCast(handle_fid);
+    /// Follow symbolic links.
+    pub const SYMLINK_FOLLOW: u32 = @bitCast(At{ .symlink_follow = true });
+    /// Suppress terminal automount traversal
+    pub const NO_AUTOMOUNT: u32 = @bitCast(At{ .no_automount = true });
+    /// Allow empty relative pathname
+    pub const EMPTY_PATH: u32 = @bitCast(At{ .empty_path = true });
+    /// Type of synchronisation required from statx()
+    pub const STATX_SYNC_TYPE: u32 = @bitCast(statx_sync_type);
+    /// - Do whatever stat() does
+    pub const STATX_SYNC_AS_STAT: u32 = @bitCast(statx_sync_as_stat);
+    /// - Force the attributes to be sync'd with the server
+    pub const STATX_FORCE_SYNC: u32 = @bitCast(At{ .statx_force_sync = true });
+    /// - Don't sync attributes with the server
+    pub const STATX_DONT_SYNC: u32 = @bitCast(At{ .statx_dont_sync = true });
+    /// Apply to the entire subtree
+    pub const RECURSIVE: u32 = @bitCast(At{ .recursive = true });
 };
 
 pub const FALLOC = struct {
@@ -3596,38 +3720,145 @@ pub const FUTEX_WAKE_OP_CMP = enum(u4) {
     GE = 5,
 };
 
-/// Max numbers of elements in a `futex2_waitone` array.
-pub const FUTEX2_WAITONE_MAX = 128;
+pub const Futex2 = struct {
+    /// Max numbers of elements in a `futex_waitv` .ie `WaitOne` array
+    /// matches FUTEX_WAITV_MAX
+    pub const waitone_max = 128;
 
-/// For futex v2 API, the size of the futex at the uaddr.  v1 futex are
-/// always implicitly U32.  As of kernel v6.14, only U32 is implemented
-/// for v2 futexes.
-pub const FUTEX2_SIZE = enum(u2) {
-    U8 = 0,
-    U16 = 1,
-    U32 = 2,
-    U64 = 3,
+    /// For futex v2 API, the size of the futex at the uaddr.  v1 futex are
+    /// always implicitly U32.  As of kernel v6.14, only U32 is implemented
+    /// for v2 futexes.
+    pub const Size = enum(u2) {
+        U8 = 0,
+        U16 = 1,
+        U32 = 2,
+        U64 = 3,
+    };
+
+    /// flags for `futex2_requeue` syscall
+    /// As of kernel 6.14 there are no defined flags to futex2_requeue.
+    pub const Requeue = packed struct(u32) {
+        _: u32 = 0,
+    };
+
+    /// flags for `futex2_waitv` syscall
+    /// As of kernel 6.14 there are no defined flags to futex2_waitv.
+    pub const Waitv = packed struct(u32) {
+        _: u32 = 0,
+    };
+
+    /// flags for `futex2_wait` syscall
+    pub const Wait = packed struct(u32) {
+        size: Size,
+        numa: bool = false,
+        mpol: bool = false,
+        _5: u3 = 0,
+        private: bool,
+        _9: u24 = 0,
+    };
+
+    /// flags for `futex2_wake` syscall
+    pub const Wake = Wait;
+
+    /// A waiter for vectorized wait
+    /// For `futex2_waitv` and `futex2_requeue`. Arrays of `WaitOne`
+    /// allow waiting on multiple futexes in one call.
+    /// matches `futex_waitv` in kernel
+    pub const WaitOne = extern struct {
+        /// Expected value at uaddr, should match size of futex.
+        val: u64,
+        /// User address to wait on.  Top-bits must be 0 on 32-bit.
+        uaddr: u64,
+        /// Flags for this waiter.
+        flags: Wait,
+        /// Reserved member to preserve data alignment.
+        __reserved: u32 = 0,
+    };
+
+    /// `Bitset` for `futex2_wait`, `futex2_wake`, `IoUring.futex_wait` and
+    /// `IoUring.futex_wake` operations
+    /// At least one bit must be set before performing supported operations
+    /// The bitset is stored in the kernel-internal state of a waiter. During a
+    /// wake operation, the same mask previously set during the wait call can
+    /// be used to select which waiters to woke up
+    /// See https://man7.org/linux/man-pages/man2/futex_wake_bitset.2const.html
+    /// `IoUring` supports a u64 `Bitset` while the raw syscalls uses only u32
+    /// bits of `Bitset`
+    pub const Bitset = packed struct(u64) {
+        waiter1: bool = false,
+        waiter2: bool = false,
+        waiter3: bool = false,
+        waiter4: bool = false,
+        waiter5: bool = false,
+        waiter6: bool = false,
+        waiter7: bool = false,
+        waiter8: bool = false,
+        waiter9: bool = false,
+        waiter10: bool = false,
+        waiter11: bool = false,
+        waiter12: bool = false,
+        waiter13: bool = false,
+        waiter14: bool = false,
+        waiter15: bool = false,
+        waiter16: bool = false,
+        waiter17: bool = false,
+        waiter18: bool = false,
+        waiter19: bool = false,
+        waiter20: bool = false,
+        waiter21: bool = false,
+        waiter22: bool = false,
+        waiter23: bool = false,
+        waiter24: bool = false,
+        waiter25: bool = false,
+        waiter26: bool = false,
+        waiter27: bool = false,
+        waiter28: bool = false,
+        waiter29: bool = false,
+        waiter30: bool = false,
+        waiter31: bool = false,
+        waiter32: bool = false,
+        io_uring_extra: u32 = 0,
+
+        /// `Bitset` with all bits set for the FUTEX_xxx_BITSET OPs to request a
+        /// match of any bit. matches FUTEX_BITSET_MATCH_ANY
+        pub const match_any: Bitset = @bitCast(@as(u64, 0x0000_0000_ffff_ffff));
+        /// An empty `Bitset` will not wake any threads because the kernel
+        /// requires at least one bit to be set in the bitmask to identify
+        /// which waiters should be woken up. Therefore, no action will be
+        /// taken if the bitset is zero, this is only useful in test
+        pub const empty: Bitset = .{};
+
+        /// Create from raw u64 value
+        pub fn fromInt(value: u64) Bitset {
+            const bitset: Bitset = @bitCast(value);
+            assert(bitset != empty);
+            return bitset;
+        }
+
+        /// Convert to raw u64 for syscall
+        pub fn toInt(self: Bitset) u64 {
+            return @bitCast(self);
+        }
+    };
 };
 
-/// As of kernel 6.14 there are no defined flags to futex2_waitv.
-pub const FUTEX2_FLAGS_WAITV = packed struct(u32) {
-    _reserved: u32 = 0,
-};
+/// DEPRECATED use `Futex2.WaitOne`
+pub const futex2_waitone = Futex2.WaitOne;
 
-/// As of kernel 6.14 there are no defined flags to futex2_requeue.
-pub const FUTEX2_FLAGS_REQUEUE = packed struct(u32) {
-    _reserved: u32 = 0,
-};
+/// DEPRECATED use constant in `Futex2`
+pub const FUTEX2_WAITONE_MAX = Futex2.waitone_max;
 
-/// Flags for futex v2 APIs (futex2_wait, futex2_wake, futex2_requeue, but
-/// not the futex2_waitv syscall, but also used in the futex2_waitone struct).
-pub const FUTEX2_FLAGS = packed struct(u32) {
-    size: FUTEX2_SIZE,
-    numa: bool = false,
-    _reserved: u4 = 0,
-    private: bool,
-    _undefined: u24 = 0,
-};
+/// DEPRECATED use `Size` type in `Futex2`
+pub const FUTEX2_SIZE = Futex2.Size;
+
+/// DEPRECATED use `Waitv` in `Futex2`
+pub const FUTEX2_FLAGS_WAITV = Futex2.Waitv;
+
+/// DEPRECATED use `Requeue` in `Futex2`
+pub const FUTEX2_FLAGS_REQUEUE = Futex2.Requeue;
+
+/// DEPRECATED use `Wait` in `Futex2`
+pub const FUTEX2_FLAGS = Futex2.Wait;
 
 pub const PROT = struct {
     /// page can not be accessed
@@ -3656,31 +3887,87 @@ pub const X_OK = 1;
 pub const W_OK = 2;
 pub const R_OK = 4;
 
-pub const W = struct {
-    pub const NOHANG = 1;
-    pub const UNTRACED = 2;
-    pub const STOPPED = 2;
-    pub const EXITED = 4;
-    pub const CONTINUED = 8;
-    pub const NOWAIT = 0x1000000;
+pub const W = packed struct(u32) {
+    nohang: bool = false,
+    stopped: bool = false,
+    exited: bool = false,
+    continued: bool = false,
+    _5: u20 = 0,
+    nowait: bool = false,
+    _26: u7 = 0,
+    /// alias to stopped
+    pub const untraced: W = .{ .stopped = true };
 
+    fn toInt(s: W) u32 {
+        return @bitCast(s);
+    }
+
+    /// matches EXITSTATUS in C
+    pub fn exitStatus(s: W) u8 {
+        return @intCast((s.toInt() & 0xff00) >> 8);
+    }
+
+    /// matches TERMSIG in C
+    pub fn termSig(s: W) u32 {
+        return s.toInt() & 0x7f;
+    }
+
+    /// matches STOPSIG in C
+    pub fn stopSig(s: W) u32 {
+        return exitStatus(s);
+    }
+
+    /// matches IFEXITED in C
+    pub fn ifExited(s: W) bool {
+        return termSig(s) == 0;
+    }
+
+    /// matches IFSTOPPED in C
+    pub fn ifStopped(s: W) bool {
+        return @as(u16, @truncate(((s.toInt() & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
+    }
+
+    /// matches IFSIGNALED in C
+    pub fn ifSignaled(s: W) bool {
+        return (s.toInt() & 0xffff) -% 1 < 0xff;
+    }
+
+    // Deprecated constants
+    pub const NOHANG: u32 = @bitCast(W{ .nohang = true });
+    pub const STOPPED: u32 = @bitCast(W{ .stopped = true });
+    pub const UNTRACED: u32 = @bitCast(untraced);
+    pub const EXITED: u32 = @bitCast(W{ .exited = true });
+    pub const CONTINUED: u32 = @bitCast(W{ .continued = true });
+    pub const NOWAIT: u32 = @bitCast(W{ .nowait = true });
+
+    /// DEPRECATED alias to exitStatus
     pub fn EXITSTATUS(s: u32) u8 {
-        return @as(u8, @intCast((s & 0xff00) >> 8));
+        return exitStatus(@bitCast(s));
     }
+
+    /// DEPRECATED alias to termSig
     pub fn TERMSIG(s: u32) u32 {
-        return s & 0x7f;
+        return termSig(@bitCast(s));
     }
+
+    /// DEPRECATED alias to stopSig
     pub fn STOPSIG(s: u32) u32 {
-        return EXITSTATUS(s);
+        return stopSig(@bitCast(s));
     }
+
+    /// DEPRECATED alias to ifExited
     pub fn IFEXITED(s: u32) bool {
-        return TERMSIG(s) == 0;
+        return ifExited(@bitCast(s));
     }
+
+    /// DEPRECATED alias to ifStopped
     pub fn IFSTOPPED(s: u32) bool {
-        return @as(u16, @truncate(((s & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
+        return ifStopped(@bitCast(s));
     }
+
+    /// DEPRECATED alias to ifSignaled
     pub fn IFSIGNALED(s: u32) bool {
-        return (s & 0xffff) -% 1 < 0xff;
+        return ifSignaled(@bitCast(s));
     }
 };
 
@@ -3879,22 +4166,93 @@ pub const SEEK = struct {
     pub const END = 2;
 };
 
-pub const SHUT = struct {
-    pub const RD = 0;
-    pub const WR = 1;
-    pub const RDWR = 2;
+/// Deprecated alias to Shut
+pub const SHUT = Shut;
+/// enum sock_shutdown_cmd - Shutdown types
+/// matches SHUT_* in kenel
+pub const Shut = enum(u32) {
+    /// SHUT_RD: shutdown receptions
+    rd = 0,
+    /// SHUT_WR: shutdown transmissions
+    wd = 1,
+    /// SHUT_RDWR: shutdown receptions/transmissions
+    rdwr = 2,
+
+    _,
+
+    // deprecated constants of the fields
+    pub const RD: u32 = @intFromEnum(Shut.rd);
+    pub const WR: u32 = @intFromEnum(Shut.wd);
+    pub const RDWR: u32 = @intFromEnum(Shut.rdwr);
 };
 
-pub const SOCK = struct {
-    pub const STREAM = if (is_mips) 2 else 1;
-    pub const DGRAM = if (is_mips) 1 else 2;
-    pub const RAW = 3;
-    pub const RDM = 4;
-    pub const SEQPACKET = 5;
-    pub const DCCP = 6;
-    pub const PACKET = 10;
-    pub const CLOEXEC = if (is_sparc) 0o20000000 else 0o2000000;
-    pub const NONBLOCK = if (is_mips) 0o200 else if (is_sparc) 0o40000 else 0o4000;
+/// flags for `sync_file_range(2)` syscall
+/// matches SYNC_FILE_RANGE_* in kernel
+pub const SyncFileRange = packed struct(u32) {
+    wait_before: bool = false,
+    write: bool = false,
+    wait_after: bool = false,
+    _: u29 = 0,
+
+    pub const write_and_wait: SyncFileRange = .{
+        .wait_before = true,
+        .write = true,
+        .wait_after = true,
+    };
+};
+
+/// Deprecated alias to Sock
+pub const SOCK = Sock;
+/// SOCK_* Socket type and flags
+pub const Sock = packed struct(u32) {
+    type: Type = .default,
+    flags: Flags = .{},
+
+    /// matches sock_type in kernel
+    pub const Type = enum(u7) {
+        default = 0,
+        stream = if (is_mips) 2 else 1,
+        dgram = if (is_mips) 1 else 2,
+        raw = 3,
+        rdm = 4,
+        seqpacket = 5,
+        dccp = 6,
+        packet = 10,
+
+        _,
+    };
+
+    // bit range is (8 - 32] of the u32
+    /// Flags for socket, socketpair, accept4
+    pub const Flags = if (is_sparc) packed struct(u25) {
+        _8: u7 = 0, // start from u7 since Type comes before Flags
+        nonblock: bool = false,
+        _16: u7 = 0,
+        cloexec: bool = false,
+        _24: u9 = 0,
+    } else if (is_mips) packed struct(u25) {
+        nonblock: bool = false,
+        _9: u11 = 0,
+        cloexec: bool = false,
+        _21: u12 = 0,
+    } else packed struct(u25) {
+        _8: u4 = 0,
+        nonblock: bool = false,
+        _13: u7 = 0,
+        cloexec: bool = false,
+        _21: u12 = 0,
+    };
+
+    // Deprecated aliases for SOCK
+    pub const STREAM: u32 = @intFromEnum(Type.stream);
+    pub const DGRAM: u32 = @intFromEnum(Type.dgram);
+    pub const RAW: u32 = @intFromEnum(Type.raw);
+    pub const RDM: u32 = @intFromEnum(Type.rdm);
+    pub const SEQPACKET: u32 = @intFromEnum(Type.seqpacket);
+    pub const DCCP: u32 = @intFromEnum(Type.dccp);
+    pub const PACKET: u32 = @intFromEnum(Type.packet);
+    pub const CLOEXEC: u32 = (@as(u25, @bitCast(Flags{ .cloexec = true })) << 7);
+    pub const NONBLOCK: u32 = (@as(u25, @bitCast(Flags{ .nonblock = true })) << 7);
 };
 
 pub const TCP = struct {
@@ -3997,386 +4355,479 @@ pub const UDP_ENCAP = struct {
     pub const RXRPC = 6;
 };
 
-pub const PF = struct {
-    pub const UNSPEC = 0;
-    pub const LOCAL = 1;
-    pub const UNIX = LOCAL;
-    pub const FILE = LOCAL;
-    pub const INET = 2;
-    pub const AX25 = 3;
-    pub const IPX = 4;
-    pub const APPLETALK = 5;
-    pub const NETROM = 6;
-    pub const BRIDGE = 7;
-    pub const ATMPVC = 8;
-    pub const X25 = 9;
-    pub const INET6 = 10;
-    pub const ROSE = 11;
-    pub const DECnet = 12;
-    pub const NETBEUI = 13;
-    pub const SECURITY = 14;
-    pub const KEY = 15;
-    pub const NETLINK = 16;
-    pub const ROUTE = PF.NETLINK;
-    pub const PACKET = 17;
-    pub const ASH = 18;
-    pub const ECONET = 19;
-    pub const ATMSVC = 20;
-    pub const RDS = 21;
-    pub const SNA = 22;
-    pub const IRDA = 23;
-    pub const PPPOX = 24;
-    pub const WANPIPE = 25;
-    pub const LLC = 26;
-    pub const IB = 27;
-    pub const MPLS = 28;
-    pub const CAN = 29;
-    pub const TIPC = 30;
-    pub const BLUETOOTH = 31;
-    pub const IUCV = 32;
-    pub const RXRPC = 33;
-    pub const ISDN = 34;
-    pub const PHONET = 35;
-    pub const IEEE802154 = 36;
-    pub const CAIF = 37;
-    pub const ALG = 38;
-    pub const NFC = 39;
-    pub const VSOCK = 40;
-    pub const KCM = 41;
-    pub const QIPCRTR = 42;
-    pub const SMC = 43;
-    pub const XDP = 44;
-    pub const MAX = 45;
+// Deprecated Alias
+pub const AF = Af;
+pub const PF = Af;
+/// Protocol Family (same values as Protocol Family)
+pub const Pf = Af;
+/// Address Family
+pub const Af = enum(u16) {
+    unspec = 0,
+    unix = 1,
+    inet = 2,
+    ax25 = 3,
+    ipx = 4,
+    appletalk = 5,
+    netrom = 6,
+    bridge = 7,
+    atmpvc = 8,
+    x25 = 9,
+    inet6 = 10,
+    rose = 11,
+    decnet = 12,
+    netbeui = 13,
+    security = 14,
+    key = 15,
+    route = 16,
+    packet = 17,
+    ash = 18,
+    econet = 19,
+    atmsvc = 20,
+    rds = 21,
+    sna = 22,
+    irda = 23,
+    pppox = 24,
+    wanpipe = 25,
+    llc = 26,
+    ib = 27,
+    mpls = 28,
+    can = 29,
+    tipc = 30,
+    bluetooth = 31,
+    iucv = 32,
+    rxrpc = 33,
+    isdn = 34,
+    phonet = 35,
+    ieee802154 = 36,
+    caif = 37,
+    alg = 38,
+    nfc = 39,
+    vsock = 40,
+    kcm = 41,
+    qipcrtr = 42,
+    smc = 43,
+    xdp = 44,
+    max = 45,
+    _,
+
+    // Aliases
+    pub const local = Af.unix;
+    pub const file = Af.unix;
+    pub const netlink = Af.route;
+
+    // Deprecated constants for backward compatibility
+    pub const UNSPEC: u16 = @intFromEnum(Af.unspec);
+    pub const UNIX: u16 = @intFromEnum(Af.unix);
+    pub const LOCAL: u16 = @intFromEnum(local);
+    pub const FILE: u16 = @intFromEnum(file);
+    pub const INET: u16 = @intFromEnum(Af.inet);
+    pub const AX25: u16 = @intFromEnum(Af.ax25);
+    pub const IPX: u16 = @intFromEnum(Af.ipx);
+    pub const APPLETALK: u16 = @intFromEnum(Af.appletalk);
+    pub const NETROM: u16 = @intFromEnum(Af.netrom);
+    pub const BRIDGE: u16 = @intFromEnum(Af.bridge);
+    pub const ATMPVC: u16 = @intFromEnum(Af.atmpvc);
+    pub const X25: u16 = @intFromEnum(Af.x25);
+    pub const INET6: u16 = @intFromEnum(Af.inet6);
+    pub const ROSE: u16 = @intFromEnum(Af.rose);
+    pub const DECnet: u16 = @intFromEnum(Af.decnet);
+    pub const NETBEUI: u16 = @intFromEnum(Af.netbeui);
+    pub const SECURITY: u16 = @intFromEnum(Af.security);
+    pub const KEY: u16 = @intFromEnum(Af.key);
+    pub const ROUTE: u16 = @intFromEnum(Af.route);
+    pub const NETLINK: u16 = @intFromEnum(netlink);
+    pub const PACKET: u16 = @intFromEnum(Af.packet);
+    pub const ASH: u16 = @intFromEnum(Af.ash);
+    pub const ECONET: u16 = @intFromEnum(Af.econet);
+    pub const ATMSVC: u16 = @intFromEnum(Af.atmsvc);
+    pub const RDS: u16 = @intFromEnum(Af.rds);
+    pub const SNA: u16 = @intFromEnum(Af.sna);
+    pub const IRDA: u16 = @intFromEnum(Af.irda);
+    pub const PPPOX: u16 = @intFromEnum(Af.pppox);
+    pub const WANPIPE: u16 = @intFromEnum(Af.wanpipe);
+    pub const LLC: u16 = @intFromEnum(Af.llc);
+    pub const IB: u16 = @intFromEnum(Af.ib);
+    pub const MPLS: u16 = @intFromEnum(Af.mpls);
+    pub const CAN: u16 = @intFromEnum(Af.can);
+    pub const TIPC: u16 = @intFromEnum(Af.tipc);
+    pub const BLUETOOTH: u16 = @intFromEnum(Af.bluetooth);
+    pub const IUCV: u16 = @intFromEnum(Af.iucv);
+    pub const RXRPC: u16 = @intFromEnum(Af.rxrpc);
+    pub const ISDN: u16 = @intFromEnum(Af.isdn);
+    pub const PHONET: u16 = @intFromEnum(Af.phonet);
+    pub const IEEE802154: u16 = @intFromEnum(Af.ieee802154);
+    pub const CAIF: u16 = @intFromEnum(Af.caif);
+    pub const ALG: u16 = @intFromEnum(Af.alg);
+    pub const NFC: u16 = @intFromEnum(Af.nfc);
+    pub const VSOCK: u16 = @intFromEnum(Af.vsock);
+    pub const KCM: u16 = @intFromEnum(Af.kcm);
+    pub const QIPCRTR: u16 = @intFromEnum(Af.qipcrtr);
+    pub const SMC: u16 = @intFromEnum(Af.smc);
+    pub const XDP: u16 = @intFromEnum(Af.xdp);
+    pub const MAX: u16 = @intFromEnum(Af.max);
 };
 
-pub const AF = struct {
-    pub const UNSPEC = PF.UNSPEC;
-    pub const LOCAL = PF.LOCAL;
-    pub const UNIX = AF.LOCAL;
-    pub const FILE = AF.LOCAL;
-    pub const INET = PF.INET;
-    pub const AX25 = PF.AX25;
-    pub const IPX = PF.IPX;
-    pub const APPLETALK = PF.APPLETALK;
-    pub const NETROM = PF.NETROM;
-    pub const BRIDGE = PF.BRIDGE;
-    pub const ATMPVC = PF.ATMPVC;
-    pub const X25 = PF.X25;
-    pub const INET6 = PF.INET6;
-    pub const ROSE = PF.ROSE;
-    pub const DECnet = PF.DECnet;
-    pub const NETBEUI = PF.NETBEUI;
-    pub const SECURITY = PF.SECURITY;
-    pub const KEY = PF.KEY;
-    pub const NETLINK = PF.NETLINK;
-    pub const ROUTE = PF.ROUTE;
-    pub const PACKET = PF.PACKET;
-    pub const ASH = PF.ASH;
-    pub const ECONET = PF.ECONET;
-    pub const ATMSVC = PF.ATMSVC;
-    pub const RDS = PF.RDS;
-    pub const SNA = PF.SNA;
-    pub const IRDA = PF.IRDA;
-    pub const PPPOX = PF.PPPOX;
-    pub const WANPIPE = PF.WANPIPE;
-    pub const LLC = PF.LLC;
-    pub const IB = PF.IB;
-    pub const MPLS = PF.MPLS;
-    pub const CAN = PF.CAN;
-    pub const TIPC = PF.TIPC;
-    pub const BLUETOOTH = PF.BLUETOOTH;
-    pub const IUCV = PF.IUCV;
-    pub const RXRPC = PF.RXRPC;
-    pub const ISDN = PF.ISDN;
-    pub const PHONET = PF.PHONET;
-    pub const IEEE802154 = PF.IEEE802154;
-    pub const CAIF = PF.CAIF;
-    pub const ALG = PF.ALG;
-    pub const NFC = PF.NFC;
-    pub const VSOCK = PF.VSOCK;
-    pub const KCM = PF.KCM;
-    pub const QIPCRTR = PF.QIPCRTR;
-    pub const SMC = PF.SMC;
-    pub const XDP = PF.XDP;
-    pub const MAX = PF.MAX;
+/// SO_* type
+pub const So = if (is_mips) enum(u16) {
+    debug = 1,
+    reuseaddr = 0x0004,
+    keepalive = 0x0008,
+    dontroute = 0x0010,
+    broadcast = 0x0020,
+    linger = 0x0080,
+    oobinline = 0x0100,
+    reuseport = 0x0200,
+    sndbuf = 0x1001,
+    rcvbuf = 0x1002,
+    sndlowat = 0x1003,
+    rcvlowat = 0x1004,
+    sndtimeo = 0x1005,
+    rcvtimeo = 0x1006,
+    @"error" = 0x1007,
+    type = 0x1008,
+    acceptconn = 0x1009,
+    protocol = 0x1028,
+    domain = 0x1029,
+    no_check = 11,
+    priority = 12,
+    bsdcompat = 14,
+    passcred = 17,
+    peercred = 18,
+    peersec = 30,
+    sndbufforce = 31,
+    rcvbufforce = 33,
+    security_authentication = 22,
+    security_encryption_transport = 23,
+    security_encryption_network = 24,
+    bindtodevice = 25,
+    attach_filter = 26,
+    detach_filter = 27,
+    peername = 28,
+    timestamp_old = 29,
+    passsec = 34,
+    timestampns_old = 35,
+    mark = 36,
+    timestamping_old = 37,
+    rxq_ovfl = 40,
+    wifi_status = 41,
+    peek_off = 42,
+    nofcs = 43,
+    lock_filter = 44,
+    select_err_queue = 45,
+    busy_poll = 46,
+    max_pacing_rate = 47,
+    bpf_extensions = 48,
+    incoming_cpu = 49,
+    attach_bpf = 50,
+    attach_reuseport_cbpf = 51,
+    attach_reuseport_ebpf = 52,
+    cnx_advice = 53,
+    meminfo = 55,
+    incoming_napi_id = 56,
+    cookie = 57,
+    peergroups = 59,
+    zerocopy = 60,
+    txtime = 61,
+    bindtoifindex = 62,
+    timestamp_new = 63,
+    timestampns_new = 64,
+    timestamping_new = 65,
+    rcvtimeo_new = 66,
+    sndtimeo_new = 67,
+    detach_reuseport_bpf = 68,
+    _,
+
+    // aliases
+    pub const get_filter: So = .attach_filter;
+    pub const detach_bpf: So = .detach_filter;
+} else if (is_ppc) enum(u16) {
+    debug = 1,
+    reuseaddr = 2,
+    type = 3,
+    @"error" = 4,
+    dontroute = 5,
+    broadcast = 6,
+    sndbuf = 7,
+    rcvbuf = 8,
+    keepalive = 9,
+    oobinline = 10,
+    no_check = 11,
+    priority = 12,
+    linger = 13,
+    bsdcompat = 14,
+    reuseport = 15,
+    rcvlowat = 16,
+    sndlowat = 17,
+    rcvtimeo = 18,
+    sndtimeo = 19,
+    passcred = 20,
+    peercred = 21,
+    acceptconn = 30,
+    peersec = 31,
+    sndbufforce = 32,
+    rcvbufforce = 33,
+    protocol = 38,
+    domain = 39,
+    security_authentication = 22,
+    security_encryption_transport = 23,
+    security_encryption_network = 24,
+    bindtodevice = 25,
+    attach_filter = 26,
+    detach_filter = 27,
+    peername = 28,
+    timestamp_old = 29,
+    passsec = 34,
+    timestampns_old = 35,
+    mark = 36,
+    timestamping_old = 37,
+    rxq_ovfl = 40,
+    wifi_status = 41,
+    peek_off = 42,
+    nofcs = 43,
+    lock_filter = 44,
+    select_err_queue = 45,
+    busy_poll = 46,
+    max_pacing_rate = 47,
+    bpf_extensions = 48,
+    incoming_cpu = 49,
+    attach_bpf = 50,
+    attach_reuseport_cbpf = 51,
+    attach_reuseport_ebpf = 52,
+    cnx_advice = 53,
+    meminfo = 55,
+    incoming_napi_id = 56,
+    cookie = 57,
+    peergroups = 59,
+    zerocopy = 60,
+    txtime = 61,
+    bindtoifindex = 62,
+    timestamp_new = 63,
+    timestampns_new = 64,
+    timestamping_new = 65,
+    rcvtimeo_new = 66,
+    sndtimeo_new = 67,
+    detach_reuseport_bpf = 68,
+    _,
+
+    // aliases
+    pub const get_filter: So = .attach_filter;
+    pub const detach_bpf: So = .detach_filter;
+} else if (is_sparc) enum(u16) {
+    debug = 1,
+    reuseaddr = 4,
+    type = 4104,
+    @"error" = 4103,
+    dontroute = 16,
+    broadcast = 32,
+    sndbuf = 4097,
+    rcvbuf = 4098,
+    keepalive = 8,
+    oobinline = 256,
+    no_check = 11,
+    priority = 12,
+    linger = 128,
+    bsdcompat = 1024,
+    reuseport = 512,
+    passcred = 2,
+    peercred = 64,
+    rcvlowat = 2048,
+    sndlowat = 4096,
+    rcvtimeo = 8192,
+    sndtimeo = 16384,
+    acceptconn = 32768,
+    peersec = 30,
+    sndbufforce = 4106,
+    rcvbufforce = 4107,
+    protocol = 4136,
+    domain = 4137,
+    security_authentication = 20481,
+    security_encryption_transport = 20482,
+    security_encryption_network = 20484,
+    bindtodevice = 13,
+    attach_filter = 26,
+    detach_filter = 27,
+    peername = 28,
+    timestamp_old = 29,
+    passsec = 31,
+    timestampns_old = 33,
+    mark = 34,
+    timestamping_old = 35,
+    rxq_ovfl = 36,
+    wifi_status = 37,
+    peek_off = 38,
+    nofcs = 39,
+    lock_filter = 40,
+    select_err_queue = 41,
+    busy_poll = 48,
+    max_pacing_rate = 49,
+    bpf_extensions = 50,
+    incoming_cpu = 51,
+    attach_bpf = 52,
+    attach_reuseport_cbpf = 53,
+    attach_reuseport_ebpf = 54,
+    cnx_advice = 55,
+    meminfo = 57,
+    incoming_napi_id = 58,
+    cookie = 59,
+    peergroups = 61,
+    zerocopy = 62,
+    txtime = 63,
+    bindtoifindex = 65,
+    timestamp_new = 70,
+    timestampns_new = 66,
+    timestamping_new = 67,
+    rcvtimeo_new = 68,
+    sndtimeo_new = 69,
+    detach_reuseport_bpf = 71,
+    _,
+
+    // aliases
+    pub const get_filter: So = .attach_filter;
+    pub const detach_bpf: So = .detach_filter;
+} else enum(u16) {
+    debug = 1,
+    reuseaddr = 2,
+    type = 3,
+    @"error" = 4,
+    dontroute = 5,
+    broadcast = 6,
+    sndbuf = 7,
+    rcvbuf = 8,
+    keepalive = 9,
+    oobinline = 10,
+    no_check = 11,
+    priority = 12,
+    linger = 13,
+    bsdcompat = 14,
+    reuseport = 15,
+    passcred = 16,
+    peercred = 17,
+    rcvlowat = 18,
+    sndlowat = 19,
+    rcvtimeo = 20,
+    sndtimeo = 21,
+    acceptconn = 30,
+    peersec = 31,
+    sndbufforce = 32,
+    rcvbufforce = 33,
+    passsec = 34,
+    timestampns_old = 35,
+    mark = 36,
+    timestamping_old = 37,
+    protocol = 38,
+    domain = 39,
+    rxq_ovfl = 40,
+    wifi_status = 41,
+    peek_off = 42,
+    nofcs = 43,
+    lock_filter = 44,
+    select_err_queue = 45,
+    busy_poll = 46,
+    max_pacing_rate = 47,
+    bpf_extensions = 48,
+    incoming_cpu = 49,
+    attach_bpf = 50,
+    attach_reuseport_cbpf = 51,
+    attach_reuseport_ebpf = 52,
+    cnx_advice = 53,
+    meminfo = 55,
+    incoming_napi_id = 56,
+    cookie = 57,
+    peergroups = 59,
+    zerocopy = 60,
+    txtime = 61,
+    bindtoifindex = 62,
+    timestamp_new = 63,
+    timestampns_new = 64,
+    timestamping_new = 65,
+    rcvtimeo_new = 66,
+    sndtimeo_new = 67,
+    detach_reuseport_bpf = 68,
+    security_authentication = 22,
+    security_encryption_transport = 23,
+    security_encryption_network = 24,
+    bindtodevice = 25,
+    attach_filter = 26,
+    detach_filter = 27,
+    peername = 28,
+    timestamp_old = 29,
+    _,
+
+    // aliases
+    pub const get_filter: So = .attach_filter;
+    pub const detach_bpf: So = .detach_filter;
 };
 
-pub const SO = if (is_mips) struct {
-    pub const DEBUG = 1;
-    pub const REUSEADDR = 0x0004;
-    pub const KEEPALIVE = 0x0008;
-    pub const DONTROUTE = 0x0010;
-    pub const BROADCAST = 0x0020;
-    pub const LINGER = 0x0080;
-    pub const OOBINLINE = 0x0100;
-    pub const REUSEPORT = 0x0200;
-    pub const SNDBUF = 0x1001;
-    pub const RCVBUF = 0x1002;
-    pub const SNDLOWAT = 0x1003;
-    pub const RCVLOWAT = 0x1004;
-    pub const RCVTIMEO = 0x1006;
-    pub const SNDTIMEO = 0x1005;
-    pub const ERROR = 0x1007;
-    pub const TYPE = 0x1008;
-    pub const ACCEPTCONN = 0x1009;
-    pub const PROTOCOL = 0x1028;
-    pub const DOMAIN = 0x1029;
-    pub const NO_CHECK = 11;
-    pub const PRIORITY = 12;
-    pub const BSDCOMPAT = 14;
-    pub const PASSCRED = 17;
-    pub const PEERCRED = 18;
-    pub const PEERSEC = 30;
-    pub const SNDBUFFORCE = 31;
-    pub const RCVBUFFORCE = 33;
-    pub const SECURITY_AUTHENTICATION = 22;
-    pub const SECURITY_ENCRYPTION_TRANSPORT = 23;
-    pub const SECURITY_ENCRYPTION_NETWORK = 24;
-    pub const BINDTODEVICE = 25;
-    pub const ATTACH_FILTER = 26;
-    pub const DETACH_FILTER = 27;
-    pub const GET_FILTER = ATTACH_FILTER;
-    pub const PEERNAME = 28;
-    pub const TIMESTAMP_OLD = 29;
-    pub const PASSSEC = 34;
-    pub const TIMESTAMPNS_OLD = 35;
-    pub const MARK = 36;
-    pub const TIMESTAMPING_OLD = 37;
-    pub const RXQ_OVFL = 40;
-    pub const WIFI_STATUS = 41;
-    pub const PEEK_OFF = 42;
-    pub const NOFCS = 43;
-    pub const LOCK_FILTER = 44;
-    pub const SELECT_ERR_QUEUE = 45;
-    pub const BUSY_POLL = 46;
-    pub const MAX_PACING_RATE = 47;
-    pub const BPF_EXTENSIONS = 48;
-    pub const INCOMING_CPU = 49;
-    pub const ATTACH_BPF = 50;
-    pub const DETACH_BPF = DETACH_FILTER;
-    pub const ATTACH_REUSEPORT_CBPF = 51;
-    pub const ATTACH_REUSEPORT_EBPF = 52;
-    pub const CNX_ADVICE = 53;
-    pub const MEMINFO = 55;
-    pub const INCOMING_NAPI_ID = 56;
-    pub const COOKIE = 57;
-    pub const PEERGROUPS = 59;
-    pub const ZEROCOPY = 60;
-    pub const TXTIME = 61;
-    pub const BINDTOIFINDEX = 62;
-    pub const TIMESTAMP_NEW = 63;
-    pub const TIMESTAMPNS_NEW = 64;
-    pub const TIMESTAMPING_NEW = 65;
-    pub const RCVTIMEO_NEW = 66;
-    pub const SNDTIMEO_NEW = 67;
-    pub const DETACH_REUSEPORT_BPF = 68;
-} else if (is_ppc) struct {
-    pub const DEBUG = 1;
-    pub const REUSEADDR = 2;
-    pub const TYPE = 3;
-    pub const ERROR = 4;
-    pub const DONTROUTE = 5;
-    pub const BROADCAST = 6;
-    pub const SNDBUF = 7;
-    pub const RCVBUF = 8;
-    pub const KEEPALIVE = 9;
-    pub const OOBINLINE = 10;
-    pub const NO_CHECK = 11;
-    pub const PRIORITY = 12;
-    pub const LINGER = 13;
-    pub const BSDCOMPAT = 14;
-    pub const REUSEPORT = 15;
-    pub const RCVLOWAT = 16;
-    pub const SNDLOWAT = 17;
-    pub const RCVTIMEO = 18;
-    pub const SNDTIMEO = 19;
-    pub const PASSCRED = 20;
-    pub const PEERCRED = 21;
-    pub const ACCEPTCONN = 30;
-    pub const PEERSEC = 31;
-    pub const SNDBUFFORCE = 32;
-    pub const RCVBUFFORCE = 33;
-    pub const PROTOCOL = 38;
-    pub const DOMAIN = 39;
-    pub const SECURITY_AUTHENTICATION = 22;
-    pub const SECURITY_ENCRYPTION_TRANSPORT = 23;
-    pub const SECURITY_ENCRYPTION_NETWORK = 24;
-    pub const BINDTODEVICE = 25;
-    pub const ATTACH_FILTER = 26;
-    pub const DETACH_FILTER = 27;
-    pub const GET_FILTER = ATTACH_FILTER;
-    pub const PEERNAME = 28;
-    pub const TIMESTAMP_OLD = 29;
-    pub const PASSSEC = 34;
-    pub const TIMESTAMPNS_OLD = 35;
-    pub const MARK = 36;
-    pub const TIMESTAMPING_OLD = 37;
-    pub const RXQ_OVFL = 40;
-    pub const WIFI_STATUS = 41;
-    pub const PEEK_OFF = 42;
-    pub const NOFCS = 43;
-    pub const LOCK_FILTER = 44;
-    pub const SELECT_ERR_QUEUE = 45;
-    pub const BUSY_POLL = 46;
-    pub const MAX_PACING_RATE = 47;
-    pub const BPF_EXTENSIONS = 48;
-    pub const INCOMING_CPU = 49;
-    pub const ATTACH_BPF = 50;
-    pub const DETACH_BPF = DETACH_FILTER;
-    pub const ATTACH_REUSEPORT_CBPF = 51;
-    pub const ATTACH_REUSEPORT_EBPF = 52;
-    pub const CNX_ADVICE = 53;
-    pub const MEMINFO = 55;
-    pub const INCOMING_NAPI_ID = 56;
-    pub const COOKIE = 57;
-    pub const PEERGROUPS = 59;
-    pub const ZEROCOPY = 60;
-    pub const TXTIME = 61;
-    pub const BINDTOIFINDEX = 62;
-    pub const TIMESTAMP_NEW = 63;
-    pub const TIMESTAMPNS_NEW = 64;
-    pub const TIMESTAMPING_NEW = 65;
-    pub const RCVTIMEO_NEW = 66;
-    pub const SNDTIMEO_NEW = 67;
-    pub const DETACH_REUSEPORT_BPF = 68;
-} else if (is_sparc) struct {
-    pub const DEBUG = 1;
-    pub const REUSEADDR = 4;
-    pub const TYPE = 4104;
-    pub const ERROR = 4103;
-    pub const DONTROUTE = 16;
-    pub const BROADCAST = 32;
-    pub const SNDBUF = 4097;
-    pub const RCVBUF = 4098;
-    pub const KEEPALIVE = 8;
-    pub const OOBINLINE = 256;
-    pub const NO_CHECK = 11;
-    pub const PRIORITY = 12;
-    pub const LINGER = 128;
-    pub const BSDCOMPAT = 1024;
-    pub const REUSEPORT = 512;
-    pub const PASSCRED = 2;
-    pub const PEERCRED = 64;
-    pub const RCVLOWAT = 2048;
-    pub const SNDLOWAT = 4096;
-    pub const RCVTIMEO = 8192;
-    pub const SNDTIMEO = 16384;
-    pub const ACCEPTCONN = 32768;
-    pub const PEERSEC = 30;
-    pub const SNDBUFFORCE = 4106;
-    pub const RCVBUFFORCE = 4107;
-    pub const PROTOCOL = 4136;
-    pub const DOMAIN = 4137;
-    pub const SECURITY_AUTHENTICATION = 20481;
-    pub const SECURITY_ENCRYPTION_TRANSPORT = 20482;
-    pub const SECURITY_ENCRYPTION_NETWORK = 20484;
-    pub const BINDTODEVICE = 13;
-    pub const ATTACH_FILTER = 26;
-    pub const DETACH_FILTER = 27;
-    pub const GET_FILTER = 26;
-    pub const PEERNAME = 28;
-    pub const TIMESTAMP_OLD = 29;
-    pub const PASSSEC = 31;
-    pub const TIMESTAMPNS_OLD = 33;
-    pub const MARK = 34;
-    pub const TIMESTAMPING_OLD = 35;
-    pub const RXQ_OVFL = 36;
-    pub const WIFI_STATUS = 37;
-    pub const PEEK_OFF = 38;
-    pub const NOFCS = 39;
-    pub const LOCK_FILTER = 40;
-    pub const SELECT_ERR_QUEUE = 41;
-    pub const BUSY_POLL = 48;
-    pub const MAX_PACING_RATE = 49;
-    pub const BPF_EXTENSIONS = 50;
-    pub const INCOMING_CPU = 51;
-    pub const ATTACH_BPF = 52;
-    pub const DETACH_BPF = 27;
-    pub const ATTACH_REUSEPORT_CBPF = 53;
-    pub const ATTACH_REUSEPORT_EBPF = 54;
-    pub const CNX_ADVICE = 55;
-    pub const MEMINFO = 57;
-    pub const INCOMING_NAPI_ID = 58;
-    pub const COOKIE = 59;
-    pub const PEERGROUPS = 61;
-    pub const ZEROCOPY = 62;
-    pub const TXTIME = 63;
-    pub const BINDTOIFINDEX = 65;
-    pub const TIMESTAMP_NEW = 70;
-    pub const TIMESTAMPNS_NEW = 66;
-    pub const TIMESTAMPING_NEW = 67;
-    pub const RCVTIMEO_NEW = 68;
-    pub const SNDTIMEO_NEW = 69;
-    pub const DETACH_REUSEPORT_BPF = 71;
-} else struct {
-    pub const DEBUG = 1;
-    pub const REUSEADDR = 2;
-    pub const TYPE = 3;
-    pub const ERROR = 4;
-    pub const DONTROUTE = 5;
-    pub const BROADCAST = 6;
-    pub const SNDBUF = 7;
-    pub const RCVBUF = 8;
-    pub const KEEPALIVE = 9;
-    pub const OOBINLINE = 10;
-    pub const NO_CHECK = 11;
-    pub const PRIORITY = 12;
-    pub const LINGER = 13;
-    pub const BSDCOMPAT = 14;
-    pub const REUSEPORT = 15;
-    pub const PASSCRED = 16;
-    pub const PEERCRED = 17;
-    pub const RCVLOWAT = 18;
-    pub const SNDLOWAT = 19;
-    pub const RCVTIMEO = 20;
-    pub const SNDTIMEO = 21;
-    pub const ACCEPTCONN = 30;
-    pub const PEERSEC = 31;
-    pub const SNDBUFFORCE = 32;
-    pub const RCVBUFFORCE = 33;
-    pub const PROTOCOL = 38;
-    pub const DOMAIN = 39;
-    pub const SECURITY_AUTHENTICATION = 22;
-    pub const SECURITY_ENCRYPTION_TRANSPORT = 23;
-    pub const SECURITY_ENCRYPTION_NETWORK = 24;
-    pub const BINDTODEVICE = 25;
-    pub const ATTACH_FILTER = 26;
-    pub const DETACH_FILTER = 27;
-    pub const GET_FILTER = ATTACH_FILTER;
-    pub const PEERNAME = 28;
-    pub const TIMESTAMP_OLD = 29;
-    pub const PASSSEC = 34;
-    pub const TIMESTAMPNS_OLD = 35;
-    pub const MARK = 36;
-    pub const TIMESTAMPING_OLD = 37;
-    pub const RXQ_OVFL = 40;
-    pub const WIFI_STATUS = 41;
-    pub const PEEK_OFF = 42;
-    pub const NOFCS = 43;
-    pub const LOCK_FILTER = 44;
-    pub const SELECT_ERR_QUEUE = 45;
-    pub const BUSY_POLL = 46;
-    pub const MAX_PACING_RATE = 47;
-    pub const BPF_EXTENSIONS = 48;
-    pub const INCOMING_CPU = 49;
-    pub const ATTACH_BPF = 50;
-    pub const DETACH_BPF = DETACH_FILTER;
-    pub const ATTACH_REUSEPORT_CBPF = 51;
-    pub const ATTACH_REUSEPORT_EBPF = 52;
-    pub const CNX_ADVICE = 53;
-    pub const MEMINFO = 55;
-    pub const INCOMING_NAPI_ID = 56;
-    pub const COOKIE = 57;
-    pub const PEERGROUPS = 59;
-    pub const ZEROCOPY = 60;
-    pub const TXTIME = 61;
-    pub const BINDTOIFINDEX = 62;
-    pub const TIMESTAMP_NEW = 63;
-    pub const TIMESTAMPNS_NEW = 64;
-    pub const TIMESTAMPING_NEW = 65;
-    pub const RCVTIMEO_NEW = 66;
-    pub const SNDTIMEO_NEW = 67;
-    pub const DETACH_REUSEPORT_BPF = 68;
+/// Backwards-compatible SO_* constants
+pub const SO = struct {
+    pub const DEBUG: u16 = @intFromEnum(So.debug);
+    pub const REUSEADDR: u16 = @intFromEnum(So.reuseaddr);
+    pub const KEEPALIVE: u16 = @intFromEnum(So.keepalive);
+    pub const DONTROUTE: u16 = @intFromEnum(So.dontroute);
+    pub const BROADCAST: u16 = @intFromEnum(So.broadcast);
+    pub const LINGER: u16 = @intFromEnum(So.linger);
+    pub const OOBINLINE: u16 = @intFromEnum(So.oobinline);
+    pub const REUSEPORT: u16 = @intFromEnum(So.reuseport);
+    pub const SNDBUF: u16 = @intFromEnum(So.sndbuf);
+    pub const RCVBUF: u16 = @intFromEnum(So.rcvbuf);
+    pub const SNDLOWAT: u16 = @intFromEnum(So.sndlowat);
+    pub const RCVLOWAT: u16 = @intFromEnum(So.rcvlowat);
+    pub const RCVTIMEO: u16 = @intFromEnum(So.rcvtimeo);
+    pub const SNDTIMEO: u16 = @intFromEnum(So.sndtimeo);
+    pub const ERROR: u16 = @intFromEnum(So.@"error");
+    pub const TYPE: u16 = @intFromEnum(So.type);
+    pub const ACCEPTCONN: u16 = @intFromEnum(So.acceptconn);
+    pub const PROTOCOL: u16 = @intFromEnum(So.protocol);
+    pub const DOMAIN: u16 = @intFromEnum(So.domain);
+    pub const NO_CHECK: u16 = @intFromEnum(So.no_check);
+    pub const PRIORITY: u16 = @intFromEnum(So.priority);
+    pub const BSDCOMPAT: u16 = @intFromEnum(So.bsdcompat);
+    pub const PASSCRED: u16 = @intFromEnum(So.passcred);
+    pub const PEERCRED: u16 = @intFromEnum(So.peercred);
+    pub const PEERSEC: u16 = @intFromEnum(So.peersec);
+    pub const SNDBUFFORCE: u16 = @intFromEnum(So.sndbufforce);
+    pub const RCVBUFFORCE: u16 = @intFromEnum(So.rcvbufforce);
+    pub const SECURITY_AUTHENTICATION: u16 = @intFromEnum(So.security_authentication);
+    pub const SECURITY_ENCRYPTION_TRANSPORT: u16 = @intFromEnum(So.security_encryption_transport);
+    pub const SECURITY_ENCRYPTION_NETWORK: u16 = @intFromEnum(So.security_encryption_network);
+    pub const BINDTODEVICE: u16 = @intFromEnum(So.bindtodevice);
+    pub const ATTACH_FILTER: u16 = @intFromEnum(So.attach_filter);
+    pub const DETACH_FILTER: u16 = @intFromEnum(So.detach_filter);
+    pub const GET_FILTER: u16 = ATTACH_FILTER; // alias
+    pub const PEERNAME: u16 = @intFromEnum(So.peername);
+    pub const TIMESTAMP_OLD: u16 = @intFromEnum(So.timestamp_old);
+    pub const PASSSEC: u16 = @intFromEnum(So.passsec);
+    pub const TIMESTAMPNS_OLD: u16 = @intFromEnum(So.timestampns_old);
+    pub const MARK: u16 = @intFromEnum(So.mark);
+    pub const TIMESTAMPING_OLD: u16 = @intFromEnum(So.timestamping_old);
+    pub const RXQ_OVFL: u16 = @intFromEnum(So.rxq_ovfl);
+    pub const WIFI_STATUS: u16 = @intFromEnum(So.wifi_status);
+    pub const PEEK_OFF: u16 = @intFromEnum(So.peek_off);
+    pub const NOFCS: u16 = @intFromEnum(So.nofcs);
+    pub const LOCK_FILTER: u16 = @intFromEnum(So.lock_filter);
+    pub const SELECT_ERR_QUEUE: u16 = @intFromEnum(So.select_err_queue);
+    pub const BUSY_POLL: u16 = @intFromEnum(So.busy_poll);
+    pub const MAX_PACING_RATE: u16 = @intFromEnum(So.max_pacing_rate);
+    pub const BPF_EXTENSIONS: u16 = @intFromEnum(So.bpf_extensions);
+    pub const INCOMING_CPU: u16 = @intFromEnum(So.incoming_cpu);
+    pub const ATTACH_BPF: u16 = @intFromEnum(So.attach_bpf);
+    pub const DETACH_BPF: u16 = DETACH_FILTER; // alias in original
+    pub const ATTACH_REUSEPORT_CBPF: u16 = @intFromEnum(So.attach_reuseport_cbpf);
+    pub const ATTACH_REUSEPORT_EBPF: u16 = @intFromEnum(So.attach_reuseport_ebpf);
+    pub const CNX_ADVICE: u16 = @intFromEnum(So.cnx_advice);
+    pub const MEMINFO: u16 = @intFromEnum(So.meminfo);
+    pub const INCOMING_NAPI_ID: u16 = @intFromEnum(So.incoming_napi_id);
+    pub const COOKIE: u16 = @intFromEnum(So.cookie);
+    pub const PEERGROUPS: u16 = @intFromEnum(So.peergroups);
+    pub const ZEROCOPY: u16 = @intFromEnum(So.zerocopy);
+    pub const TXTIME: u16 = @intFromEnum(So.txtime);
+    pub const BINDTOIFINDEX: u16 = @intFromEnum(So.bindtoifindex);
+    pub const TIMESTAMP_NEW: u16 = @intFromEnum(So.timestamp_new);
+    pub const TIMESTAMPNS_NEW: u16 = @intFromEnum(So.timestampns_new);
+    pub const TIMESTAMPING_NEW: u16 = @intFromEnum(So.timestamping_new);
+    pub const RCVTIMEO_NEW: u16 = @intFromEnum(So.rcvtimeo_new);
+    pub const SNDTIMEO_NEW: u16 = @intFromEnum(So.sndtimeo_new);
+    pub const DETACH_REUSEPORT_BPF: u16 = @intFromEnum(So.detach_reuseport_bpf);
 };
 
 pub const SCM = struct {
@@ -4392,37 +4843,100 @@ pub const SCM = struct {
     pub const TXTIME = SO.TXTIME;
 };
 
-pub const SOL = struct {
-    pub const SOCKET = if (is_mips or is_sparc) 65535 else 1;
+/// Deprecated in favor of Sol
+pub const SOL = Sol;
+// https://github.com/torvalds/linux/blob/0d97f2067c166eb495771fede9f7b73999c67f66/include/linux/socket.h#L347C1-L388C22
+/// Socket option level for setsockopt(2)/getsockopt(2)
+pub const Sol = enum(u16) {
+    ip = 0,
+    socket = if (is_mips or is_sparc) 65535 else 1,
+    tcp = 6,
+    udp = 17,
+    ipv6 = 41,
+    icmpv6 = 58,
+    sctp = 132,
+    /// UDP-Lite (RFC 3828)
+    udplite = 136,
+    raw = 255,
+    ipx = 256,
+    ax25 = 257,
+    atalk = 258,
+    netrom = 259,
+    rose = 260,
+    decnet = 261,
+    x25 = 262,
+    packet = 263,
+    /// ATM layer (cell level)
+    atm = 264,
+    /// ATM Adaption Layer (packet level)
+    aal = 265,
+    irda = 266,
+    netbeui = 267,
+    llc = 268,
+    dccp = 269,
+    netlink = 270,
+    tipc = 271,
+    rxrpc = 272,
+    pppol2tp = 273,
+    bluetooth = 274,
+    pnpipe = 275,
+    rds = 276,
+    iucv = 277,
+    caif = 278,
+    alg = 279,
+    nfc = 280,
+    kcm = 281,
+    tls = 282,
+    xdp = 283,
+    mptcp = 284,
+    mctp = 285,
+    smc = 286,
+    vsock = 287,
+    _,
 
-    pub const IP = 0;
-    pub const IPV6 = 41;
-    pub const ICMPV6 = 58;
+    /// Deprecated constants for compatibility with current Zig
+    pub const IP: u16 = @intFromEnum(Sol.ip);
+    pub const SOCKET: u16 = @intFromEnum(Sol.socket);
+    pub const TCP: u16 = @intFromEnum(Sol.tcp);
+    pub const UDP: u16 = @intFromEnum(Sol.udp);
+    pub const IPV6: u16 = @intFromEnum(Sol.ipv6);
+    pub const ICMPV6: u16 = @intFromEnum(Sol.icmpv6);
+    pub const SCTP: u16 = @intFromEnum(Sol.sctp);
+    pub const UDPLITE: u16 = @intFromEnum(Sol.udplite);
 
-    pub const RAW = 255;
-    pub const DECNET = 261;
-    pub const X25 = 262;
-    pub const PACKET = 263;
-    pub const ATM = 264;
-    pub const AAL = 265;
-    pub const IRDA = 266;
-    pub const NETBEUI = 267;
-    pub const LLC = 268;
-    pub const DCCP = 269;
-    pub const NETLINK = 270;
-    pub const TIPC = 271;
-    pub const RXRPC = 272;
-    pub const PPPOL2TP = 273;
-    pub const BLUETOOTH = 274;
-    pub const PNPIPE = 275;
-    pub const RDS = 276;
-    pub const IUCV = 277;
-    pub const CAIF = 278;
-    pub const ALG = 279;
-    pub const NFC = 280;
-    pub const KCM = 281;
-    pub const TLS = 282;
-    pub const XDP = 283;
+    pub const RAW: u16 = @intFromEnum(Sol.raw);
+    pub const IPX: u16 = @intFromEnum(Sol.ipx);
+    pub const AX25: u16 = @intFromEnum(Sol.ax25);
+    pub const ATALK: u16 = @intFromEnum(Sol.atalk);
+    pub const NETROM: u16 = @intFromEnum(Sol.netrom);
+    pub const ROSE: u16 = @intFromEnum(Sol.rose);
+    pub const DECNET: u16 = @intFromEnum(Sol.decnet);
+    pub const X25: u16 = @intFromEnum(Sol.x25);
+    pub const PACKET: u16 = @intFromEnum(Sol.packet);
+    pub const ATM: u16 = @intFromEnum(Sol.atm);
+    pub const AAL: u16 = @intFromEnum(Sol.aal);
+    pub const IRDA: u16 = @intFromEnum(Sol.irda);
+    pub const NETBEUI: u16 = @intFromEnum(Sol.netbeui);
+    pub const LLC: u16 = @intFromEnum(Sol.llc);
+    pub const DCCP: u16 = @intFromEnum(Sol.dccp);
+    pub const NETLINK: u16 = @intFromEnum(Sol.netlink);
+    pub const TIPC: u16 = @intFromEnum(Sol.tipc);
+    pub const RXRPC: u16 = @intFromEnum(Sol.rxrpc);
+    pub const PPPOL2TP: u16 = @intFromEnum(Sol.pppol2tp);
+    pub const BLUETOOTH: u16 = @intFromEnum(Sol.bluetooth);
+    pub const PNPIPE: u16 = @intFromEnum(Sol.pnpipe);
+    pub const RDS: u16 = @intFromEnum(Sol.rds);
+    pub const IUCV: u16 = @intFromEnum(Sol.iucv);
+    pub const CAIF: u16 = @intFromEnum(Sol.caif);
+    pub const ALG: u16 = @intFromEnum(Sol.alg);
+    pub const NFC: u16 = @intFromEnum(Sol.nfc);
+    pub const KCM: u16 = @intFromEnum(Sol.kcm);
+    pub const TLS: u16 = @intFromEnum(Sol.tls);
+    pub const XDP: u16 = @intFromEnum(Sol.xdp);
+    pub const MPTCP: u16 = @intFromEnum(Sol.mptcp);
+    pub const MCTP: u16 = @intFromEnum(Sol.mctp);
+    pub const SMC: u16 = @intFromEnum(Sol.smc);
+    pub const VSOCK: u16 = @intFromEnum(Sol.vsock);
 };
 
 pub const SOMAXCONN = 128;
@@ -4848,28 +5362,87 @@ pub const ETH = struct {
     };
 };
 
-pub const MSG = struct {
-    pub const OOB = 0x0001;
-    pub const PEEK = 0x0002;
-    pub const DONTROUTE = 0x0004;
-    pub const CTRUNC = 0x0008;
-    pub const PROXY = 0x0010;
-    pub const TRUNC = 0x0020;
-    pub const DONTWAIT = 0x0040;
-    pub const EOR = 0x0080;
-    pub const WAITALL = 0x0100;
-    pub const FIN = 0x0200;
-    pub const SYN = 0x0400;
-    pub const CONFIRM = 0x0800;
-    pub const RST = 0x1000;
-    pub const ERRQUEUE = 0x2000;
-    pub const NOSIGNAL = 0x4000;
-    pub const MORE = 0x8000;
-    pub const WAITFORONE = 0x10000;
-    pub const BATCH = 0x40000;
-    pub const ZEROCOPY = 0x4000000;
-    pub const FASTOPEN = 0x20000000;
-    pub const CMSG_CLOEXEC = 0x40000000;
+// Deprecated alias for Msg
+pub const MSG = Msg;
+pub const Msg = packed struct(u32) {
+    /// Process out-of-band data
+    oob: bool = false,
+    /// Peek at incoming message
+    peek: bool = false,
+    /// Send without using routing tables
+    dontroute: bool = false,
+    /// Control data truncated
+    ctrunc: bool = false,
+    /// Do not send. Only probe path (e.g. for MTU)
+    probe: bool = false,
+    /// Normal data truncated
+    trunc: bool = false,
+    /// Nonblocking I/O
+    dontwait: bool = false,
+    /// End of record
+    eor: bool = false,
+    /// Wait for a full request
+    waitall: bool = false,
+    /// FIN flag
+    fin: bool = false,
+    /// SYN flag
+    syn: bool = false,
+    /// Confirm path validity
+    confirm: bool = false,
+    /// RST flag
+    rst: bool = false,
+    /// Fetch message from error queue
+    errqueue: bool = false,
+    /// Do not generate SIGPIPE
+    nosignal: bool = false,
+    /// Sender will send more
+    more: bool = false,
+    /// recvmmsg(): block until 1+ packets available
+    waitforone: bool = false,
+    _18: u1 = 0,
+    /// sendmmsg(): more messages coming
+    batch: bool = false,
+    /// sendpage() internal: page frags are not shared
+    no_shared_frags: bool = false,
+    /// sendpage() internal: page may carry plain text and require encryption
+    sendpage_decrypted: bool = false,
+    _22: u4 = 0,
+    /// Receive devmem skbs as cmsg
+    sock_devmem: bool = false,
+    /// Use user data in kernel path
+    zerocopy: bool = false,
+    /// Splice the pages from the iterator in sendmsg()
+    splice_pages: bool = false,
+    _29: u1 = 0,
+    /// Send data in TCP SYN
+    fastopen: bool = false,
+    /// Set close_on_exec for file descriptor received through SCM_RIGHTS
+    cmsg_cloexec: bool = false,
+    _: u1 = 0,
+
+    // DEPRECATED CONSTANTS
+    pub const OOB: u32 = @bitCast(Msg{ .oob = true });
+    pub const PEEK: u32 = @bitCast(Msg{ .peek = true });
+    pub const DONTROUTE: u32 = @bitCast(Msg{ .dontroute = true });
+    pub const CTRUNC: u32 = @bitCast(Msg{ .ctrunc = true });
+    // fix typo PROBE not PROXY
+    pub const PROBE: u32 = @bitCast(Msg{ .probe = true });
+    pub const TRUNC: u32 = @bitCast(Msg{ .trunc = true });
+    pub const DONTWAIT: u32 = @bitCast(Msg{ .dontwait = true });
+    pub const EOR: u32 = @bitCast(Msg{ .eor = true });
+    pub const WAITALL: u32 = @bitCast(Msg{ .waitall = true });
+    pub const FIN: u32 = @bitCast(Msg{ .fin = true });
+    pub const SYN: u32 = @bitCast(Msg{ .syn = true });
+    pub const CONFIRM: u32 = @bitCast(Msg{ .confirm = true });
+    pub const RST: u32 = @bitCast(Msg{ .rst = true });
+    pub const ERRQUEUE: u32 = @bitCast(Msg{ .errqueue = true });
+    pub const NOSIGNAL: u32 = @bitCast(Msg{ .nosignal = true });
+    pub const MORE: u32 = @bitCast(Msg{ .more = true });
+    pub const WAITFORONE: u32 = @bitCast(Msg{ .waitforone = true });
+    pub const BATCH: u32 = @bitCast(Msg{ .batch = true });
+    pub const ZEROCOPY: u32 = @bitCast(Msg{ .zerocopy = true });
+    pub const FASTOPEN: u32 = @bitCast(Msg{ .fastopen = true });
+    pub const CMSG_CLOEXEC: u32 = @bitCast(Msg{ .cmsg_cloexec = true });
 };
 
 pub const DT = struct {
@@ -5333,28 +5906,180 @@ pub const SER = struct {
     };
 };
 
-pub const EPOLL = struct {
+/// Valid opcodes to issue to sys_epoll_ctl()
+pub const EpollOp = enum(u32) {
+    ctl_add = 1,
+    ctl_del = 2,
+    ctl_mod = 3,
+    _,
+
+    // Deprecated Constants
+    pub const CTL_ADD: u32 = @intFromEnum(EpollOp.ctl_add);
+    pub const CTL_DEL: u32 = @intFromEnum(EpollOp.ctl_del);
+    pub const CTL_MOD: u32 = @intFromEnum(EpollOp.ctl_mod);
+};
+
+/// Deprecated alias for Epoll
+pub const EPOLL = Epoll;
+/// Epoll event masks
+// https://github.com/torvalds/linux/blob/18a7e218cfcdca6666e1f7356533e4c988780b57/include/uapi/linux/eventpoll.h#L30
+pub const Epoll = if (is_mips) packed struct(u32) {
+    // EPOLL event types (lower 16 bits)
+    //
+    /// The associated file is available for read(2) operations
+    in: bool = false,
+    /// There is an exceptional condition on the file descriptor
+    pri: bool = false,
+    /// The associated file is available for write(2) operations
+    out: bool = false,
+    /// Error condition happened on the associated file descriptor
+    err: bool = false,
+    /// Hang up happened on the associated file descriptor
+    hup: bool = false,
+    /// Invalid request: fd not open
+    nval: bool = false,
+    /// Normal data may be read
+    rdnorm: bool = false,
+    /// Priority data may be read
+    rdband: bool = false,
+    /// Priority data may be written
+    wrband: bool = false,
+    _10: u1 = 0,
+    /// Message available (unused on Linux)
+    msg: bool = false,
+    _12: u2 = 0,
+    /// Stream socket peer closed connection
+    rdhup: bool = false,
+    _15: u13 = 0,
+    // EPOLL input flags (Higher order flags are included as internal stat)
+    //
+    /// Internal flag - wakeup generated by io_uring, used to detect
+    /// recursion back into the io_uring poll handler
+    uring_wake: bool = false,
+    /// Set exclusive wakeup mode for the target file descriptor
+    exclusive: bool = false,
+    /// Request the handling of system wakeup events so as to prevent system
+    /// suspends from happening while those events are being processed.
+    /// Assuming neither EPOLLET nor EPOLLONESHOT is set, system suspends will
+    /// not be re-allowed until epoll_wait is called again after consuming the
+    /// wakeup event(s).
+    /// Requires CAP_BLOCK_SUSPEND
+    wakeup: bool = false,
+    /// Set the One Shot behaviour for the target file descriptor
+    oneshot: bool = false,
+    /// Set the Edge Triggered behaviour for the target file descriptor
+    et: bool = false,
+
+    /// Alias to out on Mips
+    /// Writing is now possible (normal data)
+    pub const wrnorm: Epoll = .{ .out = true };
+
+    // Deprecated Named constants
+    // EPOLL event types
+    pub const IN: u32 = @bitCast(Epoll{ .in = true });
+    pub const PRI: u32 = @bitCast(Epoll{ .pri = true });
+    pub const OUT: u32 = @bitCast(Epoll{ .out = true });
+    pub const ERR: u32 = @bitCast(Epoll{ .err = true });
+    pub const HUP: u32 = @bitCast(Epoll{ .hup = true });
+    pub const NVAL: u32 = @bitCast(Epoll{ .nval = true });
+    pub const RDNORM: u32 = @bitCast(Epoll{ .rdnorm = true });
+    pub const RDBAND: u32 = @bitCast(Epoll{ .rdband = true });
+    pub const WRNORM: u32 = @bitCast(wrnorm);
+    pub const WRBAND: u32 = @bitCast(Epoll{ .wrband = true });
+    pub const MSG: u32 = @bitCast(Epoll{ .msg = true });
+    pub const RDHUP: u32 = @bitCast(Epoll{ .rdhup = true });
+
+    // EPOLL input flags
+    pub const URING_WAKE: u32 = @bitCast(Epoll{ .uring_wake = true });
+    pub const EXCLUSIVE: u32 = @bitCast(Epoll{ .exclusive = true });
+    pub const WAKEUP: u32 = @bitCast(Epoll{ .wakeup = true });
+    pub const ONESHOT: u32 = @bitCast(Epoll{ .oneshot = true });
+    pub const ET: u32 = @bitCast(Epoll{ .et = true });
+
+    /// Flags for epoll_create1
     pub const CLOEXEC = 1 << @bitOffsetOf(O, "CLOEXEC");
 
-    pub const CTL_ADD = 1;
-    pub const CTL_DEL = 2;
-    pub const CTL_MOD = 3;
+    // Deprecated Op Constants use EpollOp enum type
+    pub const CTL_ADD: u32 = @intFromEnum(EpollOp.ctl_add);
+    pub const CTL_DEL: u32 = @intFromEnum(EpollOp.ctl_del);
+    pub const CTL_MOD: u32 = @intFromEnum(EpollOp.ctl_mod);
+} else packed struct(u32) {
+    // EPOLL event types (lower 16 bits)
+    //
+    /// The associated file is available for read(2) operations
+    in: bool = false,
+    /// There is an exceptional condition on the file descriptor
+    pri: bool = false,
+    /// The associated file is available for write(2) operations
+    out: bool = false,
+    /// Error condition happened on the associated file descriptor
+    err: bool = false,
+    /// Hang up happened on the associated file descriptor
+    hup: bool = false,
+    /// Invalid request: fd not open
+    nval: bool = false,
+    /// Normal data may be read
+    rdnorm: bool = false,
+    /// Priority data may be read
+    rdband: bool = false,
+    /// Writing is now possible (normal data)
+    wrnorm: bool = false,
+    /// Priority data may be written
+    wrband: bool = false,
+    /// Message available (unused on Linux)
+    msg: bool = false,
+    _12: u2 = 0,
+    /// Stream socket peer closed connection
+    rdhup: bool = false,
+    _15: u13 = 0,
+    // EPOLL input flags (Higher order flags are included as internal stat)
+    //
+    /// Internal flag - wakeup generated by io_uring, used to detect
+    /// recursion back into the io_uring poll handler
+    uring_wake: bool = false,
+    /// Set exclusive wakeup mode for the target file descriptor
+    exclusive: bool = false,
+    /// Request the handling of system wakeup events so as to prevent system
+    /// suspends from happening while those events are being processed.
+    /// Assuming neither EPOLLET nor EPOLLONESHOT is set, system suspends will
+    /// not be re-allowed until epoll_wait is called again after consuming the
+    /// wakeup event(s).
+    /// Requires CAP_BLOCK_SUSPEND
+    wakeup: bool = false,
+    /// Set the One Shot behaviour for the target file descriptor
+    oneshot: bool = false,
+    /// Set the Edge Triggered behaviour for the target file descriptor
+    et: bool = false,
 
-    pub const IN = 0x001;
-    pub const PRI = 0x002;
-    pub const OUT = 0x004;
-    pub const RDNORM = 0x040;
-    pub const RDBAND = 0x080;
-    pub const WRNORM = if (is_mips) 0x004 else 0x100;
-    pub const WRBAND = if (is_mips) 0x100 else 0x200;
-    pub const MSG = 0x400;
-    pub const ERR = 0x008;
-    pub const HUP = 0x010;
-    pub const RDHUP = 0x2000;
-    pub const EXCLUSIVE = (@as(u32, 1) << 28);
-    pub const WAKEUP = (@as(u32, 1) << 29);
-    pub const ONESHOT = (@as(u32, 1) << 30);
-    pub const ET = (@as(u32, 1) << 31);
+    // Deprecated Named constants
+    // EPOLL event types
+    pub const IN: u32 = @bitCast(Epoll{ .in = true });
+    pub const PRI: u32 = @bitCast(Epoll{ .pri = true });
+    pub const OUT: u32 = @bitCast(Epoll{ .out = true });
+    pub const ERR: u32 = @bitCast(Epoll{ .err = true });
+    pub const HUP: u32 = @bitCast(Epoll{ .hup = true });
+    pub const NVAL: u32 = @bitCast(Epoll{ .nval = true });
+    pub const RDNORM: u32 = @bitCast(Epoll{ .rdnorm = true });
+    pub const RDBAND: u32 = @bitCast(Epoll{ .rdband = true });
+    pub const WRNORM: u32 = @bitCast(Epoll{ .wrnorm = true });
+    pub const WRBAND: u32 = @bitCast(Epoll{ .wrband = true });
+    pub const MSG: u32 = @bitCast(Epoll{ .msg = true });
+    pub const RDHUP: u32 = @bitCast(Epoll{ .rdhup = true });
+
+    // EPOLL input flags
+    pub const URING_WAKE: u32 = @bitCast(Epoll{ .uring_wake = true });
+    pub const EXCLUSIVE: u32 = @bitCast(Epoll{ .exclusive = true });
+    pub const WAKEUP: u32 = @bitCast(Epoll{ .wakeup = true });
+    pub const ONESHOT: u32 = @bitCast(Epoll{ .oneshot = true });
+    pub const ET: u32 = @bitCast(Epoll{ .et = true });
+
+    /// Flags for epoll_create1
+    pub const CLOEXEC = 1 << @bitOffsetOf(O, "CLOEXEC");
+
+    // Deprecated Op Constants use EpollOp enum type
+    pub const CTL_ADD: u32 = @intFromEnum(EpollOp.ctl_add);
+    pub const CTL_DEL: u32 = @intFromEnum(EpollOp.ctl_del);
+    pub const CTL_MOD: u32 = @intFromEnum(EpollOp.ctl_mod);
 };
 
 pub const CLOCK = clockid_t;
@@ -5857,6 +6582,7 @@ pub const signalfd_siginfo = extern struct {
 };
 
 pub const in_port_t = u16;
+// TODO: change to AF type
 pub const sa_family_t = u16;
 pub const socklen_t = u32;
 
@@ -5877,7 +6603,7 @@ pub const sockaddr = extern struct {
 
     /// IPv4 socket address
     pub const in = extern struct {
-        family: sa_family_t = AF.INET,
+        family: sa_family_t = Af.INET,
         port: in_port_t,
         addr: u32,
         zero: [8]u8 = [8]u8{ 0, 0, 0, 0, 0, 0, 0, 0 },
@@ -5885,7 +6611,7 @@ pub const sockaddr = extern struct {
 
     /// IPv6 socket address
     pub const in6 = extern struct {
-        family: sa_family_t = AF.INET6,
+        family: sa_family_t = Af.INET6,
         port: in_port_t,
         flowinfo: u32,
         addr: [16]u8,
@@ -5894,13 +6620,13 @@ pub const sockaddr = extern struct {
 
     /// UNIX domain socket address
     pub const un = extern struct {
-        family: sa_family_t = AF.UNIX,
+        family: sa_family_t = Af.UNIX,
         path: [108]u8,
     };
 
     /// Packet socket address
     pub const ll = extern struct {
-        family: sa_family_t = AF.PACKET,
+        family: sa_family_t = Af.PACKET,
         protocol: u16,
         ifindex: i32,
         hatype: u16,
@@ -5911,7 +6637,7 @@ pub const sockaddr = extern struct {
 
     /// Netlink socket address
     pub const nl = extern struct {
-        family: sa_family_t = AF.NETLINK,
+        family: sa_family_t = Af.NETLINK,
         __pad1: c_ushort = 0,
 
         /// port ID
@@ -5922,7 +6648,7 @@ pub const sockaddr = extern struct {
     };
 
     pub const xdp = extern struct {
-        family: u16 = AF.XDP,
+        family: u16 = Af.XDP,
         flags: u16,
         ifindex: u32,
         queue_id: u32,
@@ -5931,7 +6657,7 @@ pub const sockaddr = extern struct {
 
     /// Address structure for vSockets
     pub const vm = extern struct {
-        family: sa_family_t = AF.VSOCK,
+        family: sa_family_t = Af.VSOCK,
         reserved1: u16 = 0,
         port: u32,
         cid: u32,
@@ -6268,667 +6994,6 @@ else
         fields: siginfo_fields_union,
     };
 
-// io_uring_params.flags
-
-/// io_context is polled
-pub const IORING_SETUP_IOPOLL = 1 << 0;
-
-/// SQ poll thread
-pub const IORING_SETUP_SQPOLL = 1 << 1;
-
-/// sq_thread_cpu is valid
-pub const IORING_SETUP_SQ_AFF = 1 << 2;
-
-/// app defines CQ size
-pub const IORING_SETUP_CQSIZE = 1 << 3;
-
-/// clamp SQ/CQ ring sizes
-pub const IORING_SETUP_CLAMP = 1 << 4;
-
-/// attach to existing wq
-pub const IORING_SETUP_ATTACH_WQ = 1 << 5;
-
-/// start with ring disabled
-pub const IORING_SETUP_R_DISABLED = 1 << 6;
-
-/// continue submit on error
-pub const IORING_SETUP_SUBMIT_ALL = 1 << 7;
-
-/// Cooperative task running. When requests complete, they often require
-/// forcing the submitter to transition to the kernel to complete. If this
-/// flag is set, work will be done when the task transitions anyway, rather
-/// than force an inter-processor interrupt reschedule. This avoids interrupting
-/// a task running in userspace, and saves an IPI.
-pub const IORING_SETUP_COOP_TASKRUN = 1 << 8;
-
-/// If COOP_TASKRUN is set, get notified if task work is available for
-/// running and a kernel transition would be needed to run it. This sets
-/// IORING_SQ_TASKRUN in the sq ring flags. Not valid with COOP_TASKRUN.
-pub const IORING_SETUP_TASKRUN_FLAG = 1 << 9;
-
-/// SQEs are 128 byte
-pub const IORING_SETUP_SQE128 = 1 << 10;
-/// CQEs are 32 byte
-pub const IORING_SETUP_CQE32 = 1 << 11;
-
-/// Only one task is allowed to submit requests
-pub const IORING_SETUP_SINGLE_ISSUER = 1 << 12;
-
-/// Defer running task work to get events.
-/// Rather than running bits of task work whenever the task transitions
-/// try to do it just before it is needed.
-pub const IORING_SETUP_DEFER_TASKRUN = 1 << 13;
-
-/// Application provides ring memory
-pub const IORING_SETUP_NO_MMAP = 1 << 14;
-
-/// Register the ring fd in itself for use with
-/// IORING_REGISTER_USE_REGISTERED_RING; return a registered fd index rather
-/// than an fd.
-pub const IORING_SETUP_REGISTERED_FD_ONLY = 1 << 15;
-
-/// Removes indirection through the SQ index array.
-pub const IORING_SETUP_NO_SQARRAY = 1 << 16;
-
-/// IO submission data structure (Submission Queue Entry)
-pub const io_uring_sqe = @import("linux/io_uring_sqe.zig").io_uring_sqe;
-
-pub const IoUring = @import("linux/IoUring.zig");
-
-/// If sqe->file_index is set to this for opcodes that instantiate a new
-/// direct descriptor (like openat/openat2/accept), then io_uring will allocate
-/// an available direct descriptor instead of having the application pass one
-/// in. The picked direct descriptor will be returned in cqe->res, or -ENFILE
-/// if the space is full.
-/// Available since Linux 5.19
-pub const IORING_FILE_INDEX_ALLOC = maxInt(u32);
-
-pub const IOSQE_BIT = enum(u8) {
-    FIXED_FILE,
-    IO_DRAIN,
-    IO_LINK,
-    IO_HARDLINK,
-    ASYNC,
-    BUFFER_SELECT,
-    CQE_SKIP_SUCCESS,
-
-    _,
-};
-
-// io_uring_sqe.flags
-
-/// use fixed fileset
-pub const IOSQE_FIXED_FILE = 1 << @intFromEnum(IOSQE_BIT.FIXED_FILE);
-
-/// issue after inflight IO
-pub const IOSQE_IO_DRAIN = 1 << @intFromEnum(IOSQE_BIT.IO_DRAIN);
-
-/// links next sqe
-pub const IOSQE_IO_LINK = 1 << @intFromEnum(IOSQE_BIT.IO_LINK);
-
-/// like LINK, but stronger
-pub const IOSQE_IO_HARDLINK = 1 << @intFromEnum(IOSQE_BIT.IO_HARDLINK);
-
-/// always go async
-pub const IOSQE_ASYNC = 1 << @intFromEnum(IOSQE_BIT.ASYNC);
-
-/// select buffer from buf_group
-pub const IOSQE_BUFFER_SELECT = 1 << @intFromEnum(IOSQE_BIT.BUFFER_SELECT);
-
-/// don't post CQE if request succeeded
-/// Available since Linux 5.17
-pub const IOSQE_CQE_SKIP_SUCCESS = 1 << @intFromEnum(IOSQE_BIT.CQE_SKIP_SUCCESS);
-
-pub const IORING_OP = enum(u8) {
-    NOP,
-    READV,
-    WRITEV,
-    FSYNC,
-    READ_FIXED,
-    WRITE_FIXED,
-    POLL_ADD,
-    POLL_REMOVE,
-    SYNC_FILE_RANGE,
-    SENDMSG,
-    RECVMSG,
-    TIMEOUT,
-    TIMEOUT_REMOVE,
-    ACCEPT,
-    ASYNC_CANCEL,
-    LINK_TIMEOUT,
-    CONNECT,
-    FALLOCATE,
-    OPENAT,
-    CLOSE,
-    FILES_UPDATE,
-    STATX,
-    READ,
-    WRITE,
-    FADVISE,
-    MADVISE,
-    SEND,
-    RECV,
-    OPENAT2,
-    EPOLL_CTL,
-    SPLICE,
-    PROVIDE_BUFFERS,
-    REMOVE_BUFFERS,
-    TEE,
-    SHUTDOWN,
-    RENAMEAT,
-    UNLINKAT,
-    MKDIRAT,
-    SYMLINKAT,
-    LINKAT,
-    MSG_RING,
-    FSETXATTR,
-    SETXATTR,
-    FGETXATTR,
-    GETXATTR,
-    SOCKET,
-    URING_CMD,
-    SEND_ZC,
-    SENDMSG_ZC,
-    READ_MULTISHOT,
-    WAITID,
-    FUTEX_WAIT,
-    FUTEX_WAKE,
-    FUTEX_WAITV,
-    FIXED_FD_INSTALL,
-    FTRUNCATE,
-    BIND,
-    LISTEN,
-    RECV_ZC,
-
-    _,
-};
-// io_uring_sqe.uring_cmd_flags (rw_flags in the Zig struct)
-
-/// use registered buffer; pass thig flag along with setting sqe->buf_index.
-pub const IORING_URING_CMD_FIXED = 1 << 0;
-
-// io_uring_sqe.fsync_flags (rw_flags in the Zig struct)
-pub const IORING_FSYNC_DATASYNC = 1 << 0;
-
-// io_uring_sqe.timeout_flags (rw_flags in the Zig struct)
-pub const IORING_TIMEOUT_ABS = 1 << 0;
-pub const IORING_TIMEOUT_UPDATE = 1 << 1; // Available since Linux 5.11
-pub const IORING_TIMEOUT_BOOTTIME = 1 << 2; // Available since Linux 5.15
-pub const IORING_TIMEOUT_REALTIME = 1 << 3; // Available since Linux 5.15
-pub const IORING_LINK_TIMEOUT_UPDATE = 1 << 4; // Available since Linux 5.15
-pub const IORING_TIMEOUT_ETIME_SUCCESS = 1 << 5; // Available since Linux 5.16
-pub const IORING_TIMEOUT_CLOCK_MASK = IORING_TIMEOUT_BOOTTIME | IORING_TIMEOUT_REALTIME;
-pub const IORING_TIMEOUT_UPDATE_MASK = IORING_TIMEOUT_UPDATE | IORING_LINK_TIMEOUT_UPDATE;
-
-// io_uring_sqe.splice_flags (rw_flags in the Zig struct)
-// extends splice(2) flags
-pub const IORING_SPLICE_F_FD_IN_FIXED = 1 << 31;
-
-// POLL_ADD flags.
-// Note that since sqe->poll_events (rw_flags in the Zig struct) is the flag space, the command flags for POLL_ADD are stored in sqe->len.
-
-/// Multishot poll. Sets IORING_CQE_F_MORE if the poll handler will continue to report CQEs on behalf of the same SQE.
-pub const IORING_POLL_ADD_MULTI = 1 << 0;
-/// Update existing poll request, matching sqe->addr as the old user_data field.
-pub const IORING_POLL_UPDATE_EVENTS = 1 << 1;
-pub const IORING_POLL_UPDATE_USER_DATA = 1 << 2;
-pub const IORING_POLL_ADD_LEVEL = 1 << 3;
-
-// ASYNC_CANCEL flags.
-
-/// Cancel all requests that match the given key
-pub const IORING_ASYNC_CANCEL_ALL = 1 << 0;
-/// Key off 'fd' for cancelation rather than the request 'user_data'.
-pub const IORING_ASYNC_CANCEL_FD = 1 << 1;
-/// Match any request
-pub const IORING_ASYNC_CANCEL_ANY = 1 << 2;
-/// 'fd' passed in is a fixed descriptor. Available since Linux 6.0
-pub const IORING_ASYNC_CANCEL_FD_FIXED = 1 << 3;
-
-// send/sendmsg and recv/recvmsg flags (sqe->ioprio)
-
-/// If set, instead of first attempting to send or receive and arm poll if that yields an -EAGAIN result,
-/// arm poll upfront and skip the initial transfer attempt.
-pub const IORING_RECVSEND_POLL_FIRST = 1 << 0;
-/// Multishot recv. Sets IORING_CQE_F_MORE if the handler will continue to report CQEs on behalf of the same SQE.
-pub const IORING_RECV_MULTISHOT = 1 << 1;
-/// Use registered buffers, the index is stored in the buf_index field.
-pub const IORING_RECVSEND_FIXED_BUF = 1 << 2;
-/// If set, SEND[MSG]_ZC should report the zerocopy usage in cqe.res for the IORING_CQE_F_NOTIF cqe.
-pub const IORING_SEND_ZC_REPORT_USAGE = 1 << 3;
-/// If set, send or recv will grab as many buffers from the buffer group ID given and send them all.
-/// The completion result will be the number of buffers send, with the starting buffer ID in cqe as per usual.
-/// The buffers be contigious from the starting buffer ID.
-/// Used with IOSQE_BUFFER_SELECT.
-pub const IORING_RECVSEND_BUNDLE = 1 << 4;
-/// CQE.RES FOR IORING_CQE_F_NOTIF if IORING_SEND_ZC_REPORT_USAGE was requested
-pub const IORING_NOTIF_USAGE_ZC_COPIED = 1 << 31;
-
-/// accept flags stored in sqe->iopri
-pub const IORING_ACCEPT_MULTISHOT = 1 << 0;
-
-/// IORING_OP_MSG_RING command types, stored in sqe->addr
-pub const IORING_MSG_RING_COMMAND = enum(u8) {
-    /// pass sqe->len as 'res' and off as user_data
-    DATA,
-    /// send a registered fd to another ring
-    SEND_FD,
-};
-
-// io_uring_sqe.msg_ring_flags (rw_flags in the Zig struct)
-
-/// Don't post a CQE to the target ring. Not applicable for IORING_MSG_DATA, obviously.
-pub const IORING_MSG_RING_CQE_SKIP = 1 << 0;
-
-/// Pass through the flags from sqe->file_index (splice_fd_in in the zig struct) to cqe->flags */
-pub const IORING_MSG_RING_FLAGS_PASS = 1 << 1;
-
-// IO completion data structure (Completion Queue Entry)
-pub const io_uring_cqe = extern struct {
-    /// io_uring_sqe.data submission passed back
-    user_data: u64,
-
-    /// result code for this event
-    res: i32,
-    flags: u32,
-
-    // Followed by 16 bytes of padding if initialized with IORING_SETUP_CQE32, doubling cqe size
-
-    pub fn err(self: io_uring_cqe) E {
-        if (self.res > -4096 and self.res < 0) {
-            return @as(E, @enumFromInt(-self.res));
-        }
-        return .SUCCESS;
-    }
-
-    // On successful completion of the provided buffers IO request, the CQE flags field
-    // will have IORING_CQE_F_BUFFER set and the selected buffer ID will be indicated by
-    // the upper 16-bits of the flags field.
-    pub fn buffer_id(self: io_uring_cqe) !u16 {
-        if (self.flags & IORING_CQE_F_BUFFER != IORING_CQE_F_BUFFER) {
-            return error.NoBufferSelected;
-        }
-        return @as(u16, @intCast(self.flags >> IORING_CQE_BUFFER_SHIFT));
-    }
-};
-
-// io_uring_cqe.flags
-
-/// If set, the upper 16 bits are the buffer ID
-pub const IORING_CQE_F_BUFFER = 1 << 0;
-/// If set, parent SQE will generate more CQE entries.
-/// Available since Linux 5.13.
-pub const IORING_CQE_F_MORE = 1 << 1;
-/// If set, more data to read after socket recv
-pub const IORING_CQE_F_SOCK_NONEMPTY = 1 << 2;
-/// Set for notification CQEs. Can be used to distinct them from sends.
-pub const IORING_CQE_F_NOTIF = 1 << 3;
-/// If set, the buffer ID set in the completion will get more completions.
-pub const IORING_CQE_F_BUF_MORE = 1 << 4;
-
-pub const IORING_CQE_BUFFER_SHIFT = 16;
-
-/// Magic offsets for the application to mmap the data it needs
-pub const IORING_OFF_SQ_RING = 0;
-pub const IORING_OFF_CQ_RING = 0x8000000;
-pub const IORING_OFF_SQES = 0x10000000;
-
-/// Filled with the offset for mmap(2)
-pub const io_sqring_offsets = extern struct {
-    /// offset of ring head
-    head: u32,
-
-    /// offset of ring tail
-    tail: u32,
-
-    /// ring mask value
-    ring_mask: u32,
-
-    /// entries in ring
-    ring_entries: u32,
-
-    /// ring flags
-    flags: u32,
-
-    /// number of sqes not submitted
-    dropped: u32,
-
-    /// sqe index array
-    array: u32,
-
-    resv1: u32,
-    user_addr: u64,
-};
-
-// io_sqring_offsets.flags
-
-/// needs io_uring_enter wakeup
-pub const IORING_SQ_NEED_WAKEUP = 1 << 0;
-/// kernel has cqes waiting beyond the cq ring
-pub const IORING_SQ_CQ_OVERFLOW = 1 << 1;
-/// task should enter the kernel
-pub const IORING_SQ_TASKRUN = 1 << 2;
-
-pub const io_cqring_offsets = extern struct {
-    head: u32,
-    tail: u32,
-    ring_mask: u32,
-    ring_entries: u32,
-    overflow: u32,
-    cqes: u32,
-    flags: u32,
-    resv: u32,
-    user_addr: u64,
-};
-
-// io_cqring_offsets.flags
-
-/// disable eventfd notifications
-pub const IORING_CQ_EVENTFD_DISABLED = 1 << 0;
-
-// io_uring_enter flags
-pub const IORING_ENTER_GETEVENTS = 1 << 0;
-pub const IORING_ENTER_SQ_WAKEUP = 1 << 1;
-pub const IORING_ENTER_SQ_WAIT = 1 << 2;
-pub const IORING_ENTER_EXT_ARG = 1 << 3;
-pub const IORING_ENTER_REGISTERED_RING = 1 << 4;
-
-pub const io_uring_params = extern struct {
-    sq_entries: u32,
-    cq_entries: u32,
-    flags: u32,
-    sq_thread_cpu: u32,
-    sq_thread_idle: u32,
-    features: u32,
-    wq_fd: u32,
-    resv: [3]u32,
-    sq_off: io_sqring_offsets,
-    cq_off: io_cqring_offsets,
-};
-
-// io_uring_params.features flags
-
-pub const IORING_FEAT_SINGLE_MMAP = 1 << 0;
-pub const IORING_FEAT_NODROP = 1 << 1;
-pub const IORING_FEAT_SUBMIT_STABLE = 1 << 2;
-pub const IORING_FEAT_RW_CUR_POS = 1 << 3;
-pub const IORING_FEAT_CUR_PERSONALITY = 1 << 4;
-pub const IORING_FEAT_FAST_POLL = 1 << 5;
-pub const IORING_FEAT_POLL_32BITS = 1 << 6;
-pub const IORING_FEAT_SQPOLL_NONFIXED = 1 << 7;
-pub const IORING_FEAT_EXT_ARG = 1 << 8;
-pub const IORING_FEAT_NATIVE_WORKERS = 1 << 9;
-pub const IORING_FEAT_RSRC_TAGS = 1 << 10;
-pub const IORING_FEAT_CQE_SKIP = 1 << 11;
-pub const IORING_FEAT_LINKED_FILE = 1 << 12;
-
-// io_uring_register opcodes and arguments
-pub const IORING_REGISTER = enum(u32) {
-    REGISTER_BUFFERS,
-    UNREGISTER_BUFFERS,
-    REGISTER_FILES,
-    UNREGISTER_FILES,
-    REGISTER_EVENTFD,
-    UNREGISTER_EVENTFD,
-    REGISTER_FILES_UPDATE,
-    REGISTER_EVENTFD_ASYNC,
-    REGISTER_PROBE,
-    REGISTER_PERSONALITY,
-    UNREGISTER_PERSONALITY,
-    REGISTER_RESTRICTIONS,
-    REGISTER_ENABLE_RINGS,
-
-    // extended with tagging
-    REGISTER_FILES2,
-    REGISTER_FILES_UPDATE2,
-    REGISTER_BUFFERS2,
-    REGISTER_BUFFERS_UPDATE,
-
-    // set/clear io-wq thread affinities
-    REGISTER_IOWQ_AFF,
-    UNREGISTER_IOWQ_AFF,
-
-    // set/get max number of io-wq workers
-    REGISTER_IOWQ_MAX_WORKERS,
-
-    // register/unregister io_uring fd with the ring
-    REGISTER_RING_FDS,
-    UNREGISTER_RING_FDS,
-
-    // register ring based provide buffer group
-    REGISTER_PBUF_RING,
-    UNREGISTER_PBUF_RING,
-
-    // sync cancelation API
-    REGISTER_SYNC_CANCEL,
-
-    // register a range of fixed file slots for automatic slot allocation
-    REGISTER_FILE_ALLOC_RANGE,
-
-    // return status information for a buffer group
-    REGISTER_PBUF_STATUS,
-
-    // set/clear busy poll settings
-    REGISTER_NAPI,
-    UNREGISTER_NAPI,
-
-    REGISTER_CLOCK,
-
-    // clone registered buffers from source ring to current ring
-    REGISTER_CLONE_BUFFERS,
-
-    // send MSG_RING without having a ring
-    REGISTER_SEND_MSG_RING,
-
-    // register a netdev hw rx queue for zerocopy
-    REGISTER_ZCRX_IFQ,
-
-    // resize CQ ring
-    REGISTER_RESIZE_RINGS,
-
-    REGISTER_MEM_REGION,
-
-    // flag added to the opcode to use a registered ring fd
-    REGISTER_USE_REGISTERED_RING = 1 << 31,
-
-    _,
-};
-
-/// io_uring_restriction->opcode values
-pub const IOWQ_CATEGORIES = enum(u8) {
-    BOUND,
-    UNBOUND,
-};
-
-/// deprecated, see struct io_uring_rsrc_update
-pub const io_uring_files_update = extern struct {
-    offset: u32,
-    resv: u32,
-    fds: u64,
-};
-
-/// Register a fully sparse file space, rather than pass in an array of all -1 file descriptors.
-pub const IORING_RSRC_REGISTER_SPARSE = 1 << 0;
-
-pub const io_uring_rsrc_register = extern struct {
-    nr: u32,
-    flags: u32,
-    resv2: u64,
-    data: u64,
-    tags: u64,
-};
-
-pub const io_uring_rsrc_update = extern struct {
-    offset: u32,
-    resv: u32,
-    data: u64,
-};
-
-pub const io_uring_rsrc_update2 = extern struct {
-    offset: u32,
-    resv: u32,
-    data: u64,
-    tags: u64,
-    nr: u32,
-    resv2: u32,
-};
-
-pub const io_uring_notification_slot = extern struct {
-    tag: u64,
-    resv: [3]u64,
-};
-
-pub const io_uring_notification_register = extern struct {
-    nr_slots: u32,
-    resv: u32,
-    resv2: u64,
-    data: u64,
-    resv3: u64,
-};
-
-pub const io_uring_napi = extern struct {
-    busy_poll_to: u32,
-    prefer_busy_poll: u8,
-    _pad: [3]u8,
-    resv: u64,
-};
-
-/// Skip updating fd indexes set to this value in the fd table */
-pub const IORING_REGISTER_FILES_SKIP = -2;
-
-pub const IO_URING_OP_SUPPORTED = 1 << 0;
-
-pub const io_uring_probe_op = extern struct {
-    op: IORING_OP,
-    resv: u8,
-    /// IO_URING_OP_* flags
-    flags: u16,
-    resv2: u32,
-
-    pub fn is_supported(self: @This()) bool {
-        return self.flags & IO_URING_OP_SUPPORTED != 0;
-    }
-};
-
-pub const io_uring_probe = extern struct {
-    /// Last opcode supported
-    last_op: IORING_OP,
-    /// Length of ops[] array below
-    ops_len: u8,
-    resv: u16,
-    resv2: [3]u32,
-    ops: [256]io_uring_probe_op,
-
-    /// Is the operation supported on the running kernel.
-    pub fn is_supported(self: @This(), op: IORING_OP) bool {
-        const i = @intFromEnum(op);
-        if (i > @intFromEnum(self.last_op) or i >= self.ops_len)
-            return false;
-        return self.ops[i].is_supported();
-    }
-};
-
-pub const io_uring_restriction = extern struct {
-    opcode: IORING_RESTRICTION,
-    arg: extern union {
-        /// IORING_RESTRICTION_REGISTER_OP
-        register_op: IORING_REGISTER,
-
-        /// IORING_RESTRICTION_SQE_OP
-        sqe_op: IORING_OP,
-
-        /// IORING_RESTRICTION_SQE_FLAGS_*
-        sqe_flags: u8,
-    },
-    resv: u8,
-    resv2: [3]u32,
-};
-
-/// io_uring_restriction->opcode values
-pub const IORING_RESTRICTION = enum(u16) {
-    /// Allow an io_uring_register(2) opcode
-    REGISTER_OP = 0,
-
-    /// Allow an sqe opcode
-    SQE_OP = 1,
-
-    /// Allow sqe flags
-    SQE_FLAGS_ALLOWED = 2,
-
-    /// Require sqe flags (these flags must be set on each submission)
-    SQE_FLAGS_REQUIRED = 3,
-
-    _,
-};
-
-pub const IO_URING_SOCKET_OP = enum(u16) {
-    SIOCIN = 0,
-    SIOCOUTQ = 1,
-    GETSOCKOPT = 2,
-    SETSOCKOPT = 3,
-};
-
-pub const io_uring_buf = extern struct {
-    addr: u64,
-    len: u32,
-    bid: u16,
-    resv: u16,
-};
-
-pub const io_uring_buf_ring = extern struct {
-    resv1: u64,
-    resv2: u32,
-    resv3: u16,
-    tail: u16,
-};
-
-/// argument for IORING_(UN)REGISTER_PBUF_RING
-pub const io_uring_buf_reg = extern struct {
-    ring_addr: u64,
-    ring_entries: u32,
-    bgid: u16,
-    flags: Flags,
-    resv: [3]u64,
-
-    pub const Flags = packed struct {
-        _0: u1 = 0,
-        /// Incremental buffer consumption.
-        inc: bool,
-        _: u14 = 0,
-    };
-};
-
-pub const io_uring_getevents_arg = extern struct {
-    sigmask: u64,
-    sigmask_sz: u32,
-    pad: u32,
-    ts: u64,
-};
-
-/// Argument for IORING_REGISTER_SYNC_CANCEL
-pub const io_uring_sync_cancel_reg = extern struct {
-    addr: u64,
-    fd: i32,
-    flags: u32,
-    timeout: kernel_timespec,
-    pad: [4]u64,
-};
-
-/// Argument for IORING_REGISTER_FILE_ALLOC_RANGE
-/// The range is specified as [off, off + len)
-pub const io_uring_file_index_range = extern struct {
-    off: u32,
-    len: u32,
-    resv: u64,
-};
-
-pub const io_uring_recvmsg_out = extern struct {
-    namelen: u32,
-    controllen: u32,
-    payloadlen: u32,
-    flags: u32,
-};
-
 pub const utsname = extern struct {
     sysname: [64:0]u8,
     nodename: [64:0]u8,
@@ -6939,27 +7004,27 @@ pub const utsname = extern struct {
 };
 pub const HOST_NAME_MAX = 64;
 
-pub const STATX_TYPE = 0x0001;
-pub const STATX_MODE = 0x0002;
-pub const STATX_NLINK = 0x0004;
-pub const STATX_UID = 0x0008;
-pub const STATX_GID = 0x0010;
-pub const STATX_ATIME = 0x0020;
-pub const STATX_MTIME = 0x0040;
-pub const STATX_CTIME = 0x0080;
-pub const STATX_INO = 0x0100;
-pub const STATX_SIZE = 0x0200;
-pub const STATX_BLOCKS = 0x0400;
-pub const STATX_BASIC_STATS = 0x07ff;
+pub const Rename = packed struct(u32) {
+    /// Don't overwrite target
+    noreplace: bool = false,
+    /// Exchange source and dest
+    exchange: bool = false,
+    /// Whiteout source
+    whiteout: bool = false,
+    _: u29 = 0,
+};
 
-pub const STATX_BTIME = 0x0800;
-
-pub const STATX_ATTR_COMPRESSED = 0x0004;
-pub const STATX_ATTR_IMMUTABLE = 0x0010;
-pub const STATX_ATTR_APPEND = 0x0020;
-pub const STATX_ATTR_NODUMP = 0x0040;
-pub const STATX_ATTR_ENCRYPTED = 0x0800;
-pub const STATX_ATTR_AUTOMOUNT = 0x1000;
+/// By default (i.e, flags is .{}), the extended attribute will be created
+/// if it does not exist, or the value will be replaced if the attribute
+/// already exists. To modify this semantics, one of the fields in `SetXattr`
+/// can be specified in flags. Matches XATTR_* in kernel
+pub const SetXattr = packed struct(u32) {
+    /// set value, fail if attr already exists
+    create: bool = false,
+    /// set value, fail if attr does not exist
+    replace: bool = false,
+    _: u30 = 0,
+};
 
 pub const statx_timestamp = extern struct {
     sec: i64,
@@ -6970,13 +7035,13 @@ pub const statx_timestamp = extern struct {
 /// Renamed to `Statx` to not conflict with the `statx` function.
 pub const Statx = extern struct {
     /// Mask of bits indicating filled fields
-    mask: u32,
+    mask: Mask,
 
     /// Block size for filesystem I/O
     blksize: u32,
 
     /// Extra file attribute indicators
-    attributes: u64,
+    attributes: Attr,
 
     /// Number of hard links
     nlink: u32,
@@ -7001,7 +7066,7 @@ pub const Statx = extern struct {
     blocks: u64,
 
     /// Mask to show what's supported in `attributes`.
-    attributes_mask: u64,
+    attributes_mask: Attr,
 
     /// Last access file timestamp
     atime: statx_timestamp,
@@ -7028,7 +7093,126 @@ pub const Statx = extern struct {
     dev_minor: u32,
 
     __pad2: [14]u64,
+
+    // https://github.com/torvalds/linux/blob/755fa5b4fb36627796af19932a432d343220ec63/include/uapi/linux/stat.h#L203
+    /// matches STATX_* in kernel
+    pub const Mask = packed struct(u32) {
+        type: bool = false,
+        /// Want/got stx_mode & ~S_IFMT
+        mode: bool = false,
+        /// Want/got stx_nlink
+        nlink: bool = false,
+        /// Want/got stx_uid
+        uid: bool = false,
+        /// Want/got stx_gid
+        gid: bool = false,
+        /// Want/got stx_atime
+        atime: bool = false,
+        /// Want/got stx_mtime
+        mtime: bool = false,
+        /// Want/got stx_ctime
+        ctime: bool = false,
+        /// Want/got stx_ino
+        ino: bool = false,
+        /// Want/got stx_size
+        size: bool = false,
+        /// Want/got stx_blocks
+        blocks: bool = false,
+        /// Want/got stx_btime
+        btime: bool = false,
+        /// Got stx_mnt_id
+        mnt_id: bool = false,
+        /// Want/got direct I/O alignment info
+        dioalign: bool = false,
+        /// Want/got extended stx_mount_id
+        mnt_id_unique: bool = false,
+        /// Want/got stx_subvol
+        subvol: bool = false,
+        /// Want/got atomic_write_* fields
+        write_atomic: bool = false,
+        /// Want/got dio read alignment info
+        dio_read_align: bool = false,
+        /// Reserved for future struct statx expansion
+        _: u14 = 0,
+
+        /// The stuff in the normal stat struct (bits 0-10)
+        pub const basic_stats: Mask = .{
+            .type = true,
+            .mode = true,
+            .nlink = true,
+            .uid = true,
+            .gid = true,
+            .atime = true,
+            .mtime = true,
+            .ctime = true,
+            .ino = true,
+            .size = true,
+            .blocks = true,
+        };
+    };
+
+    // https://github.com/torvalds/linux/blob/755fa5b4fb36627796af19932a432d343220ec63/include/uapi/linux/stat.h#L248
+    /// matches STATX_ATTR_* in kernel
+    pub const Attr = packed struct(u64) {
+        _0: u2 = 0,
+        /// File is compressed by the fs
+        compressed: bool = false,
+        _1: u1 = 0,
+        /// File is marked immutable
+        immutable: bool = false,
+        /// File is append-only
+        append: bool = false,
+        /// File is not to be dumped
+        nodump: bool = false,
+        _2: u4 = 0,
+        /// File requires key to decrypt in fs
+        encrypted: bool = false,
+        /// Dir: Automount trigger
+        automount: bool = false,
+        /// Root of a mount
+        mount_root: bool = false,
+        _3: u6 = 0,
+        /// Verity protected file
+        verity: bool = false,
+        /// File is currently in DAX state
+        dax: bool = false,
+        /// File supports atomic write operations
+        write_atomic: bool = false,
+        _: u41 = 0,
+    };
 };
+
+// DEPRECATED aliases to Statx.Mask and Statx.Attr
+const STATX_TYPE: u32 = @bitCast(Statx.Mask{ .type = true });
+const STATX_MODE: u32 = @bitCast(Statx.Mask{ .mode = true });
+const STATX_NLINK: u32 = @bitCast(Statx.Mask{ .nlink = true });
+const STATX_UID: u32 = @bitCast(Statx.Mask{ .uid = true });
+const STATX_GID: u32 = @bitCast(Statx.Mask{ .gid = true });
+const STATX_ATIME: u32 = @bitCast(Statx.Mask{ .atime = true });
+const STATX_MTIME: u32 = @bitCast(Statx.Mask{ .mtime = true });
+const STATX_CTIME: u32 = @bitCast(Statx.Mask{ .ctime = true });
+const STATX_INO: u32 = @bitCast(Statx.Mask{ .ino = true });
+const STATX_SIZE: u32 = @bitCast(Statx.Mask{ .size = true });
+const STATX_BLOCKS: u32 = @bitCast(Statx.Mask{ .blocks = true });
+const STATX_BASIC_STATS: u32 = @bitCast(Statx.Mask.basic_stats);
+const STATX_BTIME: u32 = @bitCast(Statx.Mask{ .btime = true });
+const STATX_MNT_ID: u32 = @bitCast(Statx.Mask{ .mnt_id = true });
+const STATX_DIOALIGN: u32 = @bitCast(Statx.Mask{ .dioalign = true });
+const STATX_MNT_ID_UNIQUE: u32 = @bitCast(Statx.Mask{ .mnt_id_unique = true });
+const STATX_SUBVOL: u32 = @bitCast(Statx.Mask{ .subvol = true });
+const STATX_WRITE_ATOMIC: u32 = @bitCast(Statx.Mask{ .write_atomic = true });
+const STATX_DIO_READ_ALIGN: u32 = @bitCast(Statx.Mask{ .dio_read_align = true });
+
+const STATX_ATTR_COMPRESSED: u64 = @bitCast(Statx.Attr{ .compressed = true });
+const STATX_ATTR_IMMUTABLE: u64 = @bitCast(Statx.Attr{ .immutable = true });
+const STATX_ATTR_APPEND: u64 = @bitCast(Statx.Attr{ .append = true });
+const STATX_ATTR_NODUMP: u64 = @bitCast(Statx.Attr{ .nodump = true });
+const STATX_ATTR_ENCRYPTED: u64 = @bitCast(Statx.Attr{ .encrypted = true });
+const STATX_ATTR_AUTOMOUNT: u64 = @bitCast(Statx.Attr{ .automount = true });
+const STATX_ATTR_MOUNT_ROOT: u64 = @bitCast(Statx.Attr{ .mount_root = true });
+const STATX_ATTR_VERITY: u64 = @bitCast(Statx.Attr{ .verity = true });
+const STATX_ATTR_DAX: u64 = @bitCast(Statx.Attr{ .dax = true });
+const STATX_ATTR_WRITE_ATOMIC: u64 = @bitCast(Statx.Attr{ .write_atomic = true });
 
 pub const addrinfo = extern struct {
     flags: AI,
@@ -7055,40 +7239,83 @@ pub const AI = packed struct(u32) {
 
 pub const IPPORT_RESERVED = 1024;
 
-pub const IPPROTO = struct {
-    pub const IP = 0;
-    pub const HOPOPTS = 0;
-    pub const ICMP = 1;
-    pub const IGMP = 2;
-    pub const IPIP = 4;
-    pub const TCP = 6;
-    pub const EGP = 8;
-    pub const PUP = 12;
-    pub const UDP = 17;
-    pub const IDP = 22;
-    pub const TP = 29;
-    pub const DCCP = 33;
-    pub const IPV6 = 41;
-    pub const ROUTING = 43;
-    pub const FRAGMENT = 44;
-    pub const RSVP = 46;
-    pub const GRE = 47;
-    pub const ESP = 50;
-    pub const AH = 51;
-    pub const ICMPV6 = 58;
-    pub const NONE = 59;
-    pub const DSTOPTS = 60;
-    pub const MTP = 92;
-    pub const BEETPH = 94;
-    pub const ENCAP = 98;
-    pub const PIM = 103;
-    pub const COMP = 108;
-    pub const SCTP = 132;
-    pub const MH = 135;
-    pub const UDPLITE = 136;
-    pub const MPLS = 137;
-    pub const RAW = 255;
-    pub const MAX = 256;
+/// Deprecated alias to IpProto
+pub const IPPROTO = IpProto;
+/// IP Protocol numbers
+pub const IpProto = enum(u16) {
+    ip = 0,
+    icmp = 1,
+    igmp = 2,
+    ipip = 4,
+    tcp = 6,
+    egp = 8,
+    pup = 12,
+    udp = 17,
+    idp = 22,
+    tp = 29,
+    dccp = 33,
+    ipv6 = 41,
+    routing = 43,
+    fragment = 44,
+    rsvp = 46,
+    gre = 47,
+    esp = 50,
+    ah = 51,
+    icmpv6 = 58,
+    none = 59,
+    dstopts = 60,
+    mtp = 92,
+    beetph = 94,
+    encap = 98,
+    pim = 103,
+    comp = 108,
+    sctp = 132,
+    mh = 135,
+    udplite = 136,
+    mpls = 137,
+    raw = 255,
+    max = 256,
+    _,
+
+    // Aliases
+    pub const hopopts = IpProto.ip;
+    pub const default = IpProto.ip;
+
+    // Deprecated constants use enum instead
+    // Legacy constants for backward compatibility
+    pub const IP: u16 = @intFromEnum(IpProto.ip);
+    pub const HOPOPTS: u16 = @intFromEnum(hopopts);
+    pub const ICMP: u16 = @intFromEnum(IpProto.icmp);
+    pub const IGMP: u16 = @intFromEnum(IpProto.igmp);
+    pub const IPIP: u16 = @intFromEnum(IpProto.ipip);
+    pub const TCP: u16 = @intFromEnum(IpProto.tcp);
+    pub const EGP: u16 = @intFromEnum(IpProto.egp);
+    pub const PUP: u16 = @intFromEnum(IpProto.pup);
+    pub const UDP: u16 = @intFromEnum(IpProto.udp);
+    pub const IDP: u16 = @intFromEnum(IpProto.idp);
+    pub const TP: u16 = @intFromEnum(IpProto.tp);
+    pub const DCCP: u16 = @intFromEnum(IpProto.dccp);
+    pub const IPV6: u16 = @intFromEnum(IpProto.ipv6);
+    pub const ROUTING: u16 = @intFromEnum(IpProto.routing);
+    pub const FRAGMENT: u16 = @intFromEnum(IpProto.fragment);
+    pub const RSVP: u16 = @intFromEnum(IpProto.rsvp);
+    pub const GRE: u16 = @intFromEnum(IpProto.gre);
+    pub const ESP: u16 = @intFromEnum(IpProto.esp);
+    pub const AH: u16 = @intFromEnum(IpProto.ah);
+    pub const ICMPV6: u16 = @intFromEnum(IpProto.icmpv6);
+    pub const NONE: u16 = @intFromEnum(IpProto.none);
+    pub const DSTOPTS: u16 = @intFromEnum(IpProto.DSTOPTS);
+    pub const MTP: u16 = @intFromEnum(IpProto.mtp);
+    pub const BEETPH: u16 = @intFromEnum(IpProto.beetph);
+    pub const ENCAP: u16 = @intFromEnum(IpProto.encap);
+    pub const PIM: u16 = @intFromEnum(IpProto.pim);
+    pub const COMP: u16 = @intFromEnum(IpProto.comp);
+    pub const SCTP: u16 = @intFromEnum(IpProto.sctp);
+    pub const MH: u16 = @intFromEnum(IpProto.mh);
+    pub const UDPLITE: u16 = @intFromEnum(IpProto.udplite);
+    pub const MPLS: u16 = @intFromEnum(IpProto.mpls);
+    pub const RAW: u16 = @intFromEnum(IpProto.raw);
+    pub const MAX: u16 = @intFromEnum(IpProto.max);
 };
 
 pub const tcp_repair_opt = extern struct {
@@ -8338,53 +8565,141 @@ pub const rlimit = extern struct {
     max: rlim_t,
 };
 
-pub const MADV = struct {
-    pub const NORMAL = 0;
-    pub const RANDOM = 1;
-    pub const SEQUENTIAL = 2;
-    pub const WILLNEED = 3;
-    pub const DONTNEED = 4;
-    pub const FREE = 8;
-    pub const REMOVE = 9;
-    pub const DONTFORK = 10;
-    pub const DOFORK = 11;
-    pub const MERGEABLE = 12;
-    pub const UNMERGEABLE = 13;
-    pub const HUGEPAGE = 14;
-    pub const NOHUGEPAGE = 15;
-    pub const DONTDUMP = 16;
-    pub const DODUMP = 17;
-    pub const WIPEONFORK = 18;
-    pub const KEEPONFORK = 19;
-    pub const COLD = 20;
-    pub const PAGEOUT = 21;
-    pub const HWPOISON = 100;
-    pub const SOFT_OFFLINE = 101;
+/// DEPRECATED alias for Madvise
+pub const MADV = Madvise;
+
+/// advice flags for `madvise`
+/// matches MADV_* in kernel
+pub const Madvise = enum(u32) {
+    /// no further special treatment
+    normal = 0,
+    /// expect random page references
+    random = 1,
+    /// expect sequential page references
+    sequential = 2,
+    /// will need these pages
+    willneed = 3,
+    /// don't need these pages
+    dontneed = 4,
+    /// free pages only if memory pressure
+    free = 8,
+    /// remove these pages & resources
+    remove = 9,
+    /// don't inherit across fork
+    dontfork = 10,
+    /// do inherit across fork
+    dofork = 11,
+    /// KSM may merge identical pages
+    mergeable = 12,
+    /// KSM may not merge identical pages
+    unmergeable = 13,
+    /// Worth backing with hugepages
+    hugepage = 14,
+    /// Not worth backing with hugepages
+    nohugepage = 15,
+    /// Explicity exclude from the core dump, overrides the coredump filter bits
+    dontdump = 16,
+    /// Clear the MADV_DONTDUMP flag
+    dodump = 17,
+    /// Zero memory on fork, child only
+    wipeonfork = 18,
+    /// Undo MADV_WIPEONFORK
+    keeponfork = 19,
+    /// deactivate these pages
+    cold = 20,
+    /// reclaim these pages
+    pageout = 21,
+    /// populate (prefault) page tables readable
+    populate_read = 22,
+    /// populate (prefault) page tables writable
+    populate_write = 23,
+    /// like DONTNEED, but drop locked pages too
+    dontneed_locked = 24,
+    /// Synchronous hugepage collapse
+    collapse = 25,
+    /// poison a page for testing
+    hwpoison = 100,
+    /// soft offline page for testing
+    soft_offline = 101,
+    /// fatal signal on access to range
+    guard_install = 102,
+    /// unguard range
+    guard_remove = 103,
+    _,
+
+    // DEPRECATED aliases for `Madvise`
+    pub const NORMAL: u32 = @intFromEnum(Madvise.normal);
+    pub const RANDOM: u32 = @intFromEnum(Madvise.random);
+    pub const SEQUENTIAL: u32 = @intFromEnum(Madvise.sequential);
+    pub const WILLNEED: u32 = @intFromEnum(Madvise.willneed);
+    pub const DONTNEED: u32 = @intFromEnum(Madvise.dontneed);
+    pub const FREE: u32 = @intFromEnum(Madvise.free);
+    pub const REMOVE: u32 = @intFromEnum(Madvise.remove);
+    pub const DONTFORK: u32 = @intFromEnum(Madvise.dontfork);
+    pub const DOFORK: u32 = @intFromEnum(Madvise.dofork);
+    pub const MERGEABLE: u32 = @intFromEnum(Madvise.mergeable);
+    pub const UNMERGEABLE: u32 = @intFromEnum(Madvise.unmergeable);
+    pub const HUGEPAGE: u32 = @intFromEnum(Madvise.hugepage);
+    pub const NOHUGEPAGE: u32 = @intFromEnum(Madvise.nohugepage);
+    pub const DONTDUMP: u32 = @intFromEnum(Madvise.dontdump);
+    pub const DODUMP: u32 = @intFromEnum(Madvise.dodump);
+    pub const WIPEONFORK: u32 = @intFromEnum(Madvise.wipeonfork);
+    pub const KEEPONFORK: u32 = @intFromEnum(Madvise.keeponfork);
+    pub const COLD: u32 = @intFromEnum(Madvise.cold);
+    pub const PAGEOUT: u32 = @intFromEnum(Madvise.pageout);
+    pub const HWPOISON: u32 = @intFromEnum(Madvise.hwpoison);
+    pub const SOFT_OFFLINE: u32 = @intFromEnum(Madvise.soft_offline);
 };
 
-pub const POSIX_FADV = switch (native_arch) {
-    .s390x => if (@typeInfo(usize).int.bits == 64) struct {
-        pub const NORMAL = 0;
-        pub const RANDOM = 1;
-        pub const SEQUENTIAL = 2;
-        pub const WILLNEED = 3;
-        pub const DONTNEED = 6;
-        pub const NOREUSE = 7;
-    } else struct {
-        pub const NORMAL = 0;
-        pub const RANDOM = 1;
-        pub const SEQUENTIAL = 2;
-        pub const WILLNEED = 3;
-        pub const DONTNEED = 4;
-        pub const NOREUSE = 5;
+/// DEPRECATED alias to Fadvice
+pub const POSIX_FADV = Fadvise;
+
+/// advice flags for `posix_fadvise`
+/// matches POSIX_FADV_* in kernel
+pub const Fadvise = switch (native_arch) {
+    .s390x => if (@typeInfo(usize).int.bits == 64) enum(u32) {
+        /// No further special treatment
+        normal = 0,
+        /// Expect random page references
+        random = 1,
+        /// Expect sequential page references
+        sequential = 2,
+        /// Will need these pages
+        willneed = 3,
+        /// Don't need these pages
+        dontneed = 6,
+        /// Data will be accessed once
+        noreuse = 7,
+        _,
+
+        pub const NORMAL: u32 = @intFromEnum(Fadvise.normal);
+        pub const RANDOM: u32 = @intFromEnum(Fadvise.random);
+        pub const SEQUENTIAL: u32 = @intFromEnum(Fadvise.sequential);
+        pub const WILLNEED: u32 = @intFromEnum(Fadvise.willneed);
+        pub const DONTNEED: u32 = @intFromEnum(Fadvise.dontneed);
+        pub const NOREUSE: u32 = @intFromEnum(Fadvise.noreuse);
     },
-    else => struct {
-        pub const NORMAL = 0;
-        pub const RANDOM = 1;
-        pub const SEQUENTIAL = 2;
-        pub const WILLNEED = 3;
-        pub const DONTNEED = 4;
-        pub const NOREUSE = 5;
+    else => enum(u32) {
+        /// No further special treatment
+        normal = 0,
+        /// Expect random page references
+        random = 1,
+        /// Expect sequential page references
+        sequential = 2,
+        /// Will need these pages
+        willneed = 3,
+        /// Don't need these pages
+        dontneed = 4,
+        /// Data will be accessed once
+        noreuse = 5,
+        _,
+
+        pub const NORMAL: u32 = @intFromEnum(Fadvise.normal);
+        pub const RANDOM: u32 = @intFromEnum(Fadvise.random);
+        pub const SEQUENTIAL: u32 = @intFromEnum(Fadvise.sequential);
+        pub const WILLNEED: u32 = @intFromEnum(Fadvise.willneed);
+        pub const DONTNEED: u32 = @intFromEnum(Fadvise.dontneed);
+        pub const NOREUSE: u32 = @intFromEnum(Fadvise.noreuse);
     },
 };
 
@@ -9784,19 +10099,6 @@ pub const PTRACE = struct {
 
         pub const MASK = 0x000000ff | PTRACE.O.EXITKILL | PTRACE.O.SUSPEND_SECCOMP;
     };
-};
-
-/// For futex2_waitv and futex2_requeue. Arrays of `futex2_waitone` allow
-/// waiting on multiple futexes in one call.
-pub const futex2_waitone = extern struct {
-    /// Expected value at uaddr, should match size of futex.
-    val: u64,
-    /// User address to wait on.  Top-bits must be 0 on 32-bit.
-    uaddr: u64,
-    /// Flags for this waiter.
-    flags: FUTEX2_FLAGS,
-    /// Reserved member to preserve alignment.
-    __reserved: u32 = 0,
 };
 
 pub const cache_stat_range = extern struct {

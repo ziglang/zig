@@ -45,34 +45,33 @@ test "timer" {
     var err: linux.E = linux.errno(epoll_fd);
     try expect(err == .SUCCESS);
 
-    const timer_fd = linux.timerfd_create(linux.TIMERFD_CLOCK.MONOTONIC, .{});
+    const timer_fd = linux.timerfd_create(.MONOTONIC, .{});
     try expect(linux.errno(timer_fd) == .SUCCESS);
 
-    const time_interval = linux.timespec{
+    const time_interval: linux.timespec = .{
         .sec = 0,
         .nsec = 2000000,
     };
 
-    const new_time = linux.itimerspec{
+    const new_time: linux.itimerspec = .{
         .it_interval = time_interval,
         .it_value = time_interval,
     };
 
-    err = linux.errno(linux.timerfd_settime(@as(i32, @intCast(timer_fd)), .{}, &new_time, null));
+    err = linux.errno(linux.timerfd_settime(@intCast(timer_fd), .{}, &new_time, null));
     try expect(err == .SUCCESS);
 
-    var event = linux.epoll_event{
+    var event: linux.epoll_event = .{
         .events = linux.EPOLL.IN | linux.EPOLL.OUT | linux.EPOLL.ET,
-        .data = linux.epoll_data{ .ptr = 0 },
+        .data = .{ .ptr = 0 },
     };
 
-    err = linux.errno(linux.epoll_ctl(@as(i32, @intCast(epoll_fd)), linux.EPOLL.CTL_ADD, @as(i32, @intCast(timer_fd)), &event));
+    err = linux.errno(linux.epoll_ctl(@intCast(epoll_fd), .ctl_add, @intCast(timer_fd), &event));
     try expect(err == .SUCCESS);
 
-    const events_one: linux.epoll_event = undefined;
-    var events = [_]linux.epoll_event{events_one} ** 8;
+    var events: [8]linux.epoll_event = @splat(undefined);
 
-    err = linux.errno(linux.epoll_wait(@as(i32, @intCast(epoll_fd)), &events, 8, -1));
+    err = linux.errno(linux.epoll_wait(@intCast(epoll_fd), &events, 8, -1));
     try expect(err == .SUCCESS);
 }
 
@@ -85,7 +84,7 @@ test "statx" {
     defer file.close();
 
     var statx_buf: linux.Statx = undefined;
-    switch (linux.errno(linux.statx(file.handle, "", linux.AT.EMPTY_PATH, linux.STATX_BASIC_STATS, &statx_buf))) {
+    switch (linux.errno(linux.statx(file.handle, "", .{ .empty_path = true }, linux.Statx.Mask.basic_stats, &statx_buf))) {
         .SUCCESS => {},
         else => unreachable,
     }
@@ -93,17 +92,17 @@ test "statx" {
     if (builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) return error.SkipZigTest; // No fstatat, so the rest of the test is meaningless.
 
     var stat_buf: linux.Stat = undefined;
-    switch (linux.errno(linux.fstatat(file.handle, "", &stat_buf, linux.AT.EMPTY_PATH))) {
+    switch (linux.errno(linux.fstatat(file.handle, "", &stat_buf, .{ .empty_path = true }))) {
         .SUCCESS => {},
         else => unreachable,
     }
 
     try expect(stat_buf.mode == statx_buf.mode);
-    try expect(@as(u32, @bitCast(stat_buf.uid)) == statx_buf.uid);
-    try expect(@as(u32, @bitCast(stat_buf.gid)) == statx_buf.gid);
-    try expect(@as(u64, @bitCast(@as(i64, stat_buf.size))) == statx_buf.size);
-    try expect(@as(u64, @bitCast(@as(i64, stat_buf.blksize))) == statx_buf.blksize);
-    try expect(@as(u64, @bitCast(@as(i64, stat_buf.blocks))) == statx_buf.blocks);
+    try expect(stat_buf.uid == statx_buf.uid);
+    try expect(stat_buf.gid == statx_buf.gid);
+    try expect(stat_buf.size == statx_buf.size);
+    try expect(stat_buf.blksize == statx_buf.blksize);
+    try expect(stat_buf.blocks == statx_buf.blocks);
 }
 
 test "user and group ids" {
@@ -190,39 +189,39 @@ comptime {
     assert(256 == @as(u32, @bitCast(linux.FUTEX_OP{ .cmd = @enumFromInt(0), .private = false, .realtime = true })));
 
     // Check futex_param4 union is packed correctly
-    const param_union = linux.futex_param4{
+    const param_union: linux.futex_param4 = .{
         .val2 = 0xaabbcc,
     };
     assert(@intFromPtr(param_union.timeout) == 0xaabbcc);
 }
 
 test "futex v1" {
-    var lock: std.atomic.Value(u32) = std.atomic.Value(u32).init(1);
+    var lock: std.atomic.Value(u32) = .init(1);
     var rc: usize = 0;
 
     // No-op wait, lock value is not expected value
-    rc = linux.futex(&lock.raw, .{ .cmd = .WAIT, .private = true }, 2, .{ .timeout = null }, null, 0);
+    rc = linux.futex(&lock, .{ .cmd = .WAIT, .private = true }, 2, .{ .timeout = null }, null, 0);
     try expectEqual(.AGAIN, linux.errno(rc));
 
-    rc = linux.futex_4arg(&lock.raw, .{ .cmd = .WAIT, .private = true }, 2, null);
+    rc = linux.futex_4arg(&lock, .{ .cmd = .WAIT, .private = true }, 2, null);
     try expectEqual(.AGAIN, linux.errno(rc));
 
     // Short-fuse wait, timeout kicks in
-    rc = linux.futex(&lock.raw, .{ .cmd = .WAIT, .private = true }, 1, .{ .timeout = &.{ .sec = 0, .nsec = 2 } }, null, 0);
+    rc = linux.futex(&lock, .{ .cmd = .WAIT, .private = true }, 1, .{ .timeout = &.{ .sec = 0, .nsec = 2 } }, null, 0);
     try expectEqual(.TIMEDOUT, linux.errno(rc));
 
-    rc = linux.futex_4arg(&lock.raw, .{ .cmd = .WAIT, .private = true }, 1, &.{ .sec = 0, .nsec = 2 });
+    rc = linux.futex_4arg(&lock, .{ .cmd = .WAIT, .private = true }, 1, &.{ .sec = 0, .nsec = 2 });
     try expectEqual(.TIMEDOUT, linux.errno(rc));
 
     // Wakeup (no waiters)
-    rc = linux.futex(&lock.raw, .{ .cmd = .WAKE, .private = true }, 2, .{ .timeout = null }, null, 0);
+    rc = linux.futex(&lock, .{ .cmd = .WAKE, .private = true }, 2, .{ .timeout = null }, null, 0);
     try expectEqual(0, rc);
 
-    rc = linux.futex_3arg(&lock.raw, .{ .cmd = .WAKE, .private = true }, 2);
+    rc = linux.futex_3arg(&lock, .{ .cmd = .WAKE, .private = true }, 2);
     try expectEqual(0, rc);
 
     // CMP_REQUEUE - val3 mismatch
-    rc = linux.futex(&lock.raw, .{ .cmd = .CMP_REQUEUE, .private = true }, 2, .{ .val2 = 0 }, null, 99);
+    rc = linux.futex(&lock, .{ .cmd = .CMP_REQUEUE, .private = true }, 2, .{ .val2 = 0 }, null, 99);
     try expectEqual(.AGAIN, linux.errno(rc));
 
     // CMP_REQUEUE - requeue (but no waiters, so ... not much)
@@ -230,14 +229,14 @@ test "futex v1" {
         const val3 = 1;
         const wake_nr = 3;
         const requeue_max = std.math.maxInt(u31);
-        var target_lock: std.atomic.Value(u32) = std.atomic.Value(u32).init(1);
-        rc = linux.futex(&lock.raw, .{ .cmd = .CMP_REQUEUE, .private = true }, wake_nr, .{ .val2 = requeue_max }, &target_lock.raw, val3);
+        const target_lock: std.atomic.Value(u32) = .init(1);
+        rc = linux.futex(&lock, .{ .cmd = .CMP_REQUEUE, .private = true }, wake_nr, .{ .val2 = requeue_max }, &target_lock, val3);
         try expectEqual(0, rc);
     }
 
     // WAKE_OP - just to see if we can construct the arguments ...
     {
-        var lock2: std.atomic.Value(u32) = std.atomic.Value(u32).init(1);
+        const lock2: std.atomic.Value(u32) = .init(1);
         const wake1_nr = 2;
         const wake2_nr = 3;
         const wake_op = linux.FUTEX_WAKE_OP{
@@ -248,65 +247,66 @@ test "futex v1" {
             .cmdarg = 5,
         };
 
-        rc = linux.futex(&lock.raw, .{ .cmd = .WAKE_OP, .private = true }, wake1_nr, .{ .val2 = wake2_nr }, &lock2.raw, @bitCast(wake_op));
+        rc = linux.futex(&lock, .{ .cmd = .WAKE_OP, .private = true }, wake1_nr, .{ .val2 = wake2_nr }, &lock2, @bitCast(wake_op));
         try expectEqual(0, rc);
     }
 
     // WAIT_BITSET
     {
         // val1 return early
-        rc = linux.futex(&lock.raw, .{ .cmd = .WAIT_BITSET, .private = true }, 2, .{ .timeout = null }, null, 0xfff);
+        rc = linux.futex(&lock, .{ .cmd = .WAIT_BITSET, .private = true }, 2, .{ .timeout = null }, null, 0xfff);
         try expectEqual(.AGAIN, linux.errno(rc));
 
         // timeout wait
         const timeout: linux.timespec = .{ .sec = 0, .nsec = 2 };
-        rc = linux.futex(&lock.raw, .{ .cmd = .WAIT_BITSET, .private = true }, 1, .{ .timeout = &timeout }, null, 0xfff);
+        rc = linux.futex(&lock, .{ .cmd = .WAIT_BITSET, .private = true }, 1, .{ .timeout = &timeout }, null, 0xfff);
         try expectEqual(.TIMEDOUT, linux.errno(rc));
     }
 
     // WAKE_BITSET
     {
-        rc = linux.futex(&lock.raw, .{ .cmd = .WAKE_BITSET, .private = true }, 2, .{ .timeout = null }, null, 0xfff000);
+        rc = linux.futex(&lock, .{ .cmd = .WAKE_BITSET, .private = true }, 2, .{ .timeout = null }, null, 0xfff000);
         try expectEqual(0, rc);
 
         // bitmask must have at least 1 bit set:
-        rc = linux.futex(&lock.raw, .{ .cmd = .WAKE_BITSET, .private = true }, 2, .{ .timeout = null }, null, 0);
+        rc = linux.futex(&lock, .{ .cmd = .WAKE_BITSET, .private = true }, 2, .{ .timeout = null }, null, 0);
         try expectEqual(.INVAL, linux.errno(rc));
     }
 }
 
 comptime {
-    assert(2 == @as(u32, @bitCast(linux.FUTEX2_FLAGS{ .size = .U32, .private = false })));
-    assert(128 == @as(u32, @bitCast(linux.FUTEX2_FLAGS{ .size = @enumFromInt(0), .private = true })));
+    std.debug.assert(2 == @as(u32, @bitCast(linux.Futex2.Wait{ .size = .U32, .private = false })));
+    std.debug.assert(128 == @as(u32, @bitCast(linux.Futex2.Wait{ .size = @enumFromInt(0), .private = true })));
 }
 
 test "futex2_waitv" {
-    const locks = [_]std.atomic.Value(u32){
-        std.atomic.Value(u32).init(1),
-        std.atomic.Value(u32).init(1),
-        std.atomic.Value(u32).init(1),
+    const locks: [3]std.atomic.Value(u32) = .{
+        .init(1),
+        .init(1),
+        .init(1),
     };
 
-    const futexes = [_]linux.futex2_waitone{
+    const futexes: [3]linux.Futex2.WaitOne = .{
         .{
             .val = 1,
-            .uaddr = @intFromPtr(&locks[0].raw),
+            .uaddr = @intFromPtr(&locks[0]),
             .flags = .{ .size = .U32, .private = true },
         },
         .{
             .val = 1,
-            .uaddr = @intFromPtr(&locks[1].raw),
+            .uaddr = @intFromPtr(&locks[1]),
             .flags = .{ .size = .U32, .private = true },
         },
         .{
             .val = 1,
-            .uaddr = @intFromPtr(&locks[2].raw),
+            .uaddr = @intFromPtr(&locks[2]),
             .flags = .{ .size = .U32, .private = true },
         },
     };
 
-    const timeout = linux.kernel_timespec{ .sec = 0, .nsec = 2 }; // absolute timeout, so this is 1970...
-    const rc = linux.futex2_waitv(&futexes, futexes.len, .{}, &timeout, .MONOTONIC);
+    // absolute timeout, so this is 1970...
+    const timeout: linux.kernel_timespec = .{ .sec = 0, .nsec = 2 };
+    const rc = linux.futex2_waitv(futexes[0..], .{}, &timeout, .MONOTONIC);
     switch (linux.errno(rc)) {
         .NOSYS => return error.SkipZigTest, // futex2_waitv added in kernel v5.16
         else => |err| try expectEqual(.TIMEDOUT, err),
@@ -316,40 +316,40 @@ test "futex2_waitv" {
 // Futex v2 API is only supported on recent kernels (v6.7), so skip tests if the syscalls
 // return ENOSYS.
 fn futex2_skip_if_unsupported() !void {
-    const lock: u32 = 0;
-    const rc = linux.futex2_wake(&lock, 0, 1, .{ .size = .U32, .private = true });
+    const lock: std.atomic.Value(u32) = .init(0);
+    const rc = linux.futex2_wake(&lock, .empty, 1, .{ .size = .U32, .private = true });
     if (linux.errno(rc) == .NOSYS) {
         return error.SkipZigTest;
     }
 }
 
 test "futex2_wait" {
-    var lock: std.atomic.Value(u32) = std.atomic.Value(u32).init(1);
+    const lock: std.atomic.Value(u32) = .init(1);
     var rc: usize = 0;
-    const mask = 0x1;
+    const mask: linux.Futex2.Bitset = .{ .waiter1 = true };
 
     try futex2_skip_if_unsupported();
 
     // The API for 8,16,64 bit futexes is defined, but as of kernel v6.14
     // (at least) they're not implemented.
     if (false) {
-        rc = linux.futex2_wait(&lock.raw, 1, mask, .{ .size = .U8, .private = true }, null, .MONOTONIC);
+        rc = linux.futex2_wait(&lock, 1, mask, .{ .size = .U8, .private = true }, null, .MONOTONIC);
         try expectEqual(.INVAL, linux.errno(rc));
 
-        rc = linux.futex2_wait(&lock.raw, 1, mask, .{ .size = .U16, .private = true }, null, .MONOTONIC);
+        rc = linux.futex2_wait(&lock, 1, mask, .{ .size = .U16, .private = true }, null, .MONOTONIC);
         try expectEqual(.INVAL, linux.errno(rc));
 
-        rc = linux.futex2_wait(&lock.raw, 1, mask, .{ .size = .U64, .private = true }, null, .MONOTONIC);
+        rc = linux.futex2_wait(&lock, 1, mask, .{ .size = .U64, .private = true }, null, .MONOTONIC);
         try expectEqual(.INVAL, linux.errno(rc));
     }
 
-    const flags = linux.FUTEX2_FLAGS{ .size = .U32, .private = true };
+    const flags: linux.Futex2.Wait = .{ .size = .U32, .private = true };
     // no-wait, lock state mismatch
-    rc = linux.futex2_wait(&lock.raw, 2, mask, flags, null, .MONOTONIC);
+    rc = linux.futex2_wait(&lock, 2, mask, flags, null, .MONOTONIC);
     try expectEqual(.AGAIN, linux.errno(rc));
 
     // hit timeout on wait
-    rc = linux.futex2_wait(&lock.raw, 1, mask, flags, &.{ .sec = 0, .nsec = 2 }, .MONOTONIC);
+    rc = linux.futex2_wait(&lock, 1, mask, flags, &.{ .sec = 0, .nsec = 2 }, .MONOTONIC);
     try expectEqual(.TIMEDOUT, linux.errno(rc));
 
     // timeout is absolute
@@ -363,40 +363,40 @@ test "futex2_wait" {
             .sec = curr.sec,
             .nsec = curr.nsec + 2,
         };
-        rc = linux.futex2_wait(&lock.raw, 1, mask, flags, &timeout, .MONOTONIC);
+        rc = linux.futex2_wait(&lock, 1, mask, flags, &timeout, .MONOTONIC);
         try expectEqual(.TIMEDOUT, linux.errno(rc));
     }
 
-    rc = linux.futex2_wait(&lock.raw, 1, mask, flags, &.{ .sec = 0, .nsec = 2 }, .REALTIME);
+    rc = linux.futex2_wait(&lock, 1, mask, flags, &.{ .sec = 0, .nsec = 2 }, .REALTIME);
     try expectEqual(.TIMEDOUT, linux.errno(rc));
 }
 
 test "futex2_wake" {
-    var lock: std.atomic.Value(u32) = std.atomic.Value(u32).init(1);
+    const lock: std.atomic.Value(u32) = .init(1);
 
     try futex2_skip_if_unsupported();
 
-    const rc = linux.futex2_wake(&lock.raw, 0xFF, 1, .{ .size = .U32, .private = true });
+    const rc = linux.futex2_wake(&lock, .fromInt(0xFF), 1, .{ .size = .U32, .private = true });
     try expectEqual(0, rc);
 }
 
 test "futex2_requeue" {
     try futex2_skip_if_unsupported();
 
-    const locks = [_]std.atomic.Value(u32){
-        std.atomic.Value(u32).init(1),
-        std.atomic.Value(u32).init(1),
+    const locks: [2]std.atomic.Value(u32) = .{
+        .init(1),
+        .init(1),
     };
 
-    const futexes = [_]linux.futex2_waitone{
+    const futexes: [2]linux.Futex2.WaitOne = .{
         .{
             .val = 1,
-            .uaddr = @intFromPtr(&locks[0].raw),
+            .uaddr = @intFromPtr(&locks[0]),
             .flags = .{ .size = .U32, .private = true },
         },
         .{
             .val = 1,
-            .uaddr = @intFromPtr(&locks[1].raw),
+            .uaddr = @intFromPtr(&locks[1]),
             .flags = .{ .size = .U32, .private = true },
         },
     };

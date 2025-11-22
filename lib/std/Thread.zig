@@ -1217,8 +1217,8 @@ const LinuxThreadImpl = struct {
     thread: *ThreadCompletion,
 
     const ThreadCompletion = struct {
-        completion: Completion = Completion.init(.running),
-        child_tid: std.atomic.Value(i32) = std.atomic.Value(i32).init(1),
+        completion: Completion = .init(.running),
+        child_tid: std.atomic.Value(i32) = .init(1),
         parent_tid: i32 = undefined,
         mapped: []align(std.heap.page_size_min) u8,
 
@@ -1663,7 +1663,7 @@ const LinuxThreadImpl = struct {
             if (tid == 0) break;
 
             switch (linux.errno(linux.futex_4arg(
-                &self.thread.child_tid.raw,
+                @ptrCast(&self.thread.child_tid),
                 .{ .cmd = .WAIT, .private = false },
                 @bitCast(tid),
                 null,

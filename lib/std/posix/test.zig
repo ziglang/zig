@@ -37,7 +37,7 @@ test "check WASI CWD" {
 
         if (!builtin.link_libc) {
             // WASI without-libc hardcodes fd 3 as the FDCWD token so it can be passed directly to WASI calls
-            try expectEqual(3, posix.AT.FDCWD);
+            try expectEqual(3, posix.At.fdcwd);
         }
     }
 }
@@ -907,7 +907,7 @@ test "pwrite with empty buffer" {
 }
 
 fn expectMode(dir: posix.fd_t, file: []const u8, mode: posix.mode_t) !void {
-    const st = try posix.fstatat(dir, file, posix.AT.SYMLINK_NOFOLLOW);
+    const st = try posix.fstatat(dir, file, .{ .symlink_nofollow = true });
     try expectEqual(mode, st.mode & 0b111_111_111);
 }
 
@@ -932,13 +932,13 @@ test "fchmodat smoke test" {
 
     try posix.symlinkat("regfile", tmp.dir.fd, "symlink");
     const sym_mode = blk: {
-        const st = try posix.fstatat(tmp.dir.fd, "symlink", posix.AT.SYMLINK_NOFOLLOW);
+        const st = try posix.fstatat(tmp.dir.fd, "symlink", .{ .symlink_nofollow = true });
         break :blk st.mode & 0b111_111_111;
     };
 
     try posix.fchmodat(tmp.dir.fd, "regfile", 0o640, 0);
     try expectMode(tmp.dir.fd, "regfile", 0o640);
-    try posix.fchmodat(tmp.dir.fd, "regfile", 0o600, posix.AT.SYMLINK_NOFOLLOW);
+    try posix.fchmodat(tmp.dir.fd, "regfile", 0o600, posix.At.SYMLINK_NOFOLLOW);
     try expectMode(tmp.dir.fd, "regfile", 0o600);
 
     try posix.fchmodat(tmp.dir.fd, "symlink", 0o640, 0);
@@ -946,7 +946,7 @@ test "fchmodat smoke test" {
     try expectMode(tmp.dir.fd, "symlink", sym_mode);
 
     var test_link = true;
-    posix.fchmodat(tmp.dir.fd, "symlink", 0o600, posix.AT.SYMLINK_NOFOLLOW) catch |err| switch (err) {
+    posix.fchmodat(tmp.dir.fd, "symlink", 0o600, posix.At.SYMLINK_NOFOLLOW) catch |err| switch (err) {
         error.OperationNotSupported => test_link = false,
         else => |e| return e,
     };

@@ -63,7 +63,9 @@ pub const AF = system.AF;
 pub const AF_SUN = system.AF_SUN;
 pub const AI = system.AI;
 pub const ARCH = system.ARCH;
-pub const AT = system.AT;
+/// DEPRECATED: use `At`
+pub const AT = At;
+pub const At = system.At;
 pub const AT_SUN = system.AT_SUN;
 pub const CLOCK = system.CLOCK;
 pub const CPU_COUNT = system.CPU_COUNT;
@@ -480,7 +482,7 @@ fn fchmodat2(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtEr
     }
     defer close(pathfd);
 
-    const stat = fstatatZ(pathfd, "", AT.EMPTY_PATH) catch |err| switch (err) {
+    const stat = fstatatZ(pathfd, "", .{ .empty_path = true }) catch |err| switch (err) {
         error.NameTooLong => unreachable,
         error.FileNotFound => unreachable,
         error.Streaming => unreachable,
@@ -1553,7 +1555,7 @@ pub fn open(file_path: []const u8, flags: O, perm: mode_t) OpenError!fd_t {
     if (native_os == .windows) {
         @compileError("Windows does not support POSIX; use Windows-specific API or cross-platform std.fs API");
     } else if (native_os == .wasi and !builtin.link_libc) {
-        return openat(AT.FDCWD, file_path, flags, perm);
+        return openat(At.fdcwd, file_path, flags, perm);
     }
     const file_path_c = try toPosixPath(file_path);
     return openZ(&file_path_c, flags, perm);
@@ -1943,7 +1945,7 @@ pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!
     if (native_os == .windows) {
         @compileError("symlink is not supported on Windows; use std.os.windows.CreateSymbolicLink instead");
     } else if (native_os == .wasi and !builtin.link_libc) {
-        return symlinkat(target_path, AT.FDCWD, sym_link_path);
+        return symlinkat(target_path, At.fdcwd, sym_link_path);
     }
     const target_path_c = try toPosixPath(target_path);
     const sym_link_path_c = try toPosixPath(sym_link_path);
@@ -2103,7 +2105,7 @@ pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8) LinkError!void {
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn link(oldpath: []const u8, newpath: []const u8) LinkError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        return linkat(AT.FDCWD, oldpath, AT.FDCWD, newpath, 0) catch |err| switch (err) {
+        return linkat(At.fdcwd, oldpath, At.fdcwd, newpath, 0) catch |err| switch (err) {
             error.NotDir => unreachable, // link() does not support directories
             else => |e| return e,
         };
@@ -2163,7 +2165,7 @@ pub fn linkat(
         const old: RelativePathWasi = .{ .dir_fd = olddir, .relative_path = oldpath };
         const new: RelativePathWasi = .{ .dir_fd = newdir, .relative_path = newpath };
         const old_flags: wasi.lookupflags_t = .{
-            .SYMLINK_FOLLOW = (flags & AT.SYMLINK_FOLLOW) != 0,
+            .SYMLINK_FOLLOW = (flags & At.SYMLINK_FOLLOW) != 0,
         };
         switch (wasi.path_link(
             old.dir_fd,
@@ -2234,7 +2236,7 @@ pub const UnlinkError = error{
 /// See also `unlinkZ`.
 pub fn unlink(file_path: []const u8) UnlinkError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        return unlinkat(AT.FDCWD, file_path, 0) catch |err| switch (err) {
+        return unlinkat(At.fdcwd, file_path, 0) catch |err| switch (err) {
             error.DirNotEmpty => unreachable, // only occurs when targeting directories
             else => |e| return e,
         };
@@ -2308,7 +2310,7 @@ pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!vo
 /// WASI-only. Same as `unlinkat` but targeting WASI.
 /// See also `unlinkat`.
 pub fn unlinkatWasi(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!void {
-    const remove_dir = (flags & AT.REMOVEDIR) != 0;
+    const remove_dir = (flags & At.REMOVEDIR) != 0;
     const res = if (remove_dir)
         wasi.path_remove_directory(dirfd, file_path.ptr, file_path.len)
     else
@@ -2373,7 +2375,7 @@ pub fn unlinkatZ(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatEr
 
 /// Same as `unlinkat` but `sub_path_w` is WTF16LE, NT prefixed. Windows only.
 pub fn unlinkatW(dirfd: fd_t, sub_path_w: []const u16, flags: u32) UnlinkatError!void {
-    const remove_dir = (flags & AT.REMOVEDIR) != 0;
+    const remove_dir = (flags & At.REMOVEDIR) != 0;
     return windows.DeleteFile(sub_path_w, .{ .dir = dirfd, .remove_dir = remove_dir });
 }
 
@@ -2421,7 +2423,7 @@ pub const RenameError = error{
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn rename(old_path: []const u8, new_path: []const u8) RenameError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        return renameat(AT.FDCWD, old_path, AT.FDCWD, new_path);
+        return renameat(At.fdcwd, old_path, At.FDCWD, new_path);
     } else if (native_os == .windows) {
         const old_path_w = try windows.sliceToPrefixedFileW(null, old_path);
         const new_path_w = try windows.sliceToPrefixedFileW(null, new_path);
@@ -2747,7 +2749,7 @@ pub const MakeDirError = std.Io.Dir.MakeError;
 /// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
 pub fn mkdir(dir_path: []const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        return mkdirat(AT.FDCWD, dir_path, mode);
+        return mkdirat(At.fdcwd, dir_path, mode);
     } else if (native_os == .windows) {
         const dir_path_w = try windows.sliceToPrefixedFileW(null, dir_path);
         return mkdirW(dir_path_w.span(), mode);
@@ -2832,7 +2834,7 @@ pub const DeleteDirError = error{
 /// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
 pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        return unlinkat(AT.FDCWD, dir_path, AT.REMOVEDIR) catch |err| switch (err) {
+        return unlinkat(At.fdcwd, dir_path, At.REMOVEDIR) catch |err| switch (err) {
             error.FileSystem => unreachable, // only occurs when targeting files
             error.IsDir => unreachable, // only occurs when targeting files
             else => |e| return e,
@@ -2959,7 +2961,7 @@ pub const FchdirError = error{
 } || UnexpectedError;
 
 pub fn fchdir(dirfd: fd_t) FchdirError!void {
-    if (dirfd == AT.FDCWD) return;
+    if (dirfd == At.fdcwd) return;
     while (true) {
         switch (errno(system.fchdir(dirfd))) {
             .SUCCESS => return,
@@ -3012,7 +3014,7 @@ pub const ReadLinkError = error{
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (native_os == .wasi and !builtin.link_libc) {
-        return readlinkat(AT.FDCWD, file_path, out_buffer);
+        return readlinkat(At.fdcwd, file_path, out_buffer);
     } else if (native_os == .windows) {
         var file_path_w = try windows.sliceToPrefixedFileW(null, file_path);
         const result_w = try readlinkW(file_path_w.span(), &file_path_w.data);
@@ -3972,7 +3974,7 @@ pub const FStatAtError = FStatError || error{
 /// On WASI, `pathname` should be encoded as valid UTF-8.
 /// On other platforms, `pathname` is an opaque sequence of bytes with no particular encoding.
 /// See also `fstatatZ`.
-pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat {
+pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: At) FStatAtError!Stat {
     if (native_os == .wasi and !builtin.link_libc) {
         @compileError("use std.Io instead");
     } else if (native_os == .windows) {
@@ -3985,14 +3987,14 @@ pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat 
 
 /// Same as `fstatat` but `pathname` is null-terminated.
 /// See also `fstatat`.
-pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!Stat {
+pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: At) FStatAtError!Stat {
     if (native_os == .wasi and !builtin.link_libc) {
         @compileError("use std.Io instead");
     }
 
     const fstatat_sym = if (lfs64_abi) system.fstatat64 else system.fstatat;
     var stat = mem.zeroes(Stat);
-    switch (errno(fstatat_sym(dirfd, pathname, &stat, flags))) {
+    switch (errno(fstatat_sym(dirfd, pathname, &stat, @bitCast(flags)))) {
         .SUCCESS => return stat,
         .INVAL => unreachable,
         .BADF => unreachable, // Always a race condition.
