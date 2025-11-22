@@ -1911,33 +1911,159 @@ pub fn writeSleb128(w: *Writer, value: anytype) Error!void {
 
 /// Write a single integer as LEB128 to the given writer.
 pub fn writeLeb128(w: *Writer, value: anytype) Error!void {
-    const value_info = @typeInfo(@TypeOf(value)).int;
-    try w.writeMultipleOf7Leb128(@as(@Type(.{ .int = .{
-        .signedness = value_info.signedness,
-        .bits = @max(std.mem.alignForwardAnyAlign(u16, value_info.bits, 7), 7),
-    } }), value));
+    const T = @TypeOf(value);
+    const info = switch (@typeInfo(T)) {
+        .int => |info| info,
+        else => @compileError(@tagName(T) ++ " not supported"),
+    };
+
+    const BoundInt = @Type(.{ .int = .{ .bits = 7, .signedness = info.signedness } });
+    if (info.bits <= 7 or (value >= std.math.minInt(BoundInt) and value <= std.math.maxInt(BoundInt))) {
+        const SByte = @Type(.{ .int = .{ .bits = 8, .signedness = info.signedness } });
+        const byte = switch (info.signedness) {
+            .signed => @as(SByte, @intCast(value)) & 0x7F,
+            .unsigned => @as(SByte, @intCast(value)),
+        };
+        try w.writeByte(@bitCast(byte));
+        return;
+    }
+
+    const Byte = packed struct { bits: u7, more: bool };
+    const Int = std.math.ByteAlignedInt(T);
+
+    const max_bytes = @divFloor(info.bits - 1, 7) + 1;
+
+    var val: Int = value;
+    for (0..max_bytes) |_| {
+        const more = switch (info.signedness) {
+            .signed => val >> 6 != val >> (info.bits - 1),
+            .unsigned => val > std.math.maxInt(u7),
+        };
+
+        try w.writeByte(@bitCast(@as(Byte, .{
+            .bits = @intCast(val & 0x7F),
+            .more = more,
+        })));
+
+        if (!more) return;
+
+        val >>= 7;
+    } else unreachable;
 }
 
-fn writeMultipleOf7Leb128(w: *Writer, value: anytype) Error!void {
-    const value_info = @typeInfo(@TypeOf(value)).int;
-    const Byte = packed struct(u8) { bits: u7, more: bool };
-    var bytes: [@divExact(value_info.bits, 7)]Byte = undefined;
-    var remaining = value;
-    for (&bytes, 1..) |*byte, len| {
-        const more = switch (value_info.signedness) {
-            .signed => remaining >> 6 != remaining >> (value_info.bits - 1),
-            .unsigned => remaining > std.math.maxInt(u7),
-        };
-        byte.* = .{
-            .bits = @bitCast(@as(@Type(.{ .int = .{
-                .signedness = value_info.signedness,
-                .bits = 7,
-            } }), @truncate(remaining))),
-            .more = more,
-        };
-        if (value_info.bits > 7) remaining >>= 7;
-        if (!more) return w.writeAll(@ptrCast(bytes[0..len]));
-    } else unreachable;
+test "serialize signed LEB128" {
+    // Small values
+    try testLeb128Encoding(i7, 9, "\x09");
+    try testLeb128Encoding(i64, 125, "\xFD\x00");
+
+    try testLeb128Encoding(i7, -34, "\x5E");
+    try testLeb128Encoding(i64, -3, "\x7D");
+
+    // Random values
+    try testLeb128Encoding(i16, 19373, "\xAD\x97\x01");
+    try testLeb128Encoding(i32, 1628839242, "\xCA\xBA\xD8\x88\x06");
+    try testLeb128Encoding(i64, 3789169920125966546, "\xD2\xB1\xD0\xD5\xF6\xBE\xF5\xCA\x34");
+    try testLeb128Encoding(i128, 704622239050934257305893323522763588, "\xC4\xD6\x83\xC7\xE3\x91\x95\xC3\x96\x80\x8D\xA5\xF5\xDF\xA3\xDA\x87\x01");
+
+    try testLeb128Encoding(i16, -14558, "\xA2\x8E\x7F");
+    try testLeb128Encoding(i32, -1702738165, "\x8B\x8E\x89\xD4\x79");
+    try testLeb128Encoding(i64, -1709126996960612298, "\xB6\xE0\x87\xB1\xD3\xC1\xFD\xA3\x68");
+    try testLeb128Encoding(i128, -113498719181566012704681230050325944039, "\x99\xD2\x80\xBC\xE6\x95\xBC\xC8\xDE\xB4\x9D\x81\x9F\xCA\xC6\xF8\x9C\xD5\x7E");
+
+    // {min,max} values
+    try testLeb128Encoding(i16, std.math.maxInt(i16), "\xFF\xFF\x01");
+    try testLeb128Encoding(i32, std.math.maxInt(i32), "\xFF\xFF\xFF\xFF\x07");
+    try testLeb128Encoding(i64, std.math.maxInt(i64), "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x00");
+    try testLeb128Encoding(i128, std.math.maxInt(i128), "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x01");
+
+    try testLeb128Encoding(i16, std.math.minInt(i16), "\x80\x80\x7E");
+    try testLeb128Encoding(i32, std.math.minInt(i32), "\x80\x80\x80\x80\x78");
+    try testLeb128Encoding(i64, std.math.minInt(i64), "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7F");
+    try testLeb128Encoding(i128, std.math.minInt(i128), "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7E");
+
+    // Specific cases
+    try testLeb128Encoding(i0, 0, "\x00");
+    try testLeb128Encoding(i8, 0, "\x00");
+
+    try testLeb128Encoding(i2, -1, "\x7F");
+    try testLeb128Encoding(i8, -1, "\x7F");
+
+    try testLeb128Encoding(i2, 1, "\x01");
+    try testLeb128Encoding(i8, 1, "\x01");
+
+    // Encode byte boundaries
+    try testLeb128Encoding(i7, std.math.maxInt(i7), "\x3F");
+    try testLeb128Encoding(i8, std.math.maxInt(i7) + 1, "\xC0\x00");
+    try testLeb128Encoding(i14, std.math.maxInt(i14), "\xFF\x3F");
+    try testLeb128Encoding(i15, std.math.maxInt(i14) + 1, "\x80\xC0\x00");
+    try testLeb128Encoding(i49, std.math.maxInt(i49), "\xFF\xFF\xFF\xFF\xFF\xFF\x3F");
+    try testLeb128Encoding(i50, std.math.maxInt(i49) + 1, "\x80\x80\x80\x80\x80\x80\xC0\x00");
+    try testLeb128Encoding(i56, std.math.maxInt(i56), "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x3F");
+    try testLeb128Encoding(i57, std.math.maxInt(i56) + 1, "\x80\x80\x80\x80\x80\x80\x80\xC0\x00");
+    try testLeb128Encoding(i63, std.math.maxInt(i63), "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x3F");
+    try testLeb128Encoding(i64, std.math.maxInt(i63) + 1, "\x80\x80\x80\x80\x80\x80\x80\x80\xC0\x00");
+
+    try testLeb128Encoding(i7, std.math.minInt(i7), "\x40");
+    try testLeb128Encoding(i8, std.math.minInt(i7) - 1, "\xBF\x7F");
+    try testLeb128Encoding(i14, std.math.minInt(i14), "\x80\x40");
+    try testLeb128Encoding(i15, std.math.minInt(i14) - 1, "\xFF\xBF\x7F");
+    try testLeb128Encoding(i49, std.math.minInt(i49), "\x80\x80\x80\x80\x80\x80\x40");
+    try testLeb128Encoding(i50, std.math.minInt(i49) - 1, "\xFF\xFF\xFF\xFF\xFF\xFF\xBF\x7F");
+    try testLeb128Encoding(i56, std.math.minInt(i56), "\x80\x80\x80\x80\x80\x80\x80\x40");
+    try testLeb128Encoding(i57, std.math.minInt(i56) - 1, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xBF\x7F");
+    try testLeb128Encoding(i63, std.math.minInt(i63), "\x80\x80\x80\x80\x80\x80\x80\x80\x40");
+    try testLeb128Encoding(i64, std.math.minInt(i63) - 1, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xBF\x7F");
+}
+
+test "serialize unsigned LEB128" {
+    // Small values
+    try testLeb128Encoding(u7, 12, "\x0C");
+    try testLeb128Encoding(u64, 201, "\xC9\x01");
+
+    // Random values
+    try testLeb128Encoding(u8, 254, "\xFE\x01");
+    try testLeb128Encoding(u16, 30241, "\xA1\xEC\x01");
+    try testLeb128Encoding(u32, 2173531193, "\xB9\xE8\xB5\x8C\x08");
+    try testLeb128Encoding(u64, 18321125691115744902, "\x86\xDD\xF2\x81\xF2\xD7\xED\xA0\xFE\x01");
+    try testLeb128Encoding(u128, 122619209508942982841456325819614676193, "\xE1\x89\xF3\xD9\xE3\xAD\xEC\xF4\x98\x95\xF8\xBB\xD7\xB8\xF2\xCC\xBF\xB8\x01");
+
+    // Max values
+    try testLeb128Encoding(u8, std.math.maxInt(u8), "\xFF\x01");
+    try testLeb128Encoding(u16, std.math.maxInt(u16), "\xFF\xFF\x03");
+    try testLeb128Encoding(u32, std.math.maxInt(u32), "\xFF\xFF\xFF\xFF\x0F");
+    try testLeb128Encoding(u64, std.math.maxInt(u64), "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x01");
+    try testLeb128Encoding(u128, std.math.maxInt(u128), "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x03");
+
+    // Specific cases
+    try testLeb128Encoding(u0, 0, "\x00");
+    try testLeb128Encoding(u1, 0, "\x00");
+    try testLeb128Encoding(u8, 0, "\x00");
+
+    try testLeb128Encoding(u1, 1, "\x01");
+    try testLeb128Encoding(u8, 1, "\x01");
+
+    // Encode byte boundaries
+    try testLeb128Encoding(u7, std.math.maxInt(u7), "\x7F");
+    try testLeb128Encoding(u8, std.math.maxInt(u7) + 1, "\x80\x01");
+    try testLeb128Encoding(u14, std.math.maxInt(u14), "\xFF\x7F");
+    try testLeb128Encoding(u15, std.math.maxInt(u14) + 1, "\x80\x80\x01");
+    try testLeb128Encoding(u49, std.math.maxInt(u49), "\xFF\xFF\xFF\xFF\xFF\xFF\x7F");
+    try testLeb128Encoding(u50, std.math.maxInt(u49) + 1, "\x80\x80\x80\x80\x80\x80\x80\x01");
+    try testLeb128Encoding(u56, std.math.maxInt(u56), "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x7F");
+    try testLeb128Encoding(u57, std.math.maxInt(u56) + 1, "\x80\x80\x80\x80\x80\x80\x80\x80\x01");
+    try testLeb128Encoding(u63, std.math.maxInt(u63), "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x7F");
+    try testLeb128Encoding(u64, std.math.maxInt(u63) + 1, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x01");
+}
+
+fn testLeb128Encoding(comptime T: type, value: T, encoding: []const u8) !void {
+    const info = @typeInfo(T).int;
+    const max_bytes = @divFloor(info.bits -| 1, 7) + 1;
+    var bytes: [max_bytes]u8 = undefined;
+
+    var fw: Writer = .fixed(&bytes);
+    try writeLeb128(&fw, value);
+
+    try std.testing.expectEqualSlices(u8, encoding, fw.buffered());
 }
 
 test "printValue max_depth" {

@@ -1271,41 +1271,131 @@ pub fn takeEnumNonexhaustive(r: *Reader, comptime Enum: type, endian: std.builti
 pub const TakeLeb128Error = Error || error{Overflow};
 
 /// Read a single LEB128 value as type T, or `error.Overflow` if the value cannot fit.
-pub fn takeLeb128(r: *Reader, comptime Result: type) TakeLeb128Error!Result {
-    const result_info = @typeInfo(Result).int;
-    return std.math.cast(Result, try r.takeMultipleOf7Leb128(@Type(.{ .int = .{
-        .signedness = result_info.signedness,
-        .bits = std.mem.alignForwardAnyAlign(u16, result_info.bits, 7),
-    } }))) orelse error.Overflow;
-}
+pub fn takeLeb128(r: *Reader, comptime T: type) TakeLeb128Error!T {
+    const info = switch (@typeInfo(T)) {
+        .int => |info| info,
+        else => @compileError(@tagName(T) ++ " not supported"),
+    };
+    const Byte = packed struct { bits: u7, more: bool };
 
-fn takeMultipleOf7Leb128(r: *Reader, comptime Result: type) TakeLeb128Error!Result {
-    const result_info = @typeInfo(Result).int;
-    comptime assert(result_info.bits % 7 == 0);
-    var remaining_bits: std.math.Log2IntCeil(Result) = result_info.bits;
-    const UnsignedResult = @Type(.{ .int = .{
-        .signedness = .unsigned,
-        .bits = result_info.bits,
-    } });
-    var result: UnsignedResult = 0;
-    var fits = true;
-    while (true) {
-        const buffer: []const packed struct(u8) { bits: u7, more: bool } = @ptrCast(try r.peekGreedy(1));
-        for (buffer, 1..) |byte, len| {
-            if (remaining_bits > 0) {
-                result = @shlExact(@as(UnsignedResult, byte.bits), result_info.bits - 7) |
-                    if (result_info.bits > 7) @shrExact(result, 7) else 0;
-                remaining_bits -= 7;
-            } else if (fits) fits = switch (result_info.signedness) {
-                .signed => @as(i7, @bitCast(byte.bits)) ==
-                    @as(i7, @truncate(@as(Result, @bitCast(result)) >> (result_info.bits - 1))),
-                .unsigned => byte.bits == 0,
-            };
-            if (byte.more) continue;
-            r.toss(len);
-            return if (fits) @as(Result, @bitCast(result)) >> remaining_bits else error.Overflow;
+    if (info.bits <= 7) {
+        var byte: Byte = undefined;
+        const SBits = @Type(.{ .int = .{ .bits = 7, .signedness = info.signedness } });
+
+        byte = @bitCast(try r.takeByte());
+        const val = std.math.cast(T, @as(SBits, @bitCast(byte.bits))) orelse error.Overflow;
+
+        const allowed_bits: u7 = switch (info.signedness) {
+            .unsigned => 0,
+            .signed => blk: {
+                const negative = byte.bits & 0b0100_0000 != 0;
+                break :blk if (negative) std.math.maxInt(u7) else 0;
+            },
+        };
+
+        var fits = true;
+        while (byte.more) {
+            byte = @bitCast(try r.takeByte());
+
+            if (byte.bits != allowed_bits) fits = false;
         }
-        r.toss(buffer.len);
+
+        return if (fits) blk: {
+            @branchHint(.likely);
+            break :blk val;
+        } else error.Overflow;
+    }
+
+    const Unsigned = @Type(.{ .int = .{ .bits = info.bits, .signedness = .unsigned } });
+    const UInt = std.math.ByteAlignedInt(Unsigned);
+    const Int = std.math.ByteAlignedInt(T);
+    const LogInt = std.math.Log2Int(UInt);
+
+    const State = union(enum) {
+        reading,
+        full,
+        fixup,
+    };
+
+    var byte: Byte = undefined;
+    var val: UInt = 0;
+    var bits_written: LogInt = 0;
+    sw: switch (@as(State, .reading)) {
+        .reading => {
+            const max_bytes = @divFloor(info.bits - 1, 7) + 1;
+            inline for (0..max_bytes) |iteration| {
+                const shift = iteration * 7;
+
+                byte = @bitCast(try r.takeByte());
+
+                const extended: UInt = byte.bits;
+                val |= extended << shift;
+
+                const want_another_u7 = shift + 7 < info.bits;
+                if (!want_another_u7) continue :sw .full;
+
+                if (!byte.more) {
+                    bits_written = shift + 7;
+                    continue :sw .fixup;
+                }
+            }
+            comptime unreachable;
+        },
+        .full => {
+            const bits_remaining = @mod(info.bits, 7);
+
+            var fits = true;
+            const allowed_bits: u7 = switch (info.signedness) {
+                .unsigned => blk: {
+                    if (bits_remaining != 0) {
+                        const zero_mask: u7 = @as(u7, std.math.maxInt(u7)) << bits_remaining;
+                        if (zero_mask & byte.bits != 0) fits = false;
+                    }
+
+                    break :blk 0;
+                },
+                .signed => blk: {
+                    const sign_bit_mask = @as(UInt, 1) << (info.bits - 1);
+                    const negative = sign_bit_mask & val != 0;
+
+                    const value_sign: i7 = if (negative) @bitCast(@as(u7, std.math.maxInt(u7))) else 0;
+
+                    const bits: i7 = @bitCast(byte.bits);
+                    const bits_sign = bits >> bits_remaining; // sign extends
+
+                    if (bits_remaining != 0 and bits_sign != value_sign) fits = false;
+
+                    const sign_extend_mask = std.math.shl(UInt, std.math.maxInt(UInt), info.bits);
+                    if (sign_extend_mask != 0 and negative) {
+                        val |= sign_extend_mask;
+                    }
+
+                    break :blk @bitCast(value_sign);
+                },
+            };
+
+            while (byte.more) {
+                @branchHint(.unlikely);
+                byte = @bitCast(try r.takeByte());
+                if (byte.bits != allowed_bits) fits = false;
+            }
+
+            return if (fits) blk: {
+                @branchHint(.likely);
+                break :blk std.math.cast(T, @as(Int, @bitCast(val))) orelse error.Overflow;
+            } else error.Overflow;
+        },
+        .fixup => {
+            if (info.signedness == .signed) {
+                if ((byte.bits & 0b0100_0000) != 0 and // is negative
+                    bits_written < (@typeInfo(UInt).int.bits)) // needs extension
+                {
+                    const sign_extend_mask = @as(UInt, std.math.maxInt(UInt)) << bits_written;
+                    val |= sign_extend_mask;
+                }
+            }
+            return std.math.cast(T, @as(Int, @bitCast(val))) orelse error.Overflow;
+        },
     }
 }
 
@@ -1611,13 +1701,6 @@ test takeEnum {
     const E2 = enum(u16) { _ };
     try testing.expectEqual(E1.c, try r.takeEnum(E1, .little));
     try testing.expectEqual(@as(E2, @enumFromInt(0x0001)), try r.takeEnum(E2, .big));
-}
-
-test takeLeb128 {
-    var r: Reader = .fixed("\xc7\x9f\x7f\x80");
-    try testing.expectEqual(-12345, try r.takeLeb128(i64));
-    try testing.expectEqual(0x80, try r.peekByte());
-    try testing.expectError(error.EndOfStream, r.takeLeb128(i64));
 }
 
 test readSliceShort {
@@ -1981,90 +2064,245 @@ pub fn writableVector(r: *Reader, buffer: [][]u8, data: []const []u8) Error!stru
 }
 
 test "deserialize signed LEB128" {
+    // Small values
+    try testing.expectEqual(5, testLeb128(i7, "\x05"));
+    try testing.expectEqual(53, testLeb128(i64, "\x35"));
+
+    try testing.expectEqual(-6, testLeb128(i7, "\x7A"));
+    try testing.expectEqual(-23, testLeb128(i64, "\x69"));
+
+    // Random values
+    try testing.expectEqual(90, testLeb128(i8, "\xDA\x00"));
+    try testing.expectEqual(3434, testLeb128(i16, "\xEA\x1A"));
+    try testing.expectEqual(1505683543, testLeb128(i32, "\xD7\xD0\xFB\xCD\x05"));
+    try testing.expectEqual(105721575804011595, testLeb128(i64, "\xCB\x88\x92\xD7\xE8\xA6\xE6\xBB\x01"));
+    try testing.expectEqual(51316697993548595875823294343650416388, testLeb128(i128, "\x84\xAE\xAC\xFC\xE4\xA0\xCD\xE2\x87\xED\x83\xB2\x87\xAA\xA3\x9E\x9B\xCD\x00"));
+
+    try testing.expectEqual(-68, testLeb128(i8, "\xBC\x7F"));
+    try testing.expectEqual(-20174, testLeb128(i16, "\xB2\xE2\x7E"));
+    try testing.expectEqual(-166511141, testLeb128(i32, "\xDB\xFB\xCC\xB0\x7F"));
+    try testing.expectEqual(-4368809844285451825, testLeb128(i64, "\xCF\xA3\x8B\xA1\xFF\xD2\xB7\xAF\x43"));
+    try testing.expectEqual(-43250117698642799010758201165100952046, testLeb128(i128, "\x92\xAC\xDB\xA4\xEC\xDE\xB9\x95\xD1\xBA\xEC\xB0\xD7\x80\xA4\xAA\xF6\xBE\x7F"));
+
+    // {min,max} values
+    try testing.expectEqual(std.math.maxInt(i8), testLeb128(i8, "\xFF\x00"));
+    try testing.expectEqual(std.math.maxInt(i16), testLeb128(i16, "\xFF\xFF\x01"));
+    try testing.expectEqual(std.math.maxInt(i32), testLeb128(i32, "\xFF\xFF\xFF\xFF\x07"));
+    try testing.expectEqual(std.math.maxInt(i64), testLeb128(i64, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x00"));
+    try testing.expectEqual(std.math.maxInt(i128), testLeb128(i128, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x01"));
+
+    try testing.expectEqual(std.math.minInt(i8), testLeb128(i8, "\x80\x7F"));
+    try testing.expectEqual(std.math.minInt(i16), testLeb128(i16, "\x80\x80\x7E"));
+    try testing.expectEqual(std.math.minInt(i32), testLeb128(i32, "\x80\x80\x80\x80\x78"));
+    try testing.expectEqual(std.math.minInt(i64), testLeb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7F"));
+    try testing.expectEqual(std.math.minInt(i128), testLeb128(i128, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7E"));
+
+    // Specific cases
+    try testing.expectEqual(0, testLeb128(i0, "\x00"));
+    try testing.expectEqual(0, testLeb128(i2, "\x00"));
+    try testing.expectEqual(0, testLeb128(i8, "\x00"));
+
+    try testing.expectEqual(1, testLeb128(i2, "\x01"));
+    try testing.expectEqual(1, testLeb128(i8, "\x01"));
+
+    try testing.expectEqual(-1, testLeb128(i2, "\x7F"));
+    try testing.expectEqual(-1, testLeb128(i8, "\x7F"));
+
+    const end_of_stream: [20]u8 = @splat(0x80);
+    const overflow: [21]u8 = end_of_stream ++ .{0x01};
+    const long_zero: [21]u8 = end_of_stream ++ .{0x00};
+    const long_one: [22]u8 = .{0x81} ++ end_of_stream ++ .{0x00};
+    const long_minus_one: [20]u8 = @as([19]u8, @splat(0xFF)) ++ .{0x7F};
+
     // Truncated
-    try testing.expectError(error.EndOfStream, testLeb128(i64, "\x80"));
+    try testing.expectError(error.EndOfStream, testLeb128(i16, "\x80\x80\x84\x80"));
+    try testing.expectError(error.EndOfStream, testLeb128(i16, "\x80\x80\x80\x84\x80"));
+    try testing.expectError(error.EndOfStream, testLeb128(i32, "\x80\x80\x80\x80\x90"));
+
+    try testing.expectError(error.EndOfStream, testLeb128(i7, ""));
+    try testing.expectError(error.EndOfStream, testLeb128(i8, ""));
+    try testing.expectError(error.EndOfStream, testLeb128(i14, ""));
+    try testing.expectError(error.EndOfStream, testLeb128(i128, ""));
+
+    try testing.expectError(error.EndOfStream, testLeb128(i7, "\x80"));
+    try testing.expectError(error.EndOfStream, testLeb128(i8, "\x80"));
+    try testing.expectError(error.EndOfStream, testLeb128(i14, "\x80"));
+    try testing.expectError(error.EndOfStream, testLeb128(i128, "\x80"));
+
+    try testing.expectError(error.EndOfStream, testLeb128(i7, &end_of_stream));
+    try testing.expectError(error.EndOfStream, testLeb128(i8, &end_of_stream));
+    try testing.expectError(error.EndOfStream, testLeb128(i14, &end_of_stream));
+    try testing.expectError(error.EndOfStream, testLeb128(i128, &end_of_stream));
 
     // Overflow
+    try testing.expectError(error.Overflow, testLeb128(i0, "\x01"));
+    try testing.expectError(error.Overflow, testLeb128(i0, "\x7F"));
+    try testing.expectError(error.Overflow, testLeb128(i8, "\x80\x01"));
+    try testing.expectError(error.Overflow, testLeb128(i8, "\xFF\x7E"));
     try testing.expectError(error.Overflow, testLeb128(i8, "\x80\x80\x40"));
     try testing.expectError(error.Overflow, testLeb128(i16, "\x80\x80\x80\x40"));
-    try testing.expectError(error.Overflow, testLeb128(i32, "\x80\x80\x80\x80\x40"));
-    try testing.expectError(error.Overflow, testLeb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x40"));
-    try testing.expectError(error.Overflow, testLeb128(i8, "\xff\x7e"));
     try testing.expectError(error.Overflow, testLeb128(i32, "\x80\x80\x80\x80\x08"));
+    try testing.expectError(error.Overflow, testLeb128(i32, "\x80\x80\x80\x80\x40"));
     try testing.expectError(error.Overflow, testLeb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x01"));
+    try testing.expectError(error.Overflow, testLeb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x40"));
 
-    // Decode SLEB128
-    try testing.expect((try testLeb128(i64, "\x00")) == 0);
-    try testing.expect((try testLeb128(i64, "\x01")) == 1);
-    try testing.expect((try testLeb128(i64, "\x3f")) == 63);
-    try testing.expect((try testLeb128(i64, "\x40")) == -64);
-    try testing.expect((try testLeb128(i64, "\x41")) == -63);
-    try testing.expect((try testLeb128(i64, "\x7f")) == -1);
-    try testing.expect((try testLeb128(i64, "\x80\x01")) == 128);
-    try testing.expect((try testLeb128(i64, "\x81\x01")) == 129);
-    try testing.expect((try testLeb128(i64, "\xff\x7e")) == -129);
-    try testing.expect((try testLeb128(i64, "\x80\x7f")) == -128);
-    try testing.expect((try testLeb128(i64, "\x81\x7f")) == -127);
-    try testing.expect((try testLeb128(i64, "\xc0\x00")) == 64);
-    try testing.expect((try testLeb128(i64, "\xc7\x9f\x7f")) == -12345);
-    try testing.expect((try testLeb128(i8, "\xff\x7f")) == -1);
-    try testing.expect((try testLeb128(i16, "\xff\xff\x7f")) == -1);
-    try testing.expect((try testLeb128(i32, "\xff\xff\xff\xff\x7f")) == -1);
-    try testing.expect((try testLeb128(i32, "\x80\x80\x80\x80\x78")) == -0x80000000);
-    try testing.expect((try testLeb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7f")) == @as(i64, @bitCast(@as(u64, @intCast(0x8000000000000000)))));
-    try testing.expect((try testLeb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x40")) == -0x4000000000000000);
-    try testing.expect((try testLeb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7f")) == -0x8000000000000000);
+    try testing.expectError(error.Overflow, testLeb128(i0, &overflow));
+    try testing.expectError(error.Overflow, testLeb128(i7, &overflow));
+    try testing.expectError(error.Overflow, testLeb128(i8, &overflow));
+    try testing.expectError(error.Overflow, testLeb128(i14, &overflow));
+    try testing.expectError(error.Overflow, testLeb128(i128, &overflow));
 
-    // Decode unnormalized SLEB128 with extra padding bytes.
-    try testing.expect((try testLeb128(i64, "\x80\x00")) == 0);
-    try testing.expect((try testLeb128(i64, "\x80\x80\x00")) == 0);
-    try testing.expect((try testLeb128(i64, "\xff\x00")) == 0x7f);
-    try testing.expect((try testLeb128(i64, "\xff\x80\x00")) == 0x7f);
-    try testing.expect((try testLeb128(i64, "\x80\x81\x00")) == 0x80);
-    try testing.expect((try testLeb128(i64, "\x80\x81\x80\x00")) == 0x80);
+    // Extra padding
+    try testing.expectEqual(-1, testLeb128(i32, "\xFF\xFF\xFF\xFF\x7F"));
+    try testing.expectEqual(-1, testLeb128(i64, "\xFF\x7F"));
+    try testing.expectEqual(0x7F, testLeb128(i64, "\xFF\x00"));
+    try testing.expectEqual(0x7F, testLeb128(i64, "\xFF\x80\x00"));
+    try testing.expectEqual(0x80, testLeb128(i64, "\x80\x81\x00"));
+    try testing.expectEqual(0x80, testLeb128(i64, "\x80\x81\x80\x00"));
+
+    try testing.expectEqual(0, testLeb128(i0, &long_zero));
+    try testing.expectEqual(0, testLeb128(i7, &long_zero));
+    try testing.expectEqual(0, testLeb128(i8, &long_zero));
+    try testing.expectEqual(0, testLeb128(i14, &long_zero));
+    try testing.expectEqual(0, testLeb128(i128, &long_zero));
+
+    try testing.expectEqual(1, testLeb128(i2, &long_one));
+    try testing.expectEqual(1, testLeb128(i7, &long_one));
+    try testing.expectEqual(1, testLeb128(i8, &long_one));
+    try testing.expectEqual(1, testLeb128(i14, &long_one));
+    try testing.expectEqual(1, testLeb128(i128, &long_one));
+
+    try testing.expectEqual(-1, testLeb128(i2, &long_minus_one));
+    try testing.expectEqual(-1, testLeb128(i7, &long_minus_one));
+    try testing.expectEqual(-1, testLeb128(i8, &long_minus_one));
+    try testing.expectEqual(-1, testLeb128(i14, &long_minus_one));
+    try testing.expectEqual(-1, testLeb128(i128, &long_minus_one));
+
+    // Decode byte boundaries
+    try testing.expectEqual(std.math.maxInt(i7), testLeb128(i7, "\x3F"));
+    try testing.expectEqual(std.math.maxInt(i7) + 1, testLeb128(i8, "\xC0\x00"));
+    try testing.expectEqual(std.math.maxInt(i14), testLeb128(i14, "\xFF\x3F"));
+    try testing.expectEqual(std.math.maxInt(i14) + 1, testLeb128(i15, "\x80\xC0\x00"));
+    try testing.expectEqual(std.math.maxInt(i49), testLeb128(i49, "\xFF\xFF\xFF\xFF\xFF\xFF\x3F"));
+    try testing.expectEqual(std.math.maxInt(i49) + 1, testLeb128(i50, "\x80\x80\x80\x80\x80\x80\xC0\x00"));
+    try testing.expectEqual(std.math.maxInt(i56), testLeb128(i56, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x3F"));
+    try testing.expectEqual(std.math.maxInt(i56) + 1, testLeb128(i57, "\x80\x80\x80\x80\x80\x80\x80\xC0\x00"));
+    try testing.expectEqual(std.math.maxInt(i63), testLeb128(i63, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x3F"));
+    try testing.expectEqual(std.math.maxInt(i63) + 1, testLeb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\xC0\x00"));
+
+    try testing.expectEqual(std.math.minInt(i7), testLeb128(i7, "\x40"));
+    try testing.expectEqual(std.math.minInt(i7) - 1, testLeb128(i8, "\xBF\x7F"));
+    try testing.expectEqual(std.math.minInt(i14), testLeb128(i14, "\x80\x40"));
+    try testing.expectEqual(std.math.minInt(i14) - 1, testLeb128(i15, "\xFF\xBF\x7F"));
+    try testing.expectEqual(std.math.minInt(i49), testLeb128(i49, "\x80\x80\x80\x80\x80\x80\x40"));
+    try testing.expectEqual(std.math.minInt(i49) - 1, testLeb128(i50, "\xFF\xFF\xFF\xFF\xFF\xFF\xBF\x7F"));
+    try testing.expectEqual(std.math.minInt(i56), testLeb128(i56, "\x80\x80\x80\x80\x80\x80\x80\x40"));
+    try testing.expectEqual(std.math.minInt(i56) - 1, testLeb128(i57, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xBF\x7F"));
+    try testing.expectEqual(std.math.minInt(i63), testLeb128(i63, "\x80\x80\x80\x80\x80\x80\x80\x80\x40"));
+    try testing.expectEqual(std.math.minInt(i63) - 1, testLeb128(i64, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xBF\x7F"));
 }
 
 test "deserialize unsigned LEB128" {
+    // Small values
+    try testing.expectEqual(46, testLeb128(u7, "\x2E"));
+    try testing.expectEqual(117, testLeb128(u64, "\x75"));
+
+    // Random values
+    try testing.expectEqual(224, testLeb128(u8, "\xE0\x01"));
+    try testing.expectEqual(53023, testLeb128(u16, "\x9F\x9E\x03"));
+    try testing.expectEqual(2609971022, testLeb128(u32, "\xCE\xFE\xC3\xDC\x09"));
+    try testing.expectEqual(10223253173206528843, testLeb128(u64, "\xCB\xE6\xF0\xEE\x88\xD3\x92\xF0\x8D\x01"));
+    try testing.expectEqual(67831258924174241363439488509570048548, testLeb128(u128, "\xA4\xC4\xD7\xE9\x8C\xD2\x86\x80\xBC\xAC\xE5\xAB\xB4\xA2\xD1\xE9\x87\x66"));
+
+    // max values
+    try testing.expectEqual(std.math.maxInt(u8), testLeb128(u8, "\xFF\x01"));
+    try testing.expectEqual(std.math.maxInt(u16), testLeb128(u16, "\xFF\xFF\x03"));
+    try testing.expectEqual(std.math.maxInt(u32), testLeb128(u32, "\xFF\xFF\xFF\xFF\x0F"));
+    try testing.expectEqual(std.math.maxInt(u64), testLeb128(u64, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x01"));
+    try testing.expectEqual(std.math.maxInt(u128), testLeb128(u128, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x03"));
+
+    // Specific cases
+    try testing.expectEqual(0, testLeb128(u0, "\x00"));
+    try testing.expectEqual(0, testLeb128(u1, "\x00"));
+    try testing.expectEqual(0, testLeb128(u8, "\x00"));
+
+    try testing.expectEqual(1, testLeb128(u1, "\x01"));
+    try testing.expectEqual(1, testLeb128(u8, "\x01"));
+
+    const end_of_stream: [20]u8 = @splat(0x80);
+    const overflow: [21]u8 = end_of_stream ++ .{0x01};
+    const long_zero: [21]u8 = end_of_stream ++ .{0x00};
+    const long_one: [22]u8 = .{0x81} ++ end_of_stream ++ .{0x00};
+
     // Truncated
-    try testing.expectError(error.EndOfStream, testLeb128(u64, "\x80"));
-    try testing.expectError(error.EndOfStream, testLeb128(u16, "\x80\x80\x84"));
+    try testing.expectError(error.EndOfStream, testLeb128(u16, "\x80\x80\x84\x80"));
+    try testing.expectError(error.EndOfStream, testLeb128(u16, "\x80\x80\x80\x84\x80"));
     try testing.expectError(error.EndOfStream, testLeb128(u32, "\x80\x80\x80\x80\x90"));
 
+    try testing.expectError(error.EndOfStream, testLeb128(u7, ""));
+    try testing.expectError(error.EndOfStream, testLeb128(u8, ""));
+    try testing.expectError(error.EndOfStream, testLeb128(u14, ""));
+    try testing.expectError(error.EndOfStream, testLeb128(u128, ""));
+
+    try testing.expectError(error.EndOfStream, testLeb128(u7, "\x80"));
+    try testing.expectError(error.EndOfStream, testLeb128(u8, "\x80"));
+    try testing.expectError(error.EndOfStream, testLeb128(u14, "\x80"));
+    try testing.expectError(error.EndOfStream, testLeb128(u128, "\x80"));
+
+    try testing.expectError(error.EndOfStream, testLeb128(u7, &end_of_stream));
+    try testing.expectError(error.EndOfStream, testLeb128(u8, &end_of_stream));
+    try testing.expectError(error.EndOfStream, testLeb128(u14, &end_of_stream));
+    try testing.expectError(error.EndOfStream, testLeb128(u128, &end_of_stream));
+
     // Overflow
+    try testing.expectError(error.Overflow, testLeb128(u0, "\x01"));
+    try testing.expectError(error.Overflow, testLeb128(u1, "\x02"));
     try testing.expectError(error.Overflow, testLeb128(u8, "\x80\x02"));
     try testing.expectError(error.Overflow, testLeb128(u8, "\x80\x80\x40"));
     try testing.expectError(error.Overflow, testLeb128(u16, "\x80\x80\x80\x40"));
     try testing.expectError(error.Overflow, testLeb128(u32, "\x80\x80\x80\x80\x40"));
     try testing.expectError(error.Overflow, testLeb128(u64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x40"));
 
-    // Decode ULEB128
-    try testing.expect((try testLeb128(u64, "\x00")) == 0);
-    try testing.expect((try testLeb128(u64, "\x01")) == 1);
-    try testing.expect((try testLeb128(u64, "\x3f")) == 63);
-    try testing.expect((try testLeb128(u64, "\x40")) == 64);
-    try testing.expect((try testLeb128(u64, "\x7f")) == 0x7f);
-    try testing.expect((try testLeb128(u64, "\x80\x01")) == 0x80);
-    try testing.expect((try testLeb128(u64, "\x81\x01")) == 0x81);
-    try testing.expect((try testLeb128(u64, "\x90\x01")) == 0x90);
-    try testing.expect((try testLeb128(u64, "\xff\x01")) == 0xff);
-    try testing.expect((try testLeb128(u64, "\x80\x02")) == 0x100);
-    try testing.expect((try testLeb128(u64, "\x81\x02")) == 0x101);
-    try testing.expect((try testLeb128(u64, "\x80\xc1\x80\x80\x10")) == 4294975616);
-    try testing.expect((try testLeb128(u64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x01")) == 0x8000000000000000);
+    try testing.expectError(error.Overflow, testLeb128(u7, &overflow));
+    try testing.expectError(error.Overflow, testLeb128(u8, &overflow));
+    try testing.expectError(error.Overflow, testLeb128(u14, &overflow));
+    try testing.expectError(error.Overflow, testLeb128(u128, &overflow));
 
-    // Decode ULEB128 with extra padding bytes
-    try testing.expect((try testLeb128(u64, "\x80\x00")) == 0);
-    try testing.expect((try testLeb128(u64, "\x80\x80\x00")) == 0);
-    try testing.expect((try testLeb128(u64, "\xff\x00")) == 0x7f);
-    try testing.expect((try testLeb128(u64, "\xff\x80\x00")) == 0x7f);
-    try testing.expect((try testLeb128(u64, "\x80\x81\x00")) == 0x80);
-    try testing.expect((try testLeb128(u64, "\x80\x81\x80\x00")) == 0x80);
+    // Extra padding
+    try testing.expectEqual(0x7F, testLeb128(u64, "\xFF\x00"));
+    try testing.expectEqual(0x7F, testLeb128(u64, "\xFF\x80\x00"));
+    try testing.expectEqual(0x80, testLeb128(u64, "\x80\x81\x00"));
+    try testing.expectEqual(0x80, testLeb128(u64, "\x80\x81\x80\x80\x00"));
+
+    try testing.expectEqual(0, testLeb128(u0, &long_zero));
+    try testing.expectEqual(0, testLeb128(u7, &long_zero));
+    try testing.expectEqual(0, testLeb128(u8, &long_zero));
+    try testing.expectEqual(0, testLeb128(u14, &long_zero));
+    try testing.expectEqual(0, testLeb128(u128, &long_zero));
+
+    try testing.expectEqual(1, testLeb128(u1, &long_one));
+    try testing.expectEqual(1, testLeb128(u7, &long_one));
+    try testing.expectEqual(1, testLeb128(u8, &long_one));
+    try testing.expectEqual(1, testLeb128(u14, &long_one));
+    try testing.expectEqual(1, testLeb128(u128, &long_one));
+
+    // Decode byte boundaries
+    try testing.expectEqual(std.math.maxInt(u7), testLeb128(u7, "\x7F"));
+    try testing.expectEqual(std.math.maxInt(u7) + 1, testLeb128(u8, "\x80\x01"));
+    try testing.expectEqual(std.math.maxInt(u14), testLeb128(u14, "\xFF\x7F"));
+    try testing.expectEqual(std.math.maxInt(u14) + 1, testLeb128(u15, "\x80\x80\x01"));
+    try testing.expectEqual(std.math.maxInt(u49), testLeb128(u49, "\xFF\xFF\xFF\xFF\xFF\xFF\x7F"));
+    try testing.expectEqual(std.math.maxInt(u49) + 1, testLeb128(u50, "\x80\x80\x80\x80\x80\x80\x80\x01"));
+    try testing.expectEqual(std.math.maxInt(u56), testLeb128(u56, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x7F"));
+    try testing.expectEqual(std.math.maxInt(u56) + 1, testLeb128(u57, "\x80\x80\x80\x80\x80\x80\x80\x80\x01"));
+    try testing.expectEqual(std.math.maxInt(u63), testLeb128(u63, "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x7F"));
+    try testing.expectEqual(std.math.maxInt(u63) + 1, testLeb128(u64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x01"));
 }
 
 fn testLeb128(comptime T: type, encoded: []const u8) !T {
     var reader: std.Io.Reader = .fixed(encoded);
-    const result = try reader.takeLeb128(T);
-    try testing.expect(reader.seek == reader.end);
+    const result = reader.takeLeb128(T);
+    try testing.expectEqual(reader.seek, reader.end);
     return result;
 }
 
