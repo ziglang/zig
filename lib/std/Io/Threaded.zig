@@ -5304,7 +5304,7 @@ fn lookupDnsSearch(
         if (lookupDns(t, lookup_canon_name, &rc, resolved, options)) |result| {
             return result;
         } else |err| switch (err) {
-            error.UnknownHostName => continue,
+            error.UnknownHostName, error.NoAddressReturned => continue,
             else => |e| return e,
         }
     }
@@ -5498,7 +5498,7 @@ fn lookupDns(
     }
 
     try resolved.putOne(t_io, .{ .canonical_name = canonical_name orelse .{ .bytes = lookup_canon_name } });
-    if (addresses_len == 0) return error.NameServerFailure;
+    if (addresses_len == 0) return error.NoAddressReturned;
 }
 
 fn lookupHosts(
