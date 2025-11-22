@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     const run = b.addRunArtifact(test_exe);
-    run.addArtifactArg(echo_args);
+    run.addArtifactArg(.{ .artifact = echo_args });
     run.expectExitCode(0);
     run.skip_foreign_checks = true;
 
@@ -55,7 +55,7 @@ pub fn build(b: *std.Build) !void {
     const fuzz_seed_arg = std.fmt.allocPrint(b.allocator, "{}", .{fuzz_seed}) catch @panic("oom");
 
     const fuzz_run = b.addRunArtifact(fuzz);
-    fuzz_run.addArtifactArg(echo_args);
+    fuzz_run.addArtifactArg(.{ .artifact = echo_args });
     fuzz_run.addArgs(&.{ fuzz_iterations_arg, fuzz_seed_arg });
     fuzz_run.expectExitCode(0);
     fuzz_run.skip_foreign_checks = true;

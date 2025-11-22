@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const run = b.addRunArtifact(main);
-    run.addArtifactArg(lib);
+    run.addArtifactArg(.{ .artifact = lib });
     run.skip_foreign_checks = true;
     run.expectExitCode(0);
 

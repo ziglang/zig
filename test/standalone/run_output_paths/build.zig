@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const create_first = b.addRunArtifact(create_file_exe);
-    const first_dir = create_first.addOutputDirectoryArg("first");
+    const first_dir = create_first.addOutputDirectoryArg(.{ .basename = "first" });
     create_first.addArg("hello1.txt");
     test_step.dependOn(&b.addCheckFile(first_dir.path(b, "hello1.txt"), .{ .expected_matches = &.{
         std.fs.path.sep_str ++
@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) void {
     } }).step);
 
     const create_second = b.addRunArtifact(create_file_exe);
-    const second_dir = create_second.addPrefixedOutputDirectoryArg("--dir=", "second");
+    const second_dir = create_second.addOutputDirectoryArg(.{ .prefix = "--dir=", .basename = "second" });
     create_second.addArg("hello2.txt");
     test_step.dependOn(&b.addCheckFile(second_dir.path(b, "hello2.txt"), .{ .expected_matches = &.{
         std.fs.path.sep_str ++
