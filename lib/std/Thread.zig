@@ -1,13 +1,14 @@
-//! This struct represents a kernel thread, and acts as a namespace for concurrency
-//! primitives that operate on kernel threads. For concurrency primitives that support
-//! both evented I/O and async I/O, see the respective names in the top level std namespace.
+//! This struct represents a kernel thread, and acts as a namespace for
+//! concurrency primitives that operate on kernel threads. For concurrency
+//! primitives that interact with the I/O interface, see `std.Io`.
 
-const std = @import("std.zig");
 const builtin = @import("builtin");
-const math = std.math;
-const assert = std.debug.assert;
 const target = builtin.target;
 const native_os = builtin.os.tag;
+
+const std = @import("std.zig");
+const math = std.math;
+const assert = std.debug.assert;
 const posix = std.posix;
 const windows = std.os.windows;
 const testing = std.testing;
