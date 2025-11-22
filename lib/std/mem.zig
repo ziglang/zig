@@ -1306,7 +1306,6 @@ pub const indexOfScalarPos = findScalarPos;
 /// Returns null if the value is not found.
 pub fn findScalarPos(comptime T: type, slice: []const T, start_index: usize, value: T) ?usize {
     if (start_index >= slice.len) return null;
-
     var i: usize = start_index;
     if (use_vectors_for_comparison and
         !std.debug.inValgrind() and // https://github.com/ziglang/zig/issues/17717
@@ -1322,39 +1321,43 @@ pub fn findScalarPos(comptime T: type, slice: []const T, start_index: usize, val
             //
             // This may differ for other arch's. Arm for example costs a cycle when loading across a cache
             // line so explicit alignment prologues may be worth exploration.
-
-            // Unrolling here is ~10% improvement. We can then do one bounds check every 2 blocks
-            // instead of one which adds up.
             const Block = @Vector(block_len, T);
-            if (i + 2 * block_len < slice.len) {
-                const mask: Block = @splat(value);
-                while (true) {
-                    inline for (0..2) |_| {
-                        const block: Block = slice[i..][0..block_len].*;
-                        const matches = block == mask;
-                        if (@reduce(.Or, matches)) {
-                            return i + std.simd.firstTrue(matches).?;
-                        }
-                        i += block_len;
-                    }
-                    if (i + 2 * block_len >= slice.len) break;
+            const mask: Block = @splat(value);
+            while (i <= slice.len -| block_len * 4 and slice.len >= block_len * 4) : (i += block_len * 4) {
+                var matches: [4]@TypeOf(mask == mask) = undefined;
+                inline for (0..4) |j| {
+                    const start = i + j * block_len;
+                    const block: Block = slice[start..][0..block_len].*;
+                    matches[j] = block == mask;
+                }
+
+                const combined = matches[0] | matches[1] | matches[2] | matches[3];
+                if (@reduce(.Or, combined)) {
+                    @branchHint(.unlikely);
+
+                    if (std.simd.firstTrue(matches[0])) |find| return i + find;
+                    if (std.simd.firstTrue(matches[1])) |find| return i + block_len + find;
+                    if (std.simd.firstTrue(matches[2])) |find| return i + 2 * block_len + find;
+                    return i + 3 * block_len + std.simd.firstTrue(matches[3]).?;
                 }
             }
 
-            // {block_len, block_len / 2} check
-            inline for (0..2) |j| {
-                const block_x_len = block_len / (1 << j);
-                comptime if (block_x_len < 4) break;
+            while (i + block_len <= slice.len) : (i += block_len) {
+                const block: Block = slice[i..][0..block_len].*;
+                if (std.simd.firstTrue(block == mask)) |find| return i + find;
+            }
 
-                const BlockX = @Vector(block_x_len, T);
-                if (i + block_x_len < slice.len) {
-                    const mask: BlockX = @splat(value);
-                    const block: BlockX = slice[i..][0..block_x_len].*;
-                    const matches = block == mask;
-                    if (@reduce(.Or, matches)) {
-                        return i + std.simd.firstTrue(matches).?;
-                    }
-                    i += block_x_len;
+            inline for (1..block_len) |j| {
+                const small_block_len = block_len / (2 * j);
+                comptime if (small_block_len < 4) break;
+
+                const SmallBlock = @Vector(small_block_len, T);
+                if (i + small_block_len <= slice.len) {
+                    const small_mask: SmallBlock = @splat(value);
+                    const block: SmallBlock = slice[i..][0..small_block_len].*;
+                    const matches = block == small_mask;
+                    if (std.simd.firstTrue(matches)) |find| return i + find;
+                    i += small_block_len;
                 }
             }
         }
