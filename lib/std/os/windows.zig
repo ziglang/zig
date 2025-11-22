@@ -1298,16 +1298,27 @@ pub fn GetFinalPathNameByHandle(
         },
         .Dos => {
             // parse the string to separate volume path from file path
-            const expected_prefix = std.unicode.utf8ToUtf16LeStringLiteral("\\Device\\");
+            const device_prefix = std.unicode.utf8ToUtf16LeStringLiteral("\\Device\\");
 
-            // TODO find out if a path can start with something besides `\Device\<volume name>`,
-            // and if we need to handle it differently
-            // (i.e. how to determine the start and end of the volume name in that case)
-            if (!mem.eql(u16, expected_prefix, final_path[0..expected_prefix.len])) return error.Unexpected;
+            // We aren't entirely sure of the structure of the path returned by
+            // QueryObjectName in all contexts/environments.
+            // This code is written to cover the various cases that have
+            // been encountered and solved appropriately. But note that there's
+            // no easy way to verify that they have all been tackled!
+            // (Unless you, the reader knows of one then please do action that!)
+            if (!mem.startsWith(u16, final_path, device_prefix)) {
+                // Wine seems to return NT namespaced paths starting with \??\ from QueryObjectName
+                // (e.g. `\??\Z:\some\path\to\a\file.txt`), in which case we can just strip the
+                // prefix to turn it into an absolute path.
+                return ntToWin32Namespace(final_path, out_buffer) catch |err| switch (err) {
+                    error.NotNtPath => return error.Unexpected,
+                    error.NameTooLong => |e| return e,
+                };
+            }
 
-            const file_path_begin_index = mem.indexOfPos(u16, final_path, expected_prefix.len, &[_]u16{'\\'}) orelse unreachable;
+            const file_path_begin_index = mem.indexOfPos(u16, final_path, device_prefix.len, &[_]u16{'\\'}) orelse unreachable;
             const volume_name_u16 = final_path[0..file_path_begin_index];
-            const device_name_u16 = volume_name_u16[expected_prefix.len..];
+            const device_name_u16 = volume_name_u16[device_prefix.len..];
             const file_name_u16 = final_path[file_path_begin_index..];
 
             // MUP is Multiple UNC Provider, and indicates that the path is a UNC
