@@ -57,11 +57,12 @@ pub const PathType = enum {
     posix,
 
     /// Returns true if `c` is a valid path separator for the `path_type`.
+    /// If `T` is `u16`, `c` is assumed to be little-endian.
     pub inline fn isSep(comptime path_type: PathType, comptime T: type, c: T) bool {
         return switch (path_type) {
-            .windows => c == '/' or c == '\\',
-            .posix => c == '/',
-            .uefi => c == '\\',
+            .windows => c == mem.nativeToLittle(T, '/') or c == mem.nativeToLittle(T, '\\'),
+            .posix => c == mem.nativeToLittle(T, '/'),
+            .uefi => c == mem.nativeToLittle(T, '\\'),
         };
     }
 };
@@ -2439,11 +2440,6 @@ test "ComponentIterator windows" {
 }
 
 test "ComponentIterator windows WTF-16" {
-    // TODO: Fix on big endian architectures
-    if (builtin.cpu.arch.endian() != .little) {
-        return error.SkipZigTest;
-    }
-
     const WindowsComponentIterator = ComponentIterator(.windows, u16);
     const L = std.unicode.utf8ToUtf16LeStringLiteral;
 

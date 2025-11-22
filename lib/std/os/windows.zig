@@ -2491,15 +2491,15 @@ pub fn getWin32PathType(comptime T: type, path: []const T) Win32PathType {
     if (path.len < 1) return .relative;
 
     const windows_path = std.fs.path.PathType.windows;
-    if (windows_path.isSep(T, mem.littleToNative(T, path[0]))) {
+    if (windows_path.isSep(T, path[0])) {
         // \x
-        if (path.len < 2 or !windows_path.isSep(T, mem.littleToNative(T, path[1]))) return .rooted;
+        if (path.len < 2 or !windows_path.isSep(T, path[1])) return .rooted;
         // \\. or \\?
-        if (path.len > 2 and (mem.littleToNative(T, path[2]) == '.' or mem.littleToNative(T, path[2]) == '?')) {
+        if (path.len > 2 and (path[2] == mem.nativeToLittle(T, '.') or path[2] == mem.nativeToLittle(T, '?'))) {
             // exactly \\. or \\? with nothing trailing
             if (path.len == 3) return .root_local_device;
             // \\.\x or \\?\x
-            if (windows_path.isSep(T, mem.littleToNative(T, path[3]))) return .local_device;
+            if (windows_path.isSep(T, path[3])) return .local_device;
         }
         // \\x
         return .unc_absolute;
@@ -2538,9 +2538,9 @@ pub fn getWin32PathType(comptime T: type, path: []const T) Win32PathType {
             else => @compileError("unsupported type: " ++ @typeName(T)),
         };
         // x
-        if (path.len < colon_i + 1 or mem.littleToNative(T, path[colon_i]) != ':') return .relative;
+        if (path.len < colon_i + 1 or path[colon_i] != mem.nativeToLittle(T, ':')) return .relative;
         // x:\
-        if (path.len > colon_i + 1 and windows_path.isSep(T, mem.littleToNative(T, path[colon_i + 1]))) return .drive_absolute;
+        if (path.len > colon_i + 1 and windows_path.isSep(T, path[colon_i + 1])) return .drive_absolute;
         // x:
         return .drive_relative;
     }
@@ -2632,12 +2632,13 @@ fn getLocalDevicePathType(comptime T: type, path: []const T) LocalDevicePathType
         std.debug.assert(getWin32PathType(T, path) == .local_device);
     }
 
-    const all_backslash = mem.littleToNative(T, path[0]) == '\\' and
-        mem.littleToNative(T, path[1]) == '\\' and
-        mem.littleToNative(T, path[3]) == '\\';
-    return switch (mem.littleToNative(T, path[2])) {
-        '?' => if (all_backslash) .verbatim else .fake_verbatim,
-        '.' => .local_device,
+    const backslash = mem.nativeToLittle(T, '\\');
+    const all_backslash = path[0] == backslash and
+        path[1] == backslash and
+        path[3] == backslash;
+    return switch (path[2]) {
+        mem.nativeToLittle(T, '?') => if (all_backslash) .verbatim else .fake_verbatim,
+        mem.nativeToLittle(T, '.') => .local_device,
         else => unreachable,
     };
 }
@@ -2664,7 +2665,7 @@ pub fn ntToWin32Namespace(path: []const u16, out: []u16) error{ NameTooLong, Not
     // `\??\UNC\` should be replaced by `\\` (two backslashes)
     const is_unc = after_prefix.len >= 4 and
         eqlIgnoreCaseWtf16(after_prefix[0..3], std.unicode.utf8ToUtf16LeStringLiteral("UNC")) and
-        std.fs.path.PathType.windows.isSep(u16, std.mem.littleToNative(u16, after_prefix[3]));
+        std.fs.path.PathType.windows.isSep(u16, after_prefix[3]);
     const win32_len = path.len - @as(usize, if (is_unc) 6 else 4);
     if (out.len < win32_len) return error.NameTooLong;
     if (is_unc) {
