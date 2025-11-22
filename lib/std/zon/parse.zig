@@ -665,8 +665,26 @@ const Parser = struct {
         }
     }
 
+    fn parseDeclLiteral(self: @This(), T: type, nodeidx: Zoir.Node.Index, node: ?Zoir.Node) !T {
+        const real_node = node orelse nodeidx.get(self.zoir);
+        _ = real_node == .enum_literal or return error.WrongType;
+
+        const target_name = real_node.enum_literal.get(self.zoir);
+        const T_decls = switch (@typeInfo(T)) {
+            inline .@"struct", .@"union", .@"enum" => |e| e.decls,
+            else => return error.WrongType,
+        };
+
+        inline for (T_decls) |decl| {
+            if (@TypeOf(@field(T, decl.name)) != T) continue;
+            if (std.mem.eql(u8, target_name, decl.name))
+                return @field(T, decl.name);
+        }
+        return error.NotFound;
+    }
     fn parseEnumLiteral(self: @This(), T: type, node: Zoir.Node.Index) !T {
-        switch (node.get(self.zoir)) {
+        const repr = node.get(self.zoir);
+        switch (repr) {
             .enum_literal => |field_name| {
                 // Create a comptime string map for the enum fields
                 const enum_fields = @typeInfo(T).@"enum".fields;
@@ -678,8 +696,14 @@ const Parser = struct {
 
                 // Get the tag if it exists
                 const field_name_str = field_name.get(self.zoir);
-                return enum_tags.get(field_name_str) orelse
-                    self.failUnexpected(T, "enum literal", node, null, field_name_str);
+                if (enum_tags.get(field_name_str)) |tag|
+                    return tag
+                else if (self.parseDeclLiteral(T, node, repr)) |t|
+                    return t
+                else |err| switch (err) {
+                    error.NotFound => return self.failUnexpected(T, "enum literal", node, null, field_name_str),
+                    else => |e| return e,
+                }
             },
             else => return error.WrongType,
         }
@@ -805,6 +829,14 @@ const Parser = struct {
         const fields: @FieldType(Zoir.Node, "struct_literal") = switch (repr) {
             .struct_literal => |nodes| nodes,
             .empty_literal => .{ .names = &.{}, .vals = .{ .start = node, .len = 0 } },
+            .enum_literal => |_| {
+                return self.parseDeclLiteral(T, node, repr) catch |err| switch (err) {
+                    error.NotFound => return self.failNode(node, "expected decl literal"),
+                    else => |e| {
+                        return e;
+                    },
+                };
+            },
             else => return error.WrongType,
         };
 
@@ -953,32 +985,34 @@ const Parser = struct {
         };
 
         // Parse the union
-        switch (node.get(self.zoir)) {
+        const repr = node.get(self.zoir);
+        switch (repr) {
             .enum_literal => |field_name| {
-                // The union must be tagged for an enum literal to coerce to it
-                if (@"union".tag_type == null) {
-                    return error.WrongType;
-                }
-
+                const field_name_str = field_name.get(self.zoir);
                 // Get the index of the named field. We don't use `parseEnum` here as
                 // the order of the enum and the order of the union might not match!
-                const field_index = b: {
-                    const field_name_str = field_name.get(self.zoir);
-                    break :b field_indices.get(field_name_str) orelse
-                        return self.failUnexpected(T, "field", node, null, field_name_str);
-                };
+                if (field_indices.get(field_name_str)) |field_index| {
+                    // The union must be tagged for an enum literal to coerce to it
+                    if (@"union".tag_type == null) {
+                        return error.WrongType;
+                    }
+                    // Initialize the union from the given field.
+                    switch (field_index) {
+                        inline 0...field_infos.len - 1 => |i| {
+                            // Fail if the field is not void
+                            if (field_infos[i].type != void)
+                                return self.failNode(node, "expected union");
 
-                // Initialize the union from the given field.
-                switch (field_index) {
-                    inline 0...field_infos.len - 1 => |i| {
-                        // Fail if the field is not void
-                        if (field_infos[i].type != void)
-                            return self.failNode(node, "expected union");
-
-                        // Instantiate the union
-                        return @unionInit(T, field_infos[i].name, {});
-                    },
-                    else => unreachable, // Can't be out of bounds
+                            // Instantiate the union
+                            return @unionInit(T, field_infos[i].name, {});
+                        },
+                        else => unreachable, // Can't be out of bounds
+                    }
+                } else if (self.parseDeclLiteral(T, node, repr)) |t| {
+                    return t;
+                } else |err| switch (err) {
+                    error.NotFound => return self.failUnexpected(T, "field", node, null, field_name_str),
+                    else => |e| return e,
                 }
             },
             .struct_literal => |struct_fields| {
@@ -1413,8 +1447,20 @@ test "std.zon unions" {
 
     // Unions
     {
-        const Tagged = union(enum) { x: f32, @"y y": bool, z, @"z z" };
-        const Untagged = union { x: f32, @"y y": bool, z: void, @"z z": void };
+        const Tagged = union(enum) {
+            pub const LiteralXVal: @This() = .{ .x = 1.1 };
+            x: f32,
+            @"y y": bool,
+            z,
+            @"z z",
+        };
+        const Untagged = union {
+            pub const LiteralXVal: @This() = .{ .x = 1.1 };
+            x: f32,
+            @"y y": bool,
+            z: void,
+            @"z z": void,
+        };
 
         const tagged_x = try fromSlice(Tagged, gpa, ".{.x = 1.5}", null, .{});
         try std.testing.expectEqual(Tagged{ .x = 1.5 }, tagged_x);
@@ -1424,11 +1470,15 @@ test "std.zon unions" {
         try std.testing.expectEqual(@as(Tagged, .z), tagged_z_shorthand);
         const tagged_zz_shorthand = try fromSlice(Tagged, gpa, ".@\"z z\"", null, .{});
         try std.testing.expectEqual(@as(Tagged, .@"z z"), tagged_zz_shorthand);
+        const tagged_x_decllit = try fromSlice(Tagged, gpa, ".LiteralXVal", null, .{});
+        try std.testing.expectEqual(@as(Tagged, .LiteralXVal), tagged_x_decllit);
 
         const untagged_x = try fromSlice(Untagged, gpa, ".{.x = 1.5}", null, .{});
         try std.testing.expect(untagged_x.x == 1.5);
         const untagged_y = try fromSlice(Untagged, gpa, ".{.@\"y y\" = true}", null, .{});
         try std.testing.expect(untagged_y.@"y y");
+        const untagged_x_decllit = try fromSlice(Untagged, gpa, ".LiteralXVal", null, .{});
+        try std.testing.expectEqual(@as(Untagged, .LiteralXVal).x, untagged_x_decllit.x);
     }
 
     // Deep free
@@ -1541,7 +1591,12 @@ test "std.zon structs" {
         const Vec0 = struct {};
         const Vec1 = struct { x: f32 };
         const Vec2 = struct { x: f32, y: f32 };
-        const Vec3 = struct { x: f32, y: f32, z: f32 };
+        const Vec3 = struct {
+            pub const Zero: @This() = .{ .x = 0, .y = 0, .z = 0 };
+            x: f32,
+            y: f32,
+            z: f32,
+        };
 
         const zero = try fromSlice(Vec0, gpa, ".{}", null, .{});
         try std.testing.expectEqual(Vec0{}, zero);
@@ -1554,6 +1609,12 @@ test "std.zon structs" {
 
         const three = try fromSlice(Vec3, gpa, ".{.x = 1.2, .y = 3.4, .z = 5.6}", null, .{});
         try std.testing.expectEqual(Vec3{ .x = 1.2, .y = 3.4, .z = 5.6 }, three);
+
+        const decl_literal_Zero = try fromSlice(Vec3, gpa, ".Zero", null, .{});
+        try std.testing.expectEqual(decl_literal_Zero, @as(Vec3, .Zero));
+
+        const decl_literal_One: ?Vec3 = fromSlice(Vec3, gpa, ".DeclarationThatDoesNotExist", null, .{}) catch null;
+        try std.testing.expectEqual(decl_literal_One, null);
     }
 
     // Deep free (structs and arrays)
@@ -2335,6 +2396,7 @@ test "std.zon enum literals" {
     const gpa = std.testing.allocator;
 
     const Enum = enum {
+        pub const NotBar: @This() = .baz;
         foo,
         bar,
         baz,
@@ -2349,6 +2411,7 @@ test "std.zon enum literals" {
         Enum.@"ab\nc",
         try fromSlice(Enum, gpa, ".@\"ab\\nc\"", null, .{}),
     );
+    try std.testing.expectEqual(Enum.NotBar, try fromSlice(Enum, gpa, ".NotBar", null, .{}));
 
     // Bad tag
     {

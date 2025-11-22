@@ -26825,7 +26825,7 @@ fn fieldPtrLoad(
     return analyzeLoad(sema, block, src, field_ptr, field_name_src);
 }
 
-fn fieldVal(
+pub fn fieldVal(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
