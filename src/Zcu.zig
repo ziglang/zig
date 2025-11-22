@@ -4547,7 +4547,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
         },
         .stage2_spirv => switch (cc) {
             .spirv_device, .spirv_kernel => true,
-            .spirv_fragment, .spirv_vertex => target.os.tag == .vulkan or target.os.tag == .opengl,
+            .spirv_fragment, .spirv_vertex, .spirv_task, .spirv_mesh => target.os.tag == .vulkan or target.os.tag == .opengl,
             else => false,
         },
     };

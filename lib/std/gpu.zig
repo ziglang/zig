@@ -22,7 +22,7 @@ pub extern const instance_index: u32 addrspace(.input);
 
 /// Forms the main linkage for `input` and `output` address spaces.
 /// `ptr` must be a reference to variable or struct field.
-pub fn location(comptime ptr: anytype, comptime loc: u32) void {
+pub inline fn location(comptime ptr: anytype, comptime loc: u32) void {
     asm volatile (
         \\OpDecorate %ptr Location $loc
         :
@@ -33,7 +33,7 @@ pub fn location(comptime ptr: anytype, comptime loc: u32) void {
 
 /// Forms the main linkage for `input` and `output` address spaces.
 /// `ptr` must be a reference to variable or struct field.
-pub fn binding(comptime ptr: anytype, comptime set: u32, comptime bind: u32) void {
+pub inline fn binding(comptime ptr: anytype, comptime set: u32, comptime bind: u32) void {
     asm volatile (
         \\OpDecorate %ptr DescriptorSet $set
         \\OpDecorate %ptr Binding $bind
@@ -42,87 +42,4 @@ pub fn binding(comptime ptr: anytype, comptime set: u32, comptime bind: u32) voi
           [set] "c" (set),
           [bind] "c" (bind),
     );
-}
-
-pub const ExecutionMode = union(Tag) {
-    /// Sets origin of the framebuffer to the upper-left corner
-    origin_upper_left,
-    /// Sets origin of the framebuffer to the lower-left corner
-    origin_lower_left,
-    /// Indicates that the fragment shader writes to `frag_depth`,
-    /// replacing the fixed-function depth value.
-    depth_replacing,
-    /// Indicates that per-fragment tests may assume that
-    /// any `frag_depth` built in-decorated value written by the shader is
-    /// greater-than-or-equal to the fragment’s interpolated depth value
-    depth_greater,
-    /// Indicates that per-fragment tests may assume that
-    /// any `frag_depth` built in-decorated value written by the shader is
-    /// less-than-or-equal to the fragment’s interpolated depth value
-    depth_less,
-    /// Indicates that per-fragment tests may assume that
-    /// any `frag_depth` built in-decorated value written by the shader is
-    /// the same as the fragment’s interpolated depth value
-    depth_unchanged,
-    /// Indicates the workgroup size in the x, y, and z dimensions.
-    local_size: LocalSize,
-
-    pub const Tag = enum(u32) {
-        origin_upper_left = 7,
-        origin_lower_left = 8,
-        depth_replacing = 12,
-        depth_greater = 14,
-        depth_less = 15,
-        depth_unchanged = 16,
-        local_size = 17,
-    };
-
-    pub const LocalSize = struct { x: u32, y: u32, z: u32 };
-};
-
-/// Declare the mode entry point executes in.
-pub fn executionMode(comptime entry_point: anytype, comptime mode: ExecutionMode) void {
-    const cc = @typeInfo(@TypeOf(entry_point)).@"fn".calling_convention;
-    switch (mode) {
-        .origin_upper_left,
-        .origin_lower_left,
-        .depth_replacing,
-        .depth_greater,
-        .depth_less,
-        .depth_unchanged,
-        => {
-            if (cc != .spirv_fragment) {
-                @compileError(
-                    \\invalid execution mode '
-                ++ @tagName(mode) ++
-                    \\' for function with '
-                ++ @tagName(cc) ++
-                    \\' calling convention
-                );
-            }
-            asm volatile (
-                \\OpExecutionMode %entry_point $mode
-                :
-                : [entry_point] "" (entry_point),
-                  [mode] "c" (@intFromEnum(mode)),
-            );
-        },
-        .local_size => |size| {
-            if (cc != .spirv_kernel) {
-                @compileError(
-                    \\invalid execution mode 'local_size' for function with '
-                ++ @tagName(cc) ++
-                    \\' calling convention
-                );
-            }
-            asm volatile (
-                \\OpExecutionMode %entry_point LocalSize $x $y $z
-                :
-                : [entry_point] "" (entry_point),
-                  [x] "c" (size.x),
-                  [y] "c" (size.y),
-                  [z] "c" (size.z),
-            );
-        },
-    }
 }

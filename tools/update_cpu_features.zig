@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const spirv_spec = @import("spirv_spec");
 const fs = std.fs;
 const mem = std.mem;
 const json = std.json;
@@ -1367,83 +1368,7 @@ const targets = [_]ArchTarget{
             .td_name = "SPIRV",
         },
         .branch_quota = 2000,
-        .extra_features = &.{
-            .{
-                .zig_name = "v1_0",
-                .desc = "Enable version 1.0",
-                .deps = &.{},
-            },
-            .{
-                .zig_name = "v1_1",
-                .desc = "Enable version 1.1",
-                .deps = &.{"v1_0"},
-            },
-            .{
-                .zig_name = "v1_2",
-                .desc = "Enable version 1.2",
-                .deps = &.{"v1_1"},
-            },
-            .{
-                .zig_name = "v1_3",
-                .desc = "Enable version 1.3",
-                .deps = &.{"v1_2"},
-            },
-            .{
-                .zig_name = "v1_4",
-                .desc = "Enable version 1.4",
-                .deps = &.{"v1_3"},
-            },
-            .{
-                .zig_name = "v1_5",
-                .desc = "Enable version 1.5",
-                .deps = &.{"v1_4"},
-            },
-            .{
-                .zig_name = "v1_6",
-                .desc = "Enable version 1.6",
-                .deps = &.{"v1_5"},
-            },
-            .{
-                .zig_name = "int64",
-                .desc = "Enable Int64 capability",
-                .deps = &.{"v1_0"},
-            },
-            .{
-                .zig_name = "float16",
-                .desc = "Enable Float16 capability",
-                .deps = &.{"v1_0"},
-            },
-            .{
-                .zig_name = "float64",
-                .desc = "Enable Float64 capability",
-                .deps = &.{"v1_0"},
-            },
-            .{
-                .zig_name = "storage_push_constant16",
-                .desc = "Enable SPV_KHR_16bit_storage extension and the StoragePushConstant16 capability",
-                .deps = &.{"v1_3"},
-            },
-            .{
-                .zig_name = "arbitrary_precision_integers",
-                .desc = "Enable SPV_INTEL_arbitrary_precision_integers extension and the ArbitraryPrecisionIntegersINTEL capability",
-                .deps = &.{"v1_5"},
-            },
-            .{
-                .zig_name = "generic_pointer",
-                .desc = "Enable GenericPointer capability",
-                .deps = &.{"v1_0"},
-            },
-            .{
-                .zig_name = "vector16",
-                .desc = "Enable Vector16 capability",
-                .deps = &.{"v1_0"},
-            },
-            .{
-                .zig_name = "variable_pointers",
-                .desc = "Enable SPV_KHR_physical_storage_buffer extension and the PhysicalStorageBufferAddresses capability",
-                .deps = &.{"v1_0"},
-            },
-        },
+        .extra_features = spirvFeatures(),
         .extra_cpus = &.{
             .{
                 .llvm_name = null,
@@ -2437,6 +2362,41 @@ fn usageAndExit(arg0: []const u8, code: u8) noreturn {
         \\
     , .{arg0}) catch std.process.exit(1);
     std.process.exit(code);
+}
+
+fn spirvFeatures() []const Feature {
+    const cap_fields = @typeInfo(spirv_spec.Capability).@"enum".fields;
+    const ext_fields = @typeInfo(spirv_spec.Extension).@"enum".fields;
+
+    var out_feature: [cap_fields.len + ext_fields.len]Feature = undefined;
+
+    @setEvalBranchQuota(2000);
+    for (cap_fields, out_feature[0..cap_fields.len]) |field, *feature| {
+        feature.* = .{
+            .zig_name = field.name,
+            .desc = "Enable " ++ field.name ++ " Capability.",
+            .deps = comptime res: {
+                const extensions = spirv_spec.Capability.dependencies(@enumFromInt(field.value));
+                var out_extensions: [extensions.len][]const u8 = undefined;
+                for (extensions, 0..) |ext, i| {
+                    out_extensions[i] = @tagName(ext);
+                }
+                const final_extensions = out_extensions;
+                break :res &final_extensions;
+            },
+        };
+    }
+
+    for (ext_fields, out_feature[cap_fields.len..]) |field, *feature| {
+        feature.* = .{
+            .zig_name = field.name,
+            .desc = "Enable " ++ field.name ++ " Extension.",
+            .deps = &.{},
+        };
+    }
+
+    const final = out_feature;
+    return &final;
 }
 
 fn featureLessThan(_: void, a: Feature, b: Feature) bool {
