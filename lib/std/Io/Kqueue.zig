@@ -1404,12 +1404,12 @@ fn netSendOne(
     flags: u32,
 ) net.Socket.SendError!void {
     var addr: Io.Threaded.PosixAddress = undefined;
-    var iovec: posix.iovec_const = .{ .base = @constCast(message.data_ptr), .len = message.data_len };
+    const iovecs: []posix.iovec_const = @ptrCast(@constCast(message.data));
     const msg: posix.msghdr_const = .{
-        .name = &addr.any,
-        .namelen = Io.Threaded.addressToPosix(message.address, &addr),
-        .iov = (&iovec)[0..1],
-        .iovlen = 1,
+        .name = if (message.address == null) null else &addr.any,
+        .namelen = if (message.address) |a| Io.Threaded.addressToPosix(a, &addr) else 0,
+        .iov = iovecs.ptr,
+        .iovlen = @intCast(iovecs.len),
         // OS returns EINVAL if this pointer is invalid even if controllen is zero.
         .control = if (message.control.len == 0) null else @constCast(message.control.ptr),
         .controllen = @intCast(message.control.len),
@@ -1420,7 +1420,7 @@ fn netSendOne(
         const rc = posix.system.sendmsg(handle, &msg, flags);
         switch (posix.errno(rc)) {
             .SUCCESS => {
-                message.data_len = @intCast(rc);
+                message.bytes_sent = @intCast(rc);
                 return;
             },
             .INTR => continue,
@@ -1455,7 +1455,6 @@ fn netReceive(
     userdata: ?*anyopaque,
     handle: net.Socket.Handle,
     message_buffer: []net.IncomingMessage,
-    data_buffer: []u8,
     flags: net.ReceiveFlags,
     timeout: Io.Timeout,
 ) struct { ?net.Socket.ReceiveTimeoutError, usize } {
@@ -1463,7 +1462,6 @@ fn netReceive(
     _ = k;
     _ = handle;
     _ = message_buffer;
-    _ = data_buffer;
     _ = flags;
     _ = timeout;
     @panic("TODO");
