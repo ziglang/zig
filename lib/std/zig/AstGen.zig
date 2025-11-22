@@ -1006,9 +1006,9 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
                 .field_name_start = str_index,
             });
             switch (ri.rl) {
-                .discard, .none, .ref => unreachable, // no result type
+                .discard, .none, .ref, .inferred_ptr, .destructure => unreachable, // no result type
                 .ty, .coerced_ty => return res, // `decl_literal` does the coercion for us
-                .ref_coerced_ty, .ptr, .inferred_ptr, .destructure => return rvalue(gz, ri, res, node),
+                .ref_coerced_ty, .ptr => return rvalue(gz, ri, res, node),
             }
         } else return simpleStrTok(gz, ri, tree.nodeMainToken(node), node, .enum_literal),
         .error_value => return simpleStrTok(gz, ri, tree.nodeMainToken(node) + 2, node, .error_value),
