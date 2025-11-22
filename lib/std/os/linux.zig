@@ -2201,10 +2201,12 @@ pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flag
     return syscall4(.accept4, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(addr), @intFromPtr(len), flags);
 }
 
+// riscv32 and loongarch have made the interesting decision to not implement some of
+// the older stat syscalls, including this one.
+pub const have_fstat = !(native_arch == .riscv32 or is_loongarch);
+
 pub fn fstat(fd: i32, stat_buf: *Stat) usize {
-    if (native_arch == .riscv32 or native_arch.isLoongArch()) {
-        // riscv32 and loongarch have made the interesting decision to not implement some of
-        // the older stat syscalls, including this one.
+    if (!have_fstat) {
         @compileError("No fstat syscall on this architecture.");
     } else if (@hasField(SYS, "fstat64")) {
         return syscall2(.fstat64, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(stat_buf));
@@ -2214,9 +2216,7 @@ pub fn fstat(fd: i32, stat_buf: *Stat) usize {
 }
 
 pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (native_arch == .riscv32 or native_arch.isLoongArch()) {
-        // riscv32 and loongarch have made the interesting decision to not implement some of
-        // the older stat syscalls, including this one.
+    if (!have_fstat) {
         @compileError("No stat syscall on this architecture.");
     } else if (@hasField(SYS, "stat64")) {
         return syscall2(.stat64, @intFromPtr(pathname), @intFromPtr(statbuf));
@@ -2226,9 +2226,7 @@ pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
 }
 
 pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (native_arch == .riscv32 or native_arch.isLoongArch()) {
-        // riscv32 and loongarch have made the interesting decision to not implement some of
-        // the older stat syscalls, including this one.
+    if (!have_fstat) {
         @compileError("No lstat syscall on this architecture.");
     } else if (@hasField(SYS, "lstat64")) {
         return syscall2(.lstat64, @intFromPtr(pathname), @intFromPtr(statbuf));
@@ -2238,9 +2236,7 @@ pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
 }
 
 pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usize {
-    if (native_arch == .riscv32 or native_arch.isLoongArch()) {
-        // riscv32 and loongarch have made the interesting decision to not implement some of
-        // the older stat syscalls, including this one.
+    if (!have_fstat) {
         @compileError("No fstatat syscall on this architecture.");
     } else if (@hasField(SYS, "fstatat64")) {
         return syscall4(.fstatat64, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
