@@ -2662,6 +2662,8 @@ pub const SIG = switch (native_os) {
         pub const IOT: SIG = .ABRT;
         pub const POLL: SIG = .EMT;
 
+        /// Invalid signal. Used in kill to perform checking without sending signal.
+        INVAL = 0,
         /// hangup
         HUP = 1,
         /// interrupt
@@ -2756,6 +2758,7 @@ pub const SIG = switch (native_os) {
         pub const RTMIN = 65;
         pub const RTMAX = 126;
 
+        INVAL = 0,
         HUP = 1,
         INT = 2,
         QUIT = 3,
@@ -2821,6 +2824,7 @@ pub const SIG = switch (native_os) {
 
         pub const POLL: SIG = .IO;
 
+        INVAL = 0,
         HUP = 1,
         INT = 2,
         QUIT = 3,
@@ -2895,6 +2899,7 @@ pub const SIG = switch (native_os) {
 
         pub const IOT: SIG = .ABRT;
 
+        INVAL = 0,
         HUP = 1,
         INT = 2,
         QUIT = 3,
@@ -2941,6 +2946,7 @@ pub const SIG = switch (native_os) {
 
         pub const IOT: SIG = .ABRT;
 
+        INVAL = 0,
         HUP = 1,
         INT = 2,
         QUIT = 3,
@@ -2989,6 +2995,7 @@ pub const SIG = switch (native_os) {
 
         pub const IOT: SIG = .ABRT;
 
+        INVAL = 0,
         HUP = 1,
         INT = 2,
         QUIT = 3,
@@ -3035,6 +3042,7 @@ pub const SIG = switch (native_os) {
 
         pub const IOT: SIG = .ABRT;
 
+        INVAL = 0,
         HUP = 1,
         INT = 2,
         QUIT = 3,
