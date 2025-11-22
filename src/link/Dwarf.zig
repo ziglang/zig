@@ -4490,7 +4490,12 @@ fn updateContainerTypeWriterError(
                     .enum_decl => @as(Zir.Inst.EnumDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
                     .union_decl => @as(Zir.Inst.UnionDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
                     .opaque_decl => @as(Zir.Inst.OpaqueDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
-                    .reify => @as(Zir.Inst.NameStrategy, @enumFromInt(decl_inst.data.extended.small)),
+
+                    .reify_enum,
+                    .reify_struct,
+                    .reify_union,
+                    => @enumFromInt(decl_inst.data.extended.small),
+
                     else => unreachable,
                 },
                 else => unreachable,

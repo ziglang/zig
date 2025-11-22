@@ -399,6 +399,7 @@ const Writer = struct {
             .splat,
             .reduce,
             .bitcast,
+            .reify_int,
             .vector_type,
             .max,
             .min,
@@ -568,22 +569,13 @@ const Writer = struct {
             .work_group_id,
             .branch_hint,
             .float_op_result_ty,
+            .reify_tuple,
+            .reify_pointer_sentinel_ty,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
                 try self.writeInstRef(stream, inst_data.operand);
                 try stream.writeAll(")) ");
                 try self.writeSrcNode(stream, inst_data.node);
-            },
-
-            .reify => {
-                const inst_data = self.code.extraData(Zir.Inst.Reify, extended.operand).data;
-                try stream.print("line({d}), ", .{inst_data.src_line});
-                try self.writeInstRef(stream, inst_data.operand);
-                try stream.writeAll(")) ");
-                const prev_parent_decl_node = self.parent_decl_node;
-                self.parent_decl_node = inst_data.node;
-                defer self.parent_decl_node = prev_parent_decl_node;
-                try self.writeSrcNode(stream, .zero);
             },
 
             .builtin_extern,
@@ -592,6 +584,7 @@ const Writer = struct {
             .wasm_memory_grow,
             .prefetch,
             .c_va_arg,
+            .reify_enum_value_slice_ty,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
                 try self.writeInstRef(stream, inst_data.lhs);
@@ -599,6 +592,95 @@ const Writer = struct {
                 try self.writeInstRef(stream, inst_data.rhs);
                 try stream.writeAll(")) ");
                 try self.writeSrcNode(stream, inst_data.node);
+            },
+
+            .reify_slice_arg_ty => {
+                const reify_slice_arg_info: Zir.Inst.ReifySliceArgInfo = @enumFromInt(extended.operand);
+                const extra = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+                try stream.print("{t}, ", .{reify_slice_arg_info});
+                try self.writeInstRef(stream, extra.operand);
+                try stream.writeAll(")) ");
+                try self.writeSrcNode(stream, extra.node);
+            },
+
+            .reify_pointer => {
+                const extra = self.code.extraData(Zir.Inst.ReifyPointer, extended.operand).data;
+                try self.writeInstRef(stream, extra.size);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.attrs);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.elem_ty);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.sentinel);
+                try stream.writeAll(")) ");
+                try self.writeSrcNode(stream, extra.node);
+            },
+            .reify_fn => {
+                const extra = self.code.extraData(Zir.Inst.ReifyFn, extended.operand).data;
+                try self.writeInstRef(stream, extra.param_types);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.param_attrs);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.ret_ty);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.fn_attrs);
+                try stream.writeAll(")) ");
+                try self.writeSrcNode(stream, extra.node);
+            },
+            .reify_struct => {
+                const extra = self.code.extraData(Zir.Inst.ReifyStruct, extended.operand).data;
+                const name_strat: Zir.Inst.NameStrategy = @enumFromInt(extended.small);
+                try stream.print("line({d}), {t}, ", .{ extra.src_line, name_strat });
+                try self.writeInstRef(stream, extra.layout);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.backing_ty);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.field_names);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.field_types);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.field_attrs);
+                try stream.writeAll(")) ");
+                const prev_parent_decl_node = self.parent_decl_node;
+                self.parent_decl_node = extra.node;
+                defer self.parent_decl_node = prev_parent_decl_node;
+                try self.writeSrcNode(stream, .zero);
+            },
+            .reify_union => {
+                const extra = self.code.extraData(Zir.Inst.ReifyUnion, extended.operand).data;
+                const name_strat: Zir.Inst.NameStrategy = @enumFromInt(extended.small);
+                try stream.print("line({d}), {t}, ", .{ extra.src_line, name_strat });
+                try self.writeInstRef(stream, extra.layout);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.arg_ty);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.field_names);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.field_types);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.field_attrs);
+                try stream.writeAll(")) ");
+                const prev_parent_decl_node = self.parent_decl_node;
+                self.parent_decl_node = extra.node;
+                defer self.parent_decl_node = prev_parent_decl_node;
+                try self.writeSrcNode(stream, .zero);
+            },
+            .reify_enum => {
+                const extra = self.code.extraData(Zir.Inst.ReifyEnum, extended.operand).data;
+                const name_strat: Zir.Inst.NameStrategy = @enumFromInt(extended.small);
+                try stream.print("line({d}), {t}, ", .{ extra.src_line, name_strat });
+                try self.writeInstRef(stream, extra.tag_ty);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.mode);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.field_names);
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, extra.field_values);
+                try stream.writeAll(")) ");
+                const prev_parent_decl_node = self.parent_decl_node;
+                self.parent_decl_node = extra.node;
+                defer self.parent_decl_node = prev_parent_decl_node;
+                try self.writeSrcNode(stream, .zero);
             },
 
             .cmpxchg => try self.writeCmpxchg(stream, extended),

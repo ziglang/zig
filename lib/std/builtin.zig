@@ -548,19 +548,19 @@ pub const TypeId = std.meta.Tag(Type);
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const Type = union(enum) {
-    type: void,
-    void: void,
-    bool: void,
-    noreturn: void,
+    type,
+    void,
+    bool,
+    noreturn,
     int: Int,
     float: Float,
     pointer: Pointer,
     array: Array,
     @"struct": Struct,
-    comptime_float: void,
-    comptime_int: void,
-    undefined: void,
-    null: void,
+    comptime_float,
+    comptime_int,
+    undefined,
+    null,
     optional: Optional,
     error_union: ErrorUnion,
     error_set: ErrorSet,
@@ -571,7 +571,7 @@ pub const Type = union(enum) {
     frame: Frame,
     @"anyframe": AnyFrame,
     vector: Vector,
-    enum_literal: void,
+    enum_literal,
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
@@ -618,6 +618,16 @@ pub const Type = union(enum) {
             many,
             slice,
             c,
+        };
+
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Attributes = struct {
+            @"const": bool = false,
+            @"volatile": bool = false,
+            @"allowzero": bool = false,
+            @"addrspace": ?AddressSpace = null,
+            @"align": ?usize = null,
         };
     };
 
@@ -668,6 +678,14 @@ pub const Type = union(enum) {
             const dp: *const sf.type = @ptrCast(@alignCast(sf.default_value_ptr orelse return null));
             return dp.*;
         }
+
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Attributes = struct {
+            @"comptime": bool = false,
+            @"align": ?usize = null,
+            default_value_ptr: ?*const anyopaque = null,
+        };
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -718,6 +736,10 @@ pub const Type = union(enum) {
         fields: []const EnumField,
         decls: []const Declaration,
         is_exhaustive: bool,
+
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Mode = enum { exhaustive, nonexhaustive };
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -726,6 +748,12 @@ pub const Type = union(enum) {
         name: [:0]const u8,
         type: type,
         alignment: comptime_int,
+
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Attributes = struct {
+            @"align": ?usize = null,
+        };
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -753,6 +781,19 @@ pub const Type = union(enum) {
             is_generic: bool,
             is_noalias: bool,
             type: ?type,
+
+            /// This data structure is used by the Zig language code generation and
+            /// therefore must be kept in sync with the compiler implementation.
+            pub const Attributes = struct {
+                @"noalias": bool = false,
+            };
+        };
+
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Attributes = struct {
+            @"callconv": CallingConvention = .auto,
+            varargs: bool = false,
         };
     };
 

@@ -833,7 +833,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         => {
             var buf: [2]Ast.Node.Index = undefined;
             const params = tree.builtinCallParams(&buf, node).?;
-            return builtinCall(gz, scope, ri, node, params, false);
+            return builtinCall(gz, scope, ri, node, params, false, .anon);
         },
 
         .call_one,
@@ -1194,14 +1194,20 @@ fn nameStratExpr(
         },
         .builtin_call_two,
         .builtin_call_two_comma,
+        .builtin_call,
+        .builtin_call_comma,
         => {
             const builtin_token = tree.nodeMainToken(node);
             const builtin_name = tree.tokenSlice(builtin_token);
-            if (!std.mem.eql(u8, builtin_name, "@Type")) return null;
-            var buf: [2]Ast.Node.Index = undefined;
-            const params = tree.builtinCallParams(&buf, node).?;
-            if (params.len != 1) return null; // let `builtinCall` error
-            return try builtinReify(gz, scope, ri, node, params[0], name_strat);
+            const info = BuiltinFn.list.get(builtin_name) orelse return null;
+            switch (info.tag) {
+                .Enum, .Struct, .Union => {
+                    var buf: [2]Ast.Node.Index = undefined;
+                    const params = tree.builtinCallParams(&buf, node).?;
+                    return try builtinCall(gz, scope, ri, node, params, false, name_strat);
+                },
+                else => return null,
+            }
         },
         else => return null,
     }
@@ -1406,7 +1412,7 @@ fn fnProtoExprInner(
         .none;
 
     const ret_ty_node = fn_proto.ast.return_type.unwrap().?;
-    const ret_ty = try comptimeExpr(&block_scope, scope, coerced_type_ri, ret_ty_node, .function_ret_ty);
+    const ret_ty = try comptimeExpr(&block_scope, scope, coerced_type_ri, ret_ty_node, .fn_ret_ty);
 
     const result = try block_scope.addFunc(.{
         .src_node = fn_proto.ast.proto_node,
@@ -2629,7 +2635,7 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
                     const params = tree.builtinCallParams(&buf, inner_node).?;
 
                     try emitDbgNode(gz, inner_node);
-                    const result = try builtinCall(gz, scope, .{ .rl = .none }, inner_node, params, allow_branch_hint);
+                    const result = try builtinCall(gz, scope, .{ .rl = .none }, inner_node, params, allow_branch_hint, .anon);
                     noreturn_src_node = try addEnsureResult(gz, result, inner_node);
                 },
 
@@ -2707,6 +2713,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .elem_type,
             .indexable_ptr_elem_type,
             .splat_op_result_ty,
+            .reify_int,
             .vector_type,
             .indexable_ptr_len,
             .anyframe_type,
@@ -8942,7 +8949,7 @@ fn unionInit(
     params: []const Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const union_type = try typeExpr(gz, scope, params[0]);
-    const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[1], .union_field_name);
+    const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[1], .union_field_names);
     const field_type = try gz.addPlNode(.field_type_ref, node, Zir.Inst.FieldTypeRef{
         .container_type = union_type,
         .field_name = field_name,
@@ -9210,6 +9217,7 @@ fn builtinCall(
     node: Ast.Node.Index,
     params: []const Ast.Node.Index,
     allow_branch_hint: bool,
+    reify_name_strat: Zir.Inst.NameStrategy,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
@@ -9443,9 +9451,140 @@ fn builtinCall(
             return rvalue(gz, ri, try gz.addNodeExtended(.in_comptime, node), node);
         },
 
-        .Type => {
-            return builtinReify(gz, scope, ri, node, params[0], .anon);
+        .EnumLiteral => return rvalue(gz, ri, .enum_literal_type, node),
+        .Int => {
+            const signedness_ty = try gz.addBuiltinValue(node, .signedness);
+            const result = try gz.addPlNode(.reify_int, node, Zir.Inst.Bin{
+                .lhs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = signedness_ty } }, params[0], .int_signedness),
+                .rhs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u16_type } }, params[1], .int_bit_width),
+            });
+            return rvalue(gz, ri, result, node);
         },
+        .Tuple => {
+            const result = try gz.addExtendedPayload(.reify_tuple, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(node),
+                .operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_type_type } }, params[0], .tuple_field_types),
+            });
+            return rvalue(gz, ri, result, node);
+        },
+        .Pointer => {
+            const ptr_size_ty = try gz.addBuiltinValue(node, .pointer_size);
+            const ptr_attrs_ty = try gz.addBuiltinValue(node, .pointer_attributes);
+            const size = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = ptr_size_ty } }, params[0], .pointer_size);
+            const attrs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = ptr_attrs_ty } }, params[1], .pointer_attrs);
+            const elem_ty = try typeExpr(gz, scope, params[2]);
+            const sentinel_ty = try gz.addExtendedPayload(.reify_pointer_sentinel_ty, Zir.Inst.UnNode{
+                .node = gz.nodeIndexToRelative(params[2]),
+                .operand = elem_ty,
+            });
+            const sentinel = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = sentinel_ty } }, params[3], .pointer_sentinel);
+            const result = try gz.addExtendedPayload(.reify_pointer, Zir.Inst.ReifyPointer{
+                .node = gz.nodeIndexToRelative(node),
+                .size = size,
+                .attrs = attrs,
+                .elem_ty = elem_ty,
+                .sentinel = sentinel,
+            });
+            return rvalue(gz, ri, result, node);
+        },
+        .Fn => {
+            const fn_attrs_ty = try gz.addBuiltinValue(node, .fn_attributes);
+            const param_types = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_type_type } }, params[0], .fn_param_types);
+            const param_attrs_ty = try gz.addExtendedPayloadSmall(
+                .reify_slice_arg_ty,
+                @intFromEnum(Zir.Inst.ReifySliceArgInfo.type_to_fn_param_attrs),
+                Zir.Inst.UnNode{ .node = gz.nodeIndexToRelative(params[0]), .operand = param_types },
+            );
+            const param_attrs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = param_attrs_ty } }, params[1], .fn_param_attrs);
+            const ret_ty = try comptimeExpr(gz, scope, coerced_type_ri, params[2], .fn_ret_ty);
+            const fn_attrs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = fn_attrs_ty } }, params[3], .fn_attrs);
+            const result = try gz.addExtendedPayload(.reify_fn, Zir.Inst.ReifyFn{
+                .node = gz.nodeIndexToRelative(node),
+                .param_types = param_types,
+                .param_attrs = param_attrs,
+                .ret_ty = ret_ty,
+                .fn_attrs = fn_attrs,
+            });
+            return rvalue(gz, ri, result, node);
+        },
+        .Struct => {
+            const container_layout_ty = try gz.addBuiltinValue(node, .container_layout);
+            const layout = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = container_layout_ty } }, params[0], .struct_layout);
+            const backing_ty = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .optional_type_type } }, params[1], .type);
+            const field_names = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_slice_const_u8_type } }, params[2], .struct_field_names);
+            const field_types_ty = try gz.addExtendedPayloadSmall(
+                .reify_slice_arg_ty,
+                @intFromEnum(Zir.Inst.ReifySliceArgInfo.string_to_struct_field_type),
+                Zir.Inst.UnNode{ .node = gz.nodeIndexToRelative(params[2]), .operand = field_names },
+            );
+            const field_attrs_ty = try gz.addExtendedPayloadSmall(
+                .reify_slice_arg_ty,
+                @intFromEnum(Zir.Inst.ReifySliceArgInfo.string_to_struct_field_attrs),
+                Zir.Inst.UnNode{ .node = gz.nodeIndexToRelative(params[2]), .operand = field_names },
+            );
+            const field_types = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = field_types_ty } }, params[3], .struct_field_types);
+            const field_attrs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = field_attrs_ty } }, params[4], .struct_field_attrs);
+            const result = try gz.addExtendedPayloadSmall(.reify_struct, @intFromEnum(reify_name_strat), Zir.Inst.ReifyStruct{
+                .src_line = gz.astgen.source_line,
+                .node = node,
+                .layout = layout,
+                .backing_ty = backing_ty,
+                .field_names = field_names,
+                .field_types = field_types,
+                .field_attrs = field_attrs,
+            });
+            return rvalue(gz, ri, result, node);
+        },
+        .Union => {
+            const container_layout_ty = try gz.addBuiltinValue(node, .container_layout);
+            const layout = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = container_layout_ty } }, params[0], .union_layout);
+            const arg_ty = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .optional_type_type } }, params[1], .type);
+            const field_names = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_slice_const_u8_type } }, params[2], .union_field_names);
+            const field_types_ty = try gz.addExtendedPayloadSmall(
+                .reify_slice_arg_ty,
+                @intFromEnum(Zir.Inst.ReifySliceArgInfo.string_to_union_field_type),
+                Zir.Inst.UnNode{ .node = gz.nodeIndexToRelative(params[2]), .operand = field_names },
+            );
+            const field_attrs_ty = try gz.addExtendedPayloadSmall(
+                .reify_slice_arg_ty,
+                @intFromEnum(Zir.Inst.ReifySliceArgInfo.string_to_union_field_attrs),
+                Zir.Inst.UnNode{ .node = gz.nodeIndexToRelative(params[2]), .operand = field_names },
+            );
+            const field_types = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = field_types_ty } }, params[3], .union_field_types);
+            const field_attrs = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = field_attrs_ty } }, params[4], .union_field_attrs);
+            const result = try gz.addExtendedPayloadSmall(.reify_union, @intFromEnum(reify_name_strat), Zir.Inst.ReifyUnion{
+                .src_line = gz.astgen.source_line,
+                .node = node,
+                .layout = layout,
+                .arg_ty = arg_ty,
+                .field_names = field_names,
+                .field_types = field_types,
+                .field_attrs = field_attrs,
+            });
+            return rvalue(gz, ri, result, node);
+        },
+        .Enum => {
+            const enum_mode_ty = try gz.addBuiltinValue(node, .enum_mode);
+            const tag_ty = try typeExpr(gz, scope, params[0]);
+            const mode = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = enum_mode_ty } }, params[1], .type);
+            const field_names = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_slice_const_u8_type } }, params[2], .enum_field_names);
+            const field_values_ty = try gz.addExtendedPayload(.reify_enum_value_slice_ty, Zir.Inst.BinNode{
+                .node = gz.nodeIndexToRelative(node),
+                .lhs = tag_ty,
+                .rhs = field_names,
+            });
+            const field_values = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = field_values_ty } }, params[3], .enum_field_values);
+            const result = try gz.addExtendedPayloadSmall(.reify_enum, @intFromEnum(reify_name_strat), Zir.Inst.ReifyEnum{
+                .src_line = gz.astgen.source_line,
+                .node = node,
+                .tag_ty = tag_ty,
+                .mode = mode,
+                .field_names = field_names,
+                .field_values = field_values,
+            });
+            return rvalue(gz, ri, result, node);
+        },
+
         .panic => {
             try emitDbgNode(gz, node);
             return simpleUnOp(gz, scope, ri, node, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[0], .panic);
@@ -9763,41 +9902,6 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
     }
-}
-fn builtinReify(
-    gz: *GenZir,
-    scope: *Scope,
-    ri: ResultInfo,
-    node: Ast.Node.Index,
-    arg_node: Ast.Node.Index,
-    name_strat: Zir.Inst.NameStrategy,
-) InnerError!Zir.Inst.Ref {
-    const astgen = gz.astgen;
-    const gpa = astgen.gpa;
-
-    const type_info_ty = try gz.addBuiltinValue(node, .type_info);
-    const operand = try expr(gz, scope, .{ .rl = .{ .coerced_ty = type_info_ty } }, arg_node);
-
-    try gz.instructions.ensureUnusedCapacity(gpa, 1);
-    try astgen.instructions.ensureUnusedCapacity(gpa, 1);
-
-    const payload_index = try astgen.addExtra(Zir.Inst.Reify{
-        .node = node, // Absolute node index -- see the definition of `Reify`.
-        .operand = operand,
-        .src_line = astgen.source_line,
-    });
-    const new_index: Zir.Inst.Index = @enumFromInt(astgen.instructions.len);
-    astgen.instructions.appendAssumeCapacity(.{
-        .tag = .extended,
-        .data = .{ .extended = .{
-            .opcode = .reify,
-            .small = @intFromEnum(name_strat),
-            .operand = payload_index,
-        } },
-    });
-    gz.instructions.appendAssumeCapacity(new_index);
-    const result = new_index.toRef();
-    return rvalue(gz, ri, result, node);
 }
 
 fn hasDeclOrField(
