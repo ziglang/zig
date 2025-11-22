@@ -30,6 +30,7 @@ const hashes = [_]Crypto{
     Crypto{ .ty = crypto.hash.sha3.Shake256, .name = "shake-256" },
     Crypto{ .ty = crypto.hash.sha3.TurboShake128(null), .name = "turboshake-128" },
     Crypto{ .ty = crypto.hash.sha3.TurboShake256(null), .name = "turboshake-256" },
+    Crypto{ .ty = crypto.hash.sha3.KT128, .name = "kt128" },
     Crypto{ .ty = crypto.hash.blake2.Blake2s256, .name = "blake2s" },
     Crypto{ .ty = crypto.hash.blake2.Blake2b512, .name = "blake2b" },
     Crypto{ .ty = crypto.hash.Blake3, .name = "blake3" },
@@ -37,6 +38,7 @@ const hashes = [_]Crypto{
 
 const parallel_hashes = [_]Crypto{
     Crypto{ .ty = crypto.hash.Blake3, .name = "blake3-parallel" },
+    Crypto{ .ty = crypto.hash.sha3.KT128, .name = "kt128-parallel" },
 };
 
 const block_size: usize = 8 * 8192;
