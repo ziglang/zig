@@ -12906,9 +12906,9 @@ const GenZir = struct {
         }
 
         const small: Zir.Inst.Asm.Small = .{
+            .is_volatile = args.is_volatile,
             .outputs_len = @intCast(args.outputs.len),
             .inputs_len = @intCast(args.inputs.len),
-            .is_volatile = args.is_volatile,
         };
 
         const new_index: Zir.Inst.Index = @enumFromInt(astgen.instructions.len);

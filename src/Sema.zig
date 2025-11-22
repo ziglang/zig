@@ -16396,6 +16396,7 @@ fn zirAsm(
 
     const pt = sema.pt;
     const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
     const extra = sema.code.extraData(Zir.Inst.Asm, extended.operand);
     const src = block.nodeOffset(extra.data.src_node);
     const ret_ty_src = block.src(.{ .node_offset_asm_ret_ty = extra.data.src_node });
@@ -16434,10 +16435,16 @@ fn zirAsm(
 
     for (out_args, 0..) |*arg, out_i| {
         const output = sema.code.extraData(Zir.Inst.Asm.Output, extra_i);
+        const output_src = block.src(.{ .asm_output = .{
+            .offset = src.offset.node_offset.x,
+            .output_index = @intCast(out_i),
+        } });
         extra_i = output.end;
 
         const is_type = @as(u1, @truncate(output_type_bits)) != 0;
         output_type_bits >>= 1;
+
+        const name = sema.code.nullTerminatedString(output.data.name);
 
         if (is_type) {
             // Indicate the output is the asm instruction return value.
@@ -16445,17 +16452,21 @@ fn zirAsm(
             const out_ty = try sema.resolveType(block, ret_ty_src, output.data.operand);
             expr_ty = Air.internedToRef(out_ty.toIntern());
         } else {
-            arg.* = try sema.resolveInst(output.data.operand);
+            const inst = try sema.resolveInst(output.data.operand);
+            if (!sema.checkRuntimeValue(inst)) {
+                const output_name = try ip.getOrPutString(sema.gpa, pt.tid, name, .no_embedded_nulls);
+                return sema.failWithContainsReferenceToComptimeVar(block, output_src, output_name, "assembly output", .fromInterned(inst.toInterned().?));
+            }
+            arg.* = inst;
         }
 
         const constraint = sema.code.nullTerminatedString(output.data.constraint);
-        const name = sema.code.nullTerminatedString(output.data.name);
         needed_capacity += (constraint.len + name.len + (2 + 3)) / 4;
 
         if (output.data.operand.toIndex()) |index| {
             if (zir_tags[@intFromEnum(index)] == .ref) {
-                // TODO: better error location; it would be even nicer if there were notes that pointed at the output and the variable definition
-                return sema.fail(block, src, "asm cannot output to const local '{s}'", .{name});
+                // TODO: it would be even nicer if there were notes that pointed at the variable definition
+                return sema.fail(block, output_src, "asm cannot output to const local '{s}'", .{name});
             }
         }
 
@@ -16467,9 +16478,18 @@ fn zirAsm(
 
     for (args, 0..) |*arg, arg_i| {
         const input = sema.code.extraData(Zir.Inst.Asm.Input, extra_i);
+        const input_src = block.src(.{ .asm_input = .{
+            .offset = src.offset.node_offset.x,
+            .input_index = @intCast(arg_i),
+        } });
         extra_i = input.end;
 
         const uncasted_arg = try sema.resolveInst(input.data.operand);
+        const name = sema.code.nullTerminatedString(input.data.name);
+        if (!sema.checkRuntimeValue(uncasted_arg)) {
+            const input_name = try ip.getOrPutString(sema.gpa, pt.tid, name, .no_embedded_nulls);
+            return sema.failWithContainsReferenceToComptimeVar(block, input_src, input_name, "assembly input", .fromInterned(uncasted_arg.toInterned().?));
+        }
         const uncasted_arg_ty = sema.typeOf(uncasted_arg);
         switch (uncasted_arg_ty.zigTypeTag(zcu)) {
             .comptime_int => arg.* = try sema.coerce(block, .usize, uncasted_arg, src),
@@ -16480,7 +16500,6 @@ fn zirAsm(
         }
 
         const constraint = sema.code.nullTerminatedString(input.data.constraint);
-        const name = sema.code.nullTerminatedString(input.data.name);
         needed_capacity += (constraint.len + name.len + (2 + 3)) / 4;
         inputs[arg_i] = .{ .c = constraint, .n = name };
     }
