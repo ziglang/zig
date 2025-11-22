@@ -580,6 +580,9 @@ pub const VTable = struct {
     /// If it returns `null` it means `result` has been already populated and
     /// `await` will be a no-op.
     ///
+    /// When this function returns non-null, the implementation guarantees that
+    /// a unit of concurrency has been assigned to the returned task.
+    ///
     /// Thread-safe.
     async: *const fn (
         /// Corresponds to `Io.userdata`.
@@ -1024,6 +1027,10 @@ pub const Group = struct {
     ///
     /// `function` *may* be called immediately, before `async` returns.
     ///
+    /// When this function returns, it is guaranteed that `function` has
+    /// already been called and completed, or it has successfully been assigned
+    /// a unit of concurrency.
+    ///
     /// After this is called, `wait` or `cancel` must be called before the
     /// group is deinitialized.
     ///
@@ -1093,6 +1100,10 @@ pub fn Select(comptime U: type) type {
         /// `function` must have return type matching the `field` field of `Union`.
         ///
         /// `function` *may* be called immediately, before `async` returns.
+        ///
+        /// When this function returns, it is guaranteed that `function` has
+        /// already been called and completed, or it has successfully been
+        /// assigned a unit of concurrency.
         ///
         /// After this is called, `wait` or `cancel` must be called before the
         /// select is deinitialized.
@@ -1524,8 +1535,11 @@ pub fn Queue(Elem: type) type {
 /// not guaranteed to be available until `await` is called.
 ///
 /// `function` *may* be called immediately, before `async` returns. This has
-/// weaker guarantees than `concurrent`, making more portable and
-/// reusable.
+/// weaker guarantees than `concurrent`, making more portable and reusable.
+///
+/// When this function returns, it is guaranteed that `function` has already
+/// been called and completed, or it has successfully been assigned a unit of
+/// concurrency.
 ///
 /// See also:
 /// * `Group`
