@@ -248,6 +248,25 @@ pub fn allocSentinel(
     return self.allocWithOptionsRetAddr(Elem, n, null, sentinel, @returnAddress());
 }
 
+/// Allocates with an alignment which is incorporated into the returned type.
+/// Call `free` when done.
+///
+/// Assign to an inferred type to have a correctly specified alignment.
+/// The alignment of the type will be used by `free` later.
+/// Specifying a type may result in a silent coercion to a different alignment.
+///
+/// This is correct:
+/// ```
+/// const data = alignedAlloc(...);
+/// defer free(data);
+/// const d: []u8 = data;
+/// ```
+///
+/// This is hazardous:
+/// ```
+/// const d:[]u8 = alignedAlloc(...);
+/// defer free(d);
+/// ```
 pub fn alignedAlloc(
     self: Allocator,
     comptime T: type,
@@ -432,7 +451,7 @@ pub fn reallocAdvanced(
     return mem.bytesAsSlice(T, new_bytes);
 }
 
-/// Free an array allocated with `alloc`.
+/// Free an array allocated with `alloc` or `alignedAlloc`.
 /// If memory has length 0, free is a no-op.
 /// To free a single item, see `destroy`.
 pub fn free(self: Allocator, memory: anytype) void {
