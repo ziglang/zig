@@ -50,12 +50,15 @@ pub fn ArrayHashMap(comptime T: type) type {
         }
 
         pub fn jsonParseFromValue(allocator: Allocator, source: Value, options: ParseOptions) !@This() {
-            if (source != .object) return error.UnexpectedToken;
+            var it = switch (source) {
+                .object => |inner| inner.iterator(),
+                .object_managed => |inner| inner.iterator(),
+                else => return error.UnexpectedToken,
+            };
 
             var map: std.StringArrayHashMapUnmanaged(T) = .empty;
             errdefer map.deinit(allocator);
 
-            var it = source.object.iterator();
             while (it.next()) |kv| {
                 try map.put(allocator, kv.key_ptr.*, try innerParseFromValue(T, allocator, kv.value_ptr.*, options));
             }

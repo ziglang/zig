@@ -129,7 +129,7 @@ test "Value.array allocator should still be usable after parsing" {
     // Allocation should succeed
     var i: usize = 0;
     while (i < 100) : (i += 1) {
-        try parsed.value.array.append(Value{ .integer = 100 });
+        try parsed.value.array.append(parsed.arena.allocator(), Value{ .integer = 100 });
     }
     try testing.expectEqual(parsed.value.array.items.len, 100);
 }
@@ -225,9 +225,10 @@ test "Value.jsonStringify" {
         .{ .integer = 2 },
         .{ .number_string = "3" },
     };
-    var obj = ObjectMap.init(testing.allocator);
-    defer obj.deinit();
-    try obj.putNoClobber("a", .{ .string = "b" });
+    const allocator = testing.allocator;
+    var obj = ObjectMap.empty;
+    defer obj.deinit(allocator);
+    try obj.putNoClobber(allocator, "a", .{ .string = "b" });
     const array = [_]Value{
         .null,
         .{ .bool = true },
@@ -235,7 +236,7 @@ test "Value.jsonStringify" {
         .{ .number_string = "43" },
         .{ .float = 42 },
         .{ .string = "weeee" },
-        .{ .array = Array.fromOwnedSlice(undefined, &vals) },
+        .{ .array = Array.fromOwnedSlice(&vals) },
         .{ .object = obj },
     };
     var buffer: [0x1000]u8 = undefined;
