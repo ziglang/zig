@@ -1530,7 +1530,7 @@ fn expectAssignExpr(p: *Parse) !Node.Index {
 }
 
 fn parseExpr(p: *Parse) Error!?Node.Index {
-    return p.parseExprPrecedence(0);
+    return p.parseExprPrecedence(.start);
 }
 
 fn expectExpr(p: *Parse) Error!Node.Index {
@@ -1542,68 +1542,178 @@ const Assoc = enum {
     none,
 };
 
-const OperInfo = struct {
-    prec: i8,
-    tag: Node.Tag,
+const PrecClass = struct {
+    major: Major,
+    minor: u8 = 0,
     assoc: Assoc = Assoc.left,
+
+    const Major = enum(u3) {
+        arithmetic = 0,
+        bitwise = 1,
+        comparison = 2,
+        logical = 3,
+        coercion = 4,
+        root = 5,
+    };
+
+    pub const start: PrecClass = .{ .major = .root };
+
+    pub const Rel = enum(i2) {
+        lt = -1,
+        eq = 0,
+        gt = 1,
+
+        pub fn inverted(self: @This()) @This() {
+            return @enumFromInt(-@intFromEnum(self));
+        }
+    };
+
+    /// arith > coerc
+    /// bitwi > coerc
+    /// coerc > compr > logic > root
+    /// order[y][x] --> y cmp x
+    const major_ordering = b: {
+        const base_greater_than_relations = [_][2]Major{
+            .{ .arithmetic, .coercion },
+            .{ .bitwise, .coercion },
+            .{ .coercion, .comparison },
+            .{ .comparison, .logical },
+            .{ .logical, .root },
+        };
+
+        var order: [6][6]?Rel = @splat(@splat(null));
+        for (base_greater_than_relations) |relation| {
+            const i = @intFromEnum(relation[0]);
+            const j = @intFromEnum(relation[1]);
+            order[i][j] = .gt;
+        }
+
+        computeTransativeOrdering(&order);
+        break :b order;
+    };
+
+    pub fn cmp(lhs: PrecClass, rhs: PrecClass) ?Rel {
+        return lhs._cmp(rhs) orelse (rhs._cmp(lhs) orelse return null).inverted();
+    }
+
+    fn _cmp(lhs: PrecClass, rhs: PrecClass) ?Rel {
+        if (std.meta.eql(lhs, rhs)) return .eq;
+        if (lhs.major != rhs.major) {
+            return PrecClass.major_ordering[@intFromEnum(lhs.major)][@intFromEnum(rhs.major)];
+        } else if (lhs.major == .arithmetic) {
+            if (lhs.minor == 0 and rhs.minor == 2) return .gt;
+            if (lhs.minor == 1 and rhs.minor == 2) return .gt;
+            if (lhs.minor == 0 and rhs.minor == 1) return .eq;
+        } else if (lhs.major == .bitwise) {
+            if (lhs.minor == 0 and rhs.minor == 1) return .gt;
+            if (lhs.minor == 0 and rhs.minor == 3) return .gt;
+            if (lhs.minor == 1 and rhs.minor == 3) return .gt;
+        } else if (lhs.major == .logical) {
+            if (lhs.minor == 0 and rhs.minor == 1) return .gt;
+        }
+        return null;
+    }
+
+    fn computeTransativeOrdering(order: *[6][6]?Rel) void {
+        for (0..6) |i| for (0..6) |j| for (0..6) |k| {
+            if (order[i][k] == order[k][j] and order[i][k] != null) order[i][j] = order[i][k];
+        };
+        for (0..6) |i| for (0..6) |j| {
+            if (i == j) order[i][j] = .eq;
+            if (order[i][j] == null and order[j][i] != null) order[i][j] = order[j][i].?.inverted();
+        };
+    }
 };
 
-// A table of binary operator information. Higher precedence numbers are
-// stickier. All operators at the same precedence level should have the same
-// associativity.
-const operTable = std.enums.directEnumArrayDefault(Token.Tag, OperInfo, .{ .prec = -1, .tag = Node.Tag.root }, 0, .{
-    .keyword_or = .{ .prec = 10, .tag = .bool_or },
+const OperInfo = struct {
+    prec: PrecClass,
+    tag: Node.Tag,
+};
 
-    .keyword_and = .{ .prec = 20, .tag = .bool_and },
+// A table of binary operator information. Operator classes are as follows:
+//  arith 0:                 * *% *| / ||
+//  arith 1 nonchainable:    ** %
+//  arith 2:                 + - +% -% +| -| ++
+//  bitwi 0:                 << <<| >>
+//  bitwi 1:                 &
+//  bitwi 2:                 ^
+//  bitwi 3:                 |
+//  bitwi 1:                 &
+//  coerc:                   orelse catch
+//  compr nonchainable:      == != < <= >= >
+//  logic 0:                 and
+//  logic 1:                 or
+// Class Ordering is this:
+//  arith > coerc
+//  bitwi > coerc
+//  coerc > compr > logic
+// With subclass order of this:
+//  a0 == a1 > a2
+//  b0 > b1 > b3
+//  l0 > l1
+const operTable = std.enums.directEnumArrayDefault(Token.Tag, OperInfo, .{ .prec = .start, .tag = Node.Tag.root }, 0, .{
+    .keyword_or = .{ .prec = .{ .major = .logical, .minor = 1 }, .tag = .bool_or },
 
-    .equal_equal = .{ .prec = 30, .tag = .equal_equal, .assoc = Assoc.none },
-    .bang_equal = .{ .prec = 30, .tag = .bang_equal, .assoc = Assoc.none },
-    .angle_bracket_left = .{ .prec = 30, .tag = .less_than, .assoc = Assoc.none },
-    .angle_bracket_right = .{ .prec = 30, .tag = .greater_than, .assoc = Assoc.none },
-    .angle_bracket_left_equal = .{ .prec = 30, .tag = .less_or_equal, .assoc = Assoc.none },
-    .angle_bracket_right_equal = .{ .prec = 30, .tag = .greater_or_equal, .assoc = Assoc.none },
+    .keyword_and = .{ .prec = .{ .major = .logical, .minor = 0 }, .tag = .bool_and },
 
-    .ampersand = .{ .prec = 40, .tag = .bit_and },
-    .caret = .{ .prec = 40, .tag = .bit_xor },
-    .pipe = .{ .prec = 40, .tag = .bit_or },
-    .keyword_orelse = .{ .prec = 40, .tag = .@"orelse" },
-    .keyword_catch = .{ .prec = 40, .tag = .@"catch" },
+    .equal_equal = .{ .prec = .{ .major = .comparison, .assoc = Assoc.none }, .tag = .equal_equal },
+    .bang_equal = .{ .prec = .{ .major = .comparison, .assoc = Assoc.none }, .tag = .bang_equal },
+    .angle_bracket_left = .{ .prec = .{ .major = .comparison, .assoc = Assoc.none }, .tag = .less_than },
+    .angle_bracket_right = .{ .prec = .{ .major = .comparison, .assoc = Assoc.none }, .tag = .greater_than },
+    .angle_bracket_left_equal = .{ .prec = .{ .major = .comparison, .assoc = Assoc.none }, .tag = .less_or_equal },
+    .angle_bracket_right_equal = .{ .prec = .{ .major = .comparison, .assoc = Assoc.none }, .tag = .greater_or_equal },
 
-    .angle_bracket_angle_bracket_left = .{ .prec = 50, .tag = .shl },
-    .angle_bracket_angle_bracket_left_pipe = .{ .prec = 50, .tag = .shl_sat },
-    .angle_bracket_angle_bracket_right = .{ .prec = 50, .tag = .shr },
+    .ampersand = .{ .prec = .{ .major = .bitwise, .minor = 1 }, .tag = .bit_and },
+    .caret = .{ .prec = .{ .major = .bitwise, .minor = 2 }, .tag = .bit_xor },
+    .pipe = .{ .prec = .{ .major = .bitwise, .minor = 3 }, .tag = .bit_or },
 
-    .plus = .{ .prec = 60, .tag = .add },
-    .minus = .{ .prec = 60, .tag = .sub },
-    .plus_plus = .{ .prec = 60, .tag = .array_cat },
-    .plus_percent = .{ .prec = 60, .tag = .add_wrap },
-    .minus_percent = .{ .prec = 60, .tag = .sub_wrap },
-    .plus_pipe = .{ .prec = 60, .tag = .add_sat },
-    .minus_pipe = .{ .prec = 60, .tag = .sub_sat },
+    .keyword_orelse = .{ .prec = .{ .major = .coercion }, .tag = .@"orelse" },
+    .keyword_catch = .{ .prec = .{ .major = .coercion }, .tag = .@"catch" },
 
-    .pipe_pipe = .{ .prec = 70, .tag = .merge_error_sets },
-    .asterisk = .{ .prec = 70, .tag = .mul },
-    .slash = .{ .prec = 70, .tag = .div },
-    .percent = .{ .prec = 70, .tag = .mod },
-    .asterisk_asterisk = .{ .prec = 70, .tag = .array_mult },
-    .asterisk_percent = .{ .prec = 70, .tag = .mul_wrap },
-    .asterisk_pipe = .{ .prec = 70, .tag = .mul_sat },
+    .angle_bracket_angle_bracket_left = .{ .prec = .{ .major = .bitwise, .minor = 0 }, .tag = .shl },
+    .angle_bracket_angle_bracket_left_pipe = .{ .prec = .{ .major = .bitwise, .minor = 0 }, .tag = .shl_sat },
+    .angle_bracket_angle_bracket_right = .{ .prec = .{ .major = .bitwise, .minor = 0 }, .tag = .shr },
+
+    .plus = .{ .prec = .{ .major = .arithmetic, .minor = 2 }, .tag = .add },
+    .minus = .{ .prec = .{ .major = .arithmetic, .minor = 2 }, .tag = .sub },
+    .plus_plus = .{ .prec = .{ .major = .arithmetic, .minor = 2 }, .tag = .array_cat },
+    .plus_percent = .{ .prec = .{ .major = .arithmetic, .minor = 2 }, .tag = .add_wrap },
+    .minus_percent = .{ .prec = .{ .major = .arithmetic, .minor = 2 }, .tag = .sub_wrap },
+    .plus_pipe = .{ .prec = .{ .major = .arithmetic, .minor = 2 }, .tag = .add_sat },
+    .minus_pipe = .{ .prec = .{ .major = .arithmetic, .minor = 2 }, .tag = .sub_sat },
+
+    .pipe_pipe = .{ .prec = .{ .major = .arithmetic, .minor = 0 }, .tag = .merge_error_sets },
+    .asterisk = .{ .prec = .{ .major = .arithmetic, .minor = 0 }, .tag = .mul },
+    .slash = .{ .prec = .{ .major = .arithmetic, .minor = 0 }, .tag = .div },
+    .asterisk_percent = .{ .prec = .{ .major = .arithmetic, .minor = 0 }, .tag = .mul_wrap },
+    .asterisk_pipe = .{ .prec = .{ .major = .arithmetic, .minor = 0 }, .tag = .mul_sat },
+
+    .asterisk_asterisk = .{ .prec = .{ .major = .arithmetic, .minor = 1, .assoc = Assoc.none }, .tag = .array_mult },
+    .percent = .{ .prec = .{ .major = .arithmetic, .minor = 1, .assoc = Assoc.none }, .tag = .mod },
 });
 
-fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!?Node.Index {
-    assert(min_prec >= 0);
+fn parseExprPrecedence(p: *Parse, min_exc_prec: PrecClass) Error!?Node.Index {
     var node = try p.parsePrefixExpr() orelse return null;
-
-    var banned_prec: i8 = -1;
 
     while (true) {
         const tok_tag = p.tokenTag(p.tok_i);
         const info = operTable[@as(usize, @intCast(@intFromEnum(tok_tag)))];
-        if (info.prec < min_prec) {
+        const rel = info.prec.cmp(min_exc_prec) orelse return p.fail(.ambiguous_operator_precedence);
+
+        if (rel == .lt) {
             break;
         }
-        if (info.prec == banned_prec) {
-            return p.fail(.chained_comparison_operators);
+
+        if (min_exc_prec.major == info.prec.major and min_exc_prec.assoc == .none and info.prec.assoc == .none) {
+            if (info.prec.major == .comparison) {
+                return p.fail(.chained_comparison_operators);
+            } else {
+                return p.fail(.illegal_chained_operators);
+            }
+        }
+
+        if (rel == .eq) {
+            break;
         }
 
         const oper_token = p.nextToken();
@@ -1611,7 +1721,7 @@ fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!?Node.Index {
         if (tok_tag == .keyword_catch) {
             _ = try p.parsePayload();
         }
-        const rhs = try p.parseExprPrecedence(info.prec + 1) orelse {
+        const rhs = try p.parseExprPrecedence(info.prec) orelse {
             try p.warn(.expected_expr);
             return node;
         };
@@ -1634,10 +1744,6 @@ fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!?Node.Index {
             .main_token = oper_token,
             .data = .{ .node_and_node = .{ node, rhs } },
         });
-
-        if (info.assoc == Assoc.none) {
-            banned_prec = info.prec;
-        }
     }
 
     return node;

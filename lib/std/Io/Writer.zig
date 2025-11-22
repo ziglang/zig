@@ -1687,7 +1687,7 @@ pub fn printFloatHex(w: *Writer, value: anytype, case: std.fmt.Case, opt_precisi
             // Restore the alignment.
             mantissa <<= @as(std.math.Log2Int(TU), @intCast((mantissa_digits - precision) * 4));
 
-            const overflow = mantissa & (1 << 1 + mantissa_digits * 4) != 0;
+            const overflow = mantissa & (1 << (1 + mantissa_digits * 4)) != 0;
             // Prefer a normalized result in case of overflow.
             if (overflow) {
                 mantissa >>= 1;

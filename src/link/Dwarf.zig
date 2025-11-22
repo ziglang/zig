@@ -672,7 +672,7 @@ const Unit = struct {
             fw.writeByte(DW.LNS.extended_op) catch unreachable;
             const extended_op_bytes = fw.end;
             var op_len_bytes: u5 = 1;
-            while (true) switch (std.math.order(len - extended_op_bytes - op_len_bytes, @as(u32, 1) << 7 * op_len_bytes)) {
+            while (true) switch (std.math.order(len - extended_op_bytes - op_len_bytes, @as(u32, 1) << (7 * op_len_bytes))) {
                 .lt => break fw.writeUleb128(len - extended_op_bytes - op_len_bytes) catch unreachable,
                 .eq => {
                     // no length will ever work, so undercount and futz with the leb encoding to make up the missing byte
@@ -866,7 +866,7 @@ const Entry = struct {
                 fw.writeUleb128(try dwarf.refAbbrevCode(.pad_n)) catch unreachable;
                 const abbrev_code_bytes = fw.end;
                 var block_len_bytes: u5 = 1;
-                while (true) switch (std.math.order(len - abbrev_code_bytes - block_len_bytes, @as(u32, 1) << 7 * block_len_bytes)) {
+                while (true) switch (std.math.order(len - abbrev_code_bytes - block_len_bytes, @as(u32, 1) << (7 * block_len_bytes))) {
                     .lt => break fw.writeUleb128(len - abbrev_code_bytes - block_len_bytes) catch unreachable,
                     .eq => {
                         // no length will ever work, so undercount and futz with the leb encoding to make up the missing byte
@@ -888,7 +888,7 @@ const Entry = struct {
                 fw.writeByte(DW.LNS.extended_op) catch unreachable;
                 const extended_op_bytes = fw.end;
                 var op_len_bytes: u5 = 1;
-                while (true) switch (std.math.order(len - extended_op_bytes - op_len_bytes, @as(u32, 1) << 7 * op_len_bytes)) {
+                while (true) switch (std.math.order(len - extended_op_bytes - op_len_bytes, @as(u32, 1) << (7 * op_len_bytes))) {
                     .lt => break fw.writeUleb128(len - extended_op_bytes - op_len_bytes) catch unreachable,
                     .eq => {
                         // no length will ever work, so undercount and futz with the leb encoding to make up the missing byte

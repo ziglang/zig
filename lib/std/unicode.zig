@@ -471,7 +471,7 @@ pub fn utf16DecodeSurrogatePair(surrogate_pair: []const u16) !u21 {
     const high_half: u21 = surrogate_pair[0];
     const low_half = surrogate_pair[1];
     if (!utf16IsLowSurrogate(low_half)) return error.ExpectedSecondSurrogateHalf;
-    return 0x10000 + ((high_half & 0x03ff) << 10) | (low_half & 0x03ff);
+    return (0x10000 + ((high_half & 0x03ff) << 10)) | (low_half & 0x03ff);
 }
 
 pub const Utf16LeIterator = struct {

@@ -117,16 +117,16 @@ inline fn div(a: f128, b: f128) f128 {
     // This doubles the number of correct binary digits in the approximation
     // with each iteration.
     var correction64: u64 = undefined;
-    correction64 = @truncate(~(@as(u128, recip64) *% q63b >> 64) +% 1);
-    recip64 = @truncate(@as(u128, recip64) *% correction64 >> 63);
-    correction64 = @truncate(~(@as(u128, recip64) *% q63b >> 64) +% 1);
-    recip64 = @truncate(@as(u128, recip64) *% correction64 >> 63);
-    correction64 = @truncate(~(@as(u128, recip64) *% q63b >> 64) +% 1);
-    recip64 = @truncate(@as(u128, recip64) *% correction64 >> 63);
-    correction64 = @truncate(~(@as(u128, recip64) *% q63b >> 64) +% 1);
-    recip64 = @truncate(@as(u128, recip64) *% correction64 >> 63);
-    correction64 = @truncate(~(@as(u128, recip64) *% q63b >> 64) +% 1);
-    recip64 = @truncate(@as(u128, recip64) *% correction64 >> 63);
+    correction64 = @truncate(~((@as(u128, recip64) *% q63b) >> 64) +% 1);
+    recip64 = @truncate((@as(u128, recip64) *% correction64) >> 63);
+    correction64 = @truncate(~((@as(u128, recip64) *% q63b) >> 64) +% 1);
+    recip64 = @truncate((@as(u128, recip64) *% correction64) >> 63);
+    correction64 = @truncate(~((@as(u128, recip64) *% q63b) >> 64) +% 1);
+    recip64 = @truncate((@as(u128, recip64) *% correction64) >> 63);
+    correction64 = @truncate(~((@as(u128, recip64) *% q63b) >> 64) +% 1);
+    recip64 = @truncate((@as(u128, recip64) *% correction64) >> 63);
+    correction64 = @truncate(~((@as(u128, recip64) *% q63b) >> 64) +% 1);
+    recip64 = @truncate((@as(u128, recip64) *% correction64) >> 63);
 
     // The reciprocal may have overflowed to zero if the upper half of b is
     // exactly 1.0.  This would sabatoge the full-width final stage of the

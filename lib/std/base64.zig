@@ -276,7 +276,7 @@ pub const Base64Decoder = struct {
                 dest_idx += 1;
             }
         }
-        if (acc_len > 4 or (acc & (@as(u12, 1) << acc_len) - 1) != 0) {
+        if (acc_len > 4 or (acc & ((@as(u12, 1) << acc_len) - 1)) != 0) {
             return error.InvalidPadding;
         }
         if (leftover_idx == null) return;
@@ -351,7 +351,7 @@ pub const Base64DecoderWithIgnore = struct {
                 dest_idx += 1;
             }
         }
-        if (acc_len > 4 or (acc & (@as(u12, 1) << acc_len) - 1) != 0) {
+        if (acc_len > 4 or (acc & ((@as(u12, 1) << acc_len) - 1)) != 0) {
             return error.InvalidPadding;
         }
         const padding_len = acc_len / 2;
