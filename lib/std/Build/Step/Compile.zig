@@ -1223,11 +1223,19 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                                 break :prefix "-l";
                             };
                             switch (system_lib.use_pkg_config) {
-                                .no => try zig_args.append(b.fmt("{s}{s}", .{ prefix, system_lib.name })),
+                                .no => {
+                                    if (compile.linkage != .static) {
+                                        // Avoid putting another compiled library inside a static library.
+                                        try zig_args.append(b.fmt("{s}{s}", .{ prefix, system_lib.name }));
+                                    }
+                                },
                                 .yes, .force => {
                                     if (compile.runPkgConfig(system_lib.name)) |result| {
                                         try zig_args.appendSlice(result.cflags);
-                                        try zig_args.appendSlice(result.libs);
+                                        if (compile.linkage != .static) {
+                                            // Avoid putting another compiled library inside a static library.
+                                            try zig_args.appendSlice(result.libs);
+                                        }
                                         try seen_system_libs.put(arena, system_lib.name, result.cflags);
                                     } else |err| switch (err) {
                                         error.PkgConfigInvalidOutput,
@@ -1269,10 +1277,10 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                                 },
                                 .lib => l: {
                                     const other_produces_implib = other.producesImplib();
-                                    const other_is_static = other_produces_implib or other.isStaticLibrary();
+                                    const other_is_compiled_lib = other_produces_implib or other.isStaticLibrary() or other.isDynamicLibrary();
 
-                                    if (compile.isStaticLibrary() and other_is_static) {
-                                        // Avoid putting a static library inside a static library.
+                                    if (compile.isStaticLibrary() and other_is_compiled_lib) {
+                                        // Avoid putting another compiled library inside a static library.
                                         break :l;
                                     }
 
