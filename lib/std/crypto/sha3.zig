@@ -4,6 +4,8 @@ const assert = std.debug.assert;
 const math = std.math;
 const mem = std.mem;
 
+const kangarootwelve = @import("kangarootwelve.zig");
+
 const KeccakState = std.crypto.core.keccak.State;
 
 pub const Sha3_224 = Keccak(1600, 224, 0x06, 24);
@@ -25,6 +27,9 @@ pub const KMac256 = KMac(256);
 
 pub const TupleHash128 = TupleHash(128);
 pub const TupleHash256 = TupleHash(256);
+
+pub const KT128 = kangarootwelve.KT128;
+pub const KT256 = kangarootwelve.KT256;
 
 /// TurboSHAKE128 is a XOF (a secure hash function with a variable output length), with a 128 bit security level.
 /// It is based on the same permutation as SHA3 and SHAKE128, but which much higher performance.
@@ -480,6 +485,10 @@ pub const NistLengthEncoding = enum {
 };
 
 const htest = @import("test.zig");
+
+test {
+    _ = kangarootwelve;
+}
 
 test "sha3-224 single" {
     try htest.assertEqualHash(Sha3_224, "6b4e03423667dbb73b6e15454f0eb1abd4597f9a1b078e3f5b5a6bc7", "");
