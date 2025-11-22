@@ -1174,6 +1174,9 @@ test "KT128 sequential and parallel produce same output for small inputs" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
     // Test with different small input sizes
     const test_sizes = [_]usize{ 100, 1024, 4096, 8192 }; // 100B, 1KB, 4KB, 8KB
 
@@ -1182,7 +1185,7 @@ test "KT128 sequential and parallel produce same output for small inputs" {
         defer allocator.free(input);
 
         // Fill with random data
-        crypto.random.bytes(input);
+        random.bytes(input);
 
         var output_seq: [32]u8 = undefined;
         var output_par: [32]u8 = undefined;
@@ -1202,6 +1205,9 @@ test "KT128 sequential and parallel produce same output for large inputs" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
     // Test with large input sizes that trigger parallel processing
     // The threshold is 3-10MB depending on CPU count, so we test above that
     const test_sizes = [_]usize{ 11 * 1024 * 1024, 20 * 1024 * 1024 }; // 11MB, 20MB
@@ -1211,7 +1217,7 @@ test "KT128 sequential and parallel produce same output for large inputs" {
         defer allocator.free(input);
 
         // Fill with random data
-        crypto.random.bytes(input);
+        random.bytes(input);
 
         var output_seq: [64]u8 = undefined;
         var output_par: [64]u8 = undefined;
@@ -1259,12 +1265,15 @@ test "KT128 sequential and parallel produce same output with customization" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
     const input_size = 15 * 1024 * 1024; // 15MB
     const input = try allocator.alloc(u8, input_size);
     defer allocator.free(input);
 
     // Fill with random data
-    crypto.random.bytes(input);
+    random.bytes(input);
 
     const customization = "test domain";
     var output_seq: [48]u8 = undefined;
@@ -1284,6 +1293,9 @@ test "KT256 sequential and parallel produce same output for small inputs" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
     // Test with different small input sizes
     const test_sizes = [_]usize{ 100, 1024, 4096, 8192 }; // 100B, 1KB, 4KB, 8KB
 
@@ -1292,7 +1304,7 @@ test "KT256 sequential and parallel produce same output for small inputs" {
         defer allocator.free(input);
 
         // Fill with random data
-        crypto.random.bytes(input);
+        random.bytes(input);
 
         var output_seq: [64]u8 = undefined;
         var output_par: [64]u8 = undefined;
@@ -1312,6 +1324,9 @@ test "KT256 sequential and parallel produce same output for large inputs" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
     // Test with large input sizes that trigger parallel processing, including
     // a size that is just shy of a multiple of the 8KiB chunk to stress the
     // final partial leaf.
@@ -1326,7 +1341,7 @@ test "KT256 sequential and parallel produce same output for large inputs" {
         defer allocator.free(input);
 
         // Fill with random data
-        crypto.random.bytes(input);
+        random.bytes(input);
 
         var output_seq: [64]u8 = undefined;
         var output_par: [64]u8 = undefined;
@@ -1346,12 +1361,15 @@ test "KT256 sequential and parallel produce same output with customization" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
     const input_size = 15 * 1024 * 1024; // 15MB
     const input = try allocator.alloc(u8, input_size);
     defer allocator.free(input);
 
     // Fill with random data
-    crypto.random.bytes(input);
+    random.bytes(input);
 
     const customization = "test domain";
     var output_seq: [80]u8 = undefined;
@@ -1841,12 +1859,15 @@ test "KT256 incremental: with customization matches one-shot" {
 test "KT128 incremental: random small message with random chunk sizes" {
     const allocator = std.testing.allocator;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
     const test_sizes = [_]usize{ 100, 500, 2000, 5000, 10000 };
 
     for (test_sizes) |total_size| {
         const message = try allocator.alloc(u8, total_size);
         defer allocator.free(message);
-        crypto.random.bytes(message);
+        random.bytes(message);
 
         var output_oneshot: [32]u8 = undefined;
         var output_incremental: [32]u8 = undefined;
@@ -1859,7 +1880,7 @@ test "KT128 incremental: random small message with random chunk sizes" {
         while (offset < message.len) {
             const remaining = message.len - offset;
             const max_chunk = @min(1000, remaining);
-            const chunk_size_local = if (max_chunk == 1) 1 else crypto.random.intRangeAtMost(usize, 1, max_chunk);
+            const chunk_size_local = if (max_chunk == 1) 1 else random.intRangeAtMost(usize, 1, max_chunk);
 
             hasher.update(message[offset..][0..chunk_size_local]);
             offset += chunk_size_local;
@@ -1873,10 +1894,13 @@ test "KT128 incremental: random small message with random chunk sizes" {
 test "KT128 incremental: random large message (1MB) with random chunk sizes" {
     const allocator = std.testing.allocator;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
     const total_size: usize = 1024 * 1024; // 1 MB
     const message = try allocator.alloc(u8, total_size);
     defer allocator.free(message);
-    crypto.random.bytes(message);
+    random.bytes(message);
 
     var output_oneshot: [32]u8 = undefined;
     var output_incremental: [32]u8 = undefined;
@@ -1889,7 +1913,7 @@ test "KT128 incremental: random large message (1MB) with random chunk sizes" {
     while (offset < message.len) {
         const remaining = message.len - offset;
         const max_chunk = @min(10000, remaining);
-        const chunk_size_local = if (max_chunk == 1) 1 else crypto.random.intRangeAtMost(usize, 1, max_chunk);
+        const chunk_size_local = if (max_chunk == 1) 1 else random.intRangeAtMost(usize, 1, max_chunk);
 
         hasher.update(message[offset..][0..chunk_size_local]);
         offset += chunk_size_local;
@@ -1902,13 +1926,16 @@ test "KT128 incremental: random large message (1MB) with random chunk sizes" {
 test "KT256 incremental: random small message with random chunk sizes" {
     const allocator = std.testing.allocator;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
     const test_sizes = [_]usize{ 100, 500, 2000, 5000, 10000 };
 
     for (test_sizes) |total_size| {
         // Generate random message
         const message = try allocator.alloc(u8, total_size);
         defer allocator.free(message);
-        crypto.random.bytes(message);
+        random.bytes(message);
 
         var output_oneshot: [64]u8 = undefined;
         var output_incremental: [64]u8 = undefined;
@@ -1921,7 +1948,7 @@ test "KT256 incremental: random small message with random chunk sizes" {
         while (offset < message.len) {
             const remaining = message.len - offset;
             const max_chunk = @min(1000, remaining);
-            const chunk_size_local = if (max_chunk == 1) 1 else crypto.random.intRangeAtMost(usize, 1, max_chunk);
+            const chunk_size_local = if (max_chunk == 1) 1 else random.intRangeAtMost(usize, 1, max_chunk);
 
             hasher.update(message[offset..][0..chunk_size_local]);
             offset += chunk_size_local;
@@ -1935,10 +1962,13 @@ test "KT256 incremental: random small message with random chunk sizes" {
 test "KT256 incremental: random large message (1MB) with random chunk sizes" {
     const allocator = std.testing.allocator;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
     const total_size: usize = 1024 * 1024; // 1 MB
     const message = try allocator.alloc(u8, total_size);
     defer allocator.free(message);
-    crypto.random.bytes(message);
+    random.bytes(message);
 
     var output_oneshot: [64]u8 = undefined;
     var output_incremental: [64]u8 = undefined;
@@ -1951,7 +1981,7 @@ test "KT256 incremental: random large message (1MB) with random chunk sizes" {
     while (offset < message.len) {
         const remaining = message.len - offset;
         const max_chunk = @min(10000, remaining);
-        const chunk_size_local = if (max_chunk == 1) 1 else crypto.random.intRangeAtMost(usize, 1, max_chunk);
+        const chunk_size_local = if (max_chunk == 1) 1 else random.intRangeAtMost(usize, 1, max_chunk);
 
         hasher.update(message[offset..][0..chunk_size_local]);
         offset += chunk_size_local;
@@ -1964,10 +1994,13 @@ test "KT256 incremental: random large message (1MB) with random chunk sizes" {
 test "KT128 incremental: random message with customization and random chunks" {
     const allocator = std.testing.allocator;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
     const total_size: usize = 50000;
     const message = try allocator.alloc(u8, total_size);
     defer allocator.free(message);
-    crypto.random.bytes(message);
+    random.bytes(message);
 
     const customization = "random test domain";
 
@@ -1982,7 +2015,7 @@ test "KT128 incremental: random message with customization and random chunks" {
     while (offset < message.len) {
         const remaining = message.len - offset;
         const max_chunk = @min(5000, remaining);
-        const chunk_size_local = if (max_chunk == 1) 1 else crypto.random.intRangeAtMost(usize, 1, max_chunk);
+        const chunk_size_local = if (max_chunk == 1) 1 else random.intRangeAtMost(usize, 1, max_chunk);
 
         hasher.update(message[offset..][0..chunk_size_local]);
         offset += chunk_size_local;
