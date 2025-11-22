@@ -754,12 +754,12 @@ fn parseContextDependentNumber(ass: *Assembler) !void {
             const id = entry.value_ptr.*;
             if (id != result_id) continue;
             const info = entry.key_ptr.*;
-            switch (info.bits) {
+            return switch (info.bits) {
                 16 => try ass.parseContextDependentFloat(16),
                 32 => try ass.parseContextDependentFloat(32),
                 64 => try ass.parseContextDependentFloat(64),
                 else => return ass.fail(tok.start, "cannot parse {}-bit info literal", .{info.bits}),
-            }
+            };
         }
     }
 
