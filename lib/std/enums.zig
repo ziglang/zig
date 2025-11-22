@@ -216,48 +216,6 @@ test "directEnumArrayDefault slice" {
     try testing.expectEqualSlices(u8, "default", array[2]);
 }
 
-/// Deprecated: Use @field(E, @tagName(tag)) or @field(E, string)
-pub fn nameCast(comptime E: type, comptime value: anytype) E {
-    return comptime blk: {
-        const V = @TypeOf(value);
-        if (V == E) break :blk value;
-        const name: ?[]const u8 = switch (@typeInfo(V)) {
-            .enum_literal, .@"enum" => @tagName(value),
-            .pointer => value,
-            else => null,
-        };
-        if (name) |n| {
-            if (@hasField(E, n)) {
-                break :blk @field(E, n);
-            }
-            @compileError("Enum " ++ @typeName(E) ++ " has no field named " ++ n);
-        }
-        @compileError("Cannot cast from " ++ @typeName(@TypeOf(value)) ++ " to " ++ @typeName(E));
-    };
-}
-
-test nameCast {
-    const A = enum(u1) { a = 0, b = 1 };
-    const B = enum(u1) { a = 1, b = 0 };
-    try testing.expectEqual(A.a, nameCast(A, .a));
-    try testing.expectEqual(A.a, nameCast(A, A.a));
-    try testing.expectEqual(A.a, nameCast(A, B.a));
-    try testing.expectEqual(A.a, nameCast(A, "a"));
-    try testing.expectEqual(A.a, nameCast(A, @as(*const [1]u8, "a")));
-    try testing.expectEqual(A.a, nameCast(A, @as([:0]const u8, "a")));
-    try testing.expectEqual(A.a, nameCast(A, @as([]const u8, "a")));
-
-    try testing.expectEqual(B.a, nameCast(B, .a));
-    try testing.expectEqual(B.a, nameCast(B, A.a));
-    try testing.expectEqual(B.a, nameCast(B, B.a));
-    try testing.expectEqual(B.a, nameCast(B, "a"));
-
-    try testing.expectEqual(B.b, nameCast(B, .b));
-    try testing.expectEqual(B.b, nameCast(B, A.b));
-    try testing.expectEqual(B.b, nameCast(B, B.b));
-    try testing.expectEqual(B.b, nameCast(B, "b"));
-}
-
 test fromInt {
     const E1 = enum {
         A,

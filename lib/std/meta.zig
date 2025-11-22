@@ -671,38 +671,6 @@ test activeTag {
     try testing.expect(activeTag(u) == UE.Float);
 }
 
-/// Deprecated: Use @FieldType(U, tag_name)
-const TagPayloadType = TagPayload;
-
-/// Deprecated: Use @FieldType(U, tag_name)
-pub fn TagPayloadByName(comptime U: type, comptime tag_name: []const u8) type {
-    const info = @typeInfo(U).@"union";
-
-    inline for (info.fields) |field_info| {
-        if (comptime mem.eql(u8, field_info.name, tag_name))
-            return field_info.type;
-    }
-
-    @compileError("no field '" ++ tag_name ++ "' in union '" ++ @typeName(U) ++ "'");
-}
-
-/// Deprecated: Use @FieldType(U, @tagName(tag))
-pub fn TagPayload(comptime U: type, comptime tag: Tag(U)) type {
-    return TagPayloadByName(U, @tagName(tag));
-}
-
-test TagPayload {
-    const Event = union(enum) {
-        Moved: struct {
-            from: i32,
-            to: i32,
-        },
-    };
-    const MovedEvent = TagPayload(Event, Event.Moved);
-    const e: Event = .{ .Moved = undefined };
-    try testing.expect(MovedEvent == @TypeOf(e.Moved));
-}
-
 /// Compares two of any type for equality. Containers that do not support comparison
 /// on their own are compared on a field-by-field basis. Pointers are not followed.
 pub fn eql(a: anytype, b: @TypeOf(a)) bool {
@@ -829,14 +797,6 @@ test eql {
 
     try testing.expect(eql(v1, v2));
     try testing.expect(!eql(v1, v3));
-}
-
-/// Deprecated: use `std.enums.fromInt` instead and handle null.
-pub const IntToEnumError = error{InvalidEnumTag};
-
-/// Deprecated: use `std.enums.fromInt` instead and handle null instead of an error.
-pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTag {
-    return std.enums.fromInt(EnumTag, tag_int) orelse return error.InvalidEnumTag;
 }
 
 /// Given a type and a name, return the field index according to source order.

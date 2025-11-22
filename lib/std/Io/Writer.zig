@@ -1211,10 +1211,6 @@ pub fn printValue(
     }
 
     const is_any = comptime std.mem.eql(u8, fmt, ANY);
-    if (!is_any and std.meta.hasMethod(T, "format") and fmt.len == 0) {
-        // after 0.15.0 is tagged, delete this compile error and its condition
-        @compileError("ambiguous format string; specify {f} to call format method, or {any} to skip it");
-    }
 
     switch (@typeInfo(T)) {
         .float, .comptime_float => {
@@ -1702,7 +1698,7 @@ pub fn printFloatHex(w: *Writer, value: anytype, case: std.fmt.Case, opt_precisi
 
     try w.writeAll("0x");
     try w.writeByte(buf[0]);
-    const trimmed = std.mem.trimRight(u8, buf[1..], "0");
+    const trimmed = std.mem.trimEnd(u8, buf[1..], "0");
     if (opt_precision) |precision| {
         if (precision > 0) try w.writeAll(".");
     } else if (trimmed.len > 0) {

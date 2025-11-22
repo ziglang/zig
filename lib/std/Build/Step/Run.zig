@@ -88,9 +88,6 @@ skip_foreign_checks: bool,
 /// external executor (such as qemu) but not fail if the executor is unavailable.
 failing_to_execute_foreign_is_an_error: bool,
 
-/// Deprecated in favor of `stdio_limit`.
-max_stdio_size: usize,
-
 /// If stderr or stdout exceeds this amount, the child process is killed and
 /// the step fails.
 stdio_limit: std.Io.Limit,
@@ -223,7 +220,6 @@ pub fn create(owner: *std.Build, name: []const u8) *Run {
         .rename_step_with_output_arg = true,
         .skip_foreign_checks = false,
         .failing_to_execute_foreign_is_an_error = true,
-        .max_stdio_size = 10 * 1024 * 1024,
         .stdio_limit = .unlimited,
         .captured_stdout = null,
         .captured_stderr = null,
@@ -2217,7 +2213,6 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !EvalGenericResult {
     var stdout_bytes: ?[]const u8 = null;
     var stderr_bytes: ?[]const u8 = null;
 
-    run.stdio_limit = run.stdio_limit.min(.limited(run.max_stdio_size));
     if (child.stdout) |stdout| {
         if (child.stderr) |stderr| {
             var poller = std.Io.poll(arena, enum { stdout, stderr }, .{

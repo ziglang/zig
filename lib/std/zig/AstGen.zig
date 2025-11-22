@@ -507,7 +507,6 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
         .bool_or,
         .@"asm",
         .asm_simple,
-        .asm_legacy,
         .string_literal,
         .number_literal,
         .call,
@@ -813,12 +812,6 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .asm_simple,
         .@"asm",
         => return asmExpr(gz, scope, ri, node, tree.fullAsm(node).?),
-
-        .asm_legacy => {
-            return astgen.failNodeNotes(node, "legacy asm clobbers syntax", .{}, &[_]u32{
-                try astgen.errNoteNode(node, "use 'zig fmt' to auto-upgrade", .{}),
-            });
-        },
 
         .string_literal           => return stringLiteral(gz, ri, node),
         .multiline_string_literal => return multilineStringLiteral(gz, ri, node),
@@ -10398,7 +10391,6 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
 
             .@"asm",
             .asm_simple,
-            .asm_legacy,
             .identifier,
             .field_access,
             .deref,
@@ -10642,7 +10634,6 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
             .tagged_union_enum_tag_trailing,
             .@"asm",
             .asm_simple,
-            .asm_legacy,
             .add,
             .add_wrap,
             .add_sat,
@@ -10881,7 +10872,6 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .tagged_union_enum_tag_trailing,
             .@"asm",
             .asm_simple,
-            .asm_legacy,
             .add,
             .add_wrap,
             .add_sat,
