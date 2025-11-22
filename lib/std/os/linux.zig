@@ -1918,6 +1918,39 @@ pub fn gettid() pid_t {
     return @intCast(@as(u32, @truncate(syscall0(.gettid))));
 }
 
+pub const TimedWaitError = error{
+    /// Timeout supplied was reached.
+    TimeElapsed,
+    /// Call was interrupted by a signal not in supplied sigset.
+    OtherSignal,
+    /// Value in timeout is invalid
+    InvalidTimeout,
+};
+
+///  Suspends the calling thread until one of the signals in set is pending or the specified timeout is reached (If one
+///  of the signals in set is already pending for the calling thread, returns immediately.) Removes the signal from the
+///  set of pending signals and returns that signal. If the info argument is non-NULL, that buffer is used to return
+///  siginfo_t of the signal. If multiple signals in set are pending for the caller, the signal returned is determined
+///  according to the usual ordering rules
+pub fn sigtimedwait(
+    sigset: sigset_t,
+    siginfo: ?*siginfo_t,
+    /// specifies a minimum interval for which the thread is suspended waiting for a signal. (This
+    ///  interval will be rounded up to the system clock granularity, and kernel scheduling delays mean that the interval
+    ///  may overrun by a small amount.)
+    timeout: *const timespec,
+) TimedWaitError!SIG {
+    const sig_num = syscall4(.rt_sigtimedwait, @intFromPtr(&sigset), @intFromPtr(siginfo), @intFromPtr(timeout), NSIG / 8);
+
+    return switch (E.init(sig_num)) {
+        .SUCCESS => @enumFromInt(sig_num),
+        .AGAIN => error.TimeoutElapsed,
+        .INTR => error.OtherSignal,
+        .ENVAL => error.InvalidTimeout,
+        else => |err| return std.posix.unexpectedErrno(err),
+    };
+}
+
 pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*sigset_t) usize {
     return syscall4(.rt_sigprocmask, flags, @intFromPtr(set), @intFromPtr(oldset), NSIG / 8);
 }
