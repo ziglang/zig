@@ -11,11 +11,13 @@ root_dir: Cache.Directory,
 /// The path, relative to the root dir, that this `Path` represents.
 /// Empty string means the root_dir is the path.
 sub_path: []const u8 = "",
+content_hash_name: ?[]const u8 = null,
 
 pub fn clone(p: Path, arena: Allocator) Allocator.Error!Path {
     return .{
         .root_dir = try p.root_dir.clone(arena),
         .sub_path = try arena.dupe(u8, p.sub_path),
+        .content_hash_name = if (p.content_hash_name) |name| try arena.dupe(u8, name) else null,
     };
 }
 

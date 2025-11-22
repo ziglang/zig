@@ -315,7 +315,7 @@ pub fn addPrefixedOutputFileArg(
         run.setName(b.fmt("{s} ({s})", .{ run.step.name, basename }));
     }
 
-    return .{ .generated = .{ .file = &output.generated_file } };
+    return .{ .generated = .{ .file = &output.generated_file, .content_hash_name = output.basename } };
 }
 
 /// Appends an input file to the command line arguments.
@@ -908,8 +908,8 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
             man.hash.addBytes(bytes);
         },
         .lazy_path => |lazy_path| {
-            const file_path = lazy_path.getPath2(b, step);
-            _ = try man.addFile(file_path, null);
+            const file_path = lazy_path.getPath3(b, step);
+            _ = try man.addFilePath(file_path, null);
         },
         .none => {},
     }
