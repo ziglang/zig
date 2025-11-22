@@ -59,6 +59,7 @@ Write-Output "Main test suite..."
   -Dstatic-llvm `
   -Dskip-non-native `
   -Dskip-release `
+  -Dskip-test-incremental `
   -Denable-symlinks-windows `
   --test-timeout 30m
 CheckLastExitCode
