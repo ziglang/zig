@@ -4,6 +4,11 @@ const std = @import("std");
 const os = std.os;
 const assert = std.debug.assert;
 
+// Custom error set definition:
+const ExampleErrorSet = error{
+    ExampleErrorVariant,
+};
+
 pub fn main() void {
     // integers
     const one_plus_one: i32 = 1 + 1;
@@ -36,7 +41,7 @@ pub fn main() void {
     });
 
     // error union
-    var number_or_error: anyerror!i32 = error.ArgNotFound;
+    var number_or_error: ExampleErrorSet!i32 = ExampleErrorSet.ExampleErrorVariant;
 
     print("\nerror union 1\ntype: {}\nvalue: {!}\n", .{
         @TypeOf(number_or_error),
