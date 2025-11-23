@@ -111,7 +111,6 @@ typedef enum {
 	/*
 	 * draws a test picture. for debugging purposes only
 	 * returns 0 on success
-	 * TODO: remove "test" in final version
 	 */
 	OSD_Text,	/* (x0,y0,size,color,text) */
 	OSD_SetWindow,	/* (x0) set window with number 0<x0<8 as current */
