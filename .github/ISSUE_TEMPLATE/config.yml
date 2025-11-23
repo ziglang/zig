@@ -1,13 +1,13 @@
 contact_links:
   - name: Language Proposal
-    about: Propose to improve the Zig language
-    url: https://github.com/ziglang/zig/wiki/Language-Proposals
+    about: "Please do not submit a proposal to change the language"
+    url: https://ziglang.org/code-of-conduct
   - name: Question
-    about: Please use one of the community spaces for questions or general discussions.
-    url: https://github.com/ziglang/zig/wiki/Community
+    about: "Please use one of the community spaces instead for questions or general discussions."
+    url: https://ziglang.org/community
   - name: C Translation
     about: "Issues related to `zig translate-c` and `@cImport` are tracked separately."
     url: https://github.com/ziglang/translate-c/
   - name: Copilot and Other LLMs
-    about: Please do not use GitHub Copilot or any other LLM to write an issue.
-    url: https://github.com/ziglang/zig/wiki/Writing-Issues-with-Copilot-and-Other-LLMs
+    about: "Please do not use GitHub Copilot or any other LLM to write an issue."
+    url: https://ziglang.org/code-of-conduct
