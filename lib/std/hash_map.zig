@@ -508,7 +508,7 @@ pub fn HashMapUnmanaged(
     comptime Context: type,
     comptime max_load_percentage: u64,
 ) type {
-    if (max_load_percentage <= 0 or max_load_percentage >= 100)
+    if (max_load_percentage == 0 or max_load_percentage >= 100)
         @compileError("max_load_percentage must be between 0 and 100.");
     return struct {
         const Self = @This();
