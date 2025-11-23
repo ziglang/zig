@@ -810,6 +810,7 @@ pub const SimpleComptimeReason = enum(u32) {
     // Reasons other than `.type` are just more specific messages.
     type,
     array_sentinel,
+    merge_error_set,
     pointer_sentinel,
     slice_sentinel,
     array_length,
@@ -888,6 +889,7 @@ pub const SimpleComptimeReason = enum(u32) {
             .clobber              => "clobber must be comptime-known",
 
             .type                => "types must be comptime-known",
+            .merge_error_set     => "operand to error set merge (||) must be an error set",
             .array_sentinel      => "array sentinel value must be comptime-known",
             .pointer_sentinel    => "pointer sentinel value must be comptime-known",
             .slice_sentinel      => "slice sentinel value must be comptime-known",
