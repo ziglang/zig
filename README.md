@@ -238,7 +238,7 @@ Note: In case you get the error "llvm-config not found" (or similar), make sure 
 
 Install [CMake](https://cmake.org/), version 3.20.0 or newer.
 
-[Download LLVM, Clang, and LLD sources](http://releases.llvm.org/download.html#21.0.0)
+[Download LLVM, Clang, and LLD sources](https://releases.llvm.org/download.html#21.0.0)
 The downloads from llvm lead to the github release pages, where the source's
 will be listed as : `llvm-21.X.X.src.tar.xz`, `clang-21.X.X.src.tar.xz`,
 `lld-21.X.X.src.tar.xz`. Unzip each to their own directory. Ensure no
