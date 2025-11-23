@@ -67,7 +67,7 @@ pub fn build(b: *std.Build) void {
             // Target and optimization levels must be explicitly wired in when
             // defining an executable or library (in the root module), and you
             // can also hardcode a specific target for an executable or library
-            // definition if desireable (e.g. firmware for embedded devices).
+            // definition if desirable (e.g. firmware for embedded devices).
             .target = target,
             .optimize = optimize,
             // List of modules available for import in source files part of the
@@ -117,7 +117,7 @@ pub fn build(b: *std.Build) void {
 
     // Creates an executable that will run `test` blocks from the provided module.
     // Here `mod` needs to define a target, which is why earlier we made sure to
-    // set the releative field.
+    // set the relevant field.
     const mod_tests = b.addTest(.{
         .root_module = mod,
     });
