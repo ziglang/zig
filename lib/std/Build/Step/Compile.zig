@@ -1572,7 +1572,8 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     try zig_args.append("--global-cache-dir");
     try zig_args.append(b.graph.global_cache_root.path orelse ".");
 
-    if (b.graph.debug_compiler_runtime_libs) try zig_args.append("--debug-rt");
+    if (b.graph.debug_compiler_runtime_libs) |mode|
+        try zig_args.append(b.fmt("--debug-rt={t}", .{mode}));
 
     try zig_args.append("--name");
     try zig_args.append(compile.name);

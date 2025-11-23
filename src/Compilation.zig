@@ -175,7 +175,7 @@ verbose_llvm_cpu_features: bool,
 verbose_link: bool,
 disable_c_depfile: bool,
 stack_report: bool,
-debug_compiler_runtime_libs: bool,
+debug_compiler_runtime_libs: ?std.builtin.OptimizeMode,
 debug_compile_errors: bool,
 /// Do not check this field directly. Instead, use the `debugIncremental` wrapper function.
 debug_incremental: bool,
@@ -1734,7 +1734,7 @@ pub const CreateOptions = struct {
     verbose_llvm_bc: ?[]const u8 = null,
     verbose_cimport: bool = false,
     verbose_llvm_cpu_features: bool = false,
-    debug_compiler_runtime_libs: bool = false,
+    debug_compiler_runtime_libs: ?std.builtin.OptimizeMode = null,
     debug_compile_errors: bool = false,
     debug_incremental: bool = false,
     /// Normally when you create a `Compilation`, Zig will automatically build
@@ -2134,7 +2134,8 @@ pub fn create(gpa: Allocator, arena: Allocator, io: Io, diag: *CreateDiagnostic,
         cache.hash.addBytes(options.root_name);
         cache.hash.add(options.config.wasi_exec_model);
         cache.hash.add(options.config.san_cov_trace_pc_guard);
-        cache.hash.add(options.debug_compiler_runtime_libs);
+        cache.hash.add(options.debug_compiler_runtime_libs != null);
+        if (options.debug_compiler_runtime_libs) |mode| cache.hash.add(mode);
         // The actual emit paths don't matter. They're only user-specified if we aren't using the
         // cache! However, it does matter whether the files are emitted at all.
         cache.hash.add(options.emit_bin != .no);
@@ -8152,8 +8153,8 @@ pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
 /// This decides the optimization mode for all zig-provided libraries, including
 /// compiler-rt, libcxx, libc, libunwind, etc.
 pub fn compilerRtOptMode(comp: Compilation) std.builtin.OptimizeMode {
-    if (comp.debug_compiler_runtime_libs) {
-        return .Debug;
+    if (comp.debug_compiler_runtime_libs) |mode| {
+        return mode;
     }
     const target = &comp.root_mod.resolved_target.result;
     switch (comp.root_mod.optimize_mode) {
