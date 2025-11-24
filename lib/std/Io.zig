@@ -626,8 +626,9 @@ pub const VTable = struct {
     /// Thread-safe.
     cancelRequested: *const fn (?*anyopaque) bool,
 
-    /// Executes `start` asynchronously in a manner such that it cleans itself
-    /// up. This mode does not support results, await, or cancel.
+    /// When this function returns, implementation guarantees that `start` has
+    /// either already been called, or a unit of concurrency has been assigned
+    /// to the task of calling the function.
     ///
     /// Thread-safe.
     groupAsync: *const fn (
@@ -640,6 +641,17 @@ pub const VTable = struct {
         context_alignment: std.mem.Alignment,
         start: *const fn (*Group, context: *const anyopaque) void,
     ) void,
+    /// Thread-safe.
+    groupConcurrent: *const fn (
+        /// Corresponds to `Io.userdata`.
+        userdata: ?*anyopaque,
+        /// Owner of the spawned async task.
+        group: *Group,
+        /// Copied and then passed to `start`.
+        context: []const u8,
+        context_alignment: std.mem.Alignment,
+        start: *const fn (*Group, context: *const anyopaque) void,
+    ) ConcurrentError!void,
     groupWait: *const fn (?*anyopaque, *Group, token: *anyopaque) void,
     groupCancel: *const fn (?*anyopaque, *Group, token: *anyopaque) void,
 
@@ -1021,8 +1033,8 @@ pub const Group = struct {
     /// Threadsafe.
     ///
     /// See also:
-    /// * `Io.async`
     /// * `concurrent`
+    /// * `Io.async`
     pub fn async(g: *Group, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) void {
         const Args = @TypeOf(args);
         const TypeErased = struct {
@@ -1033,6 +1045,34 @@ pub const Group = struct {
             }
         };
         io.vtable.groupAsync(io.userdata, g, @ptrCast(&args), .of(Args), TypeErased.start);
+    }
+
+    /// Calls `function` with `args`, such that the function is not guaranteed
+    /// to have returned until `wait` is called, allowing the caller to
+    /// progress while waiting for any `Io` operations.
+    ///
+    /// The resource spawned is owned by the group; after this is called,
+    /// `wait` or `cancel` must be called before the group is deinitialized.
+    ///
+    /// This has stronger guarantee than `async`, placing restrictions on what kind
+    /// of `Io` implementations are supported. By calling `async` instead, one
+    /// allows, for example, stackful single-threaded blocking I/O.
+    ///
+    /// Threadsafe.
+    ///
+    /// See also:
+    /// * `async`
+    /// * `Io.concurrent`
+    pub fn concurrent(g: *Group, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) ConcurrentError!void {
+        const Args = @TypeOf(args);
+        const TypeErased = struct {
+            fn start(group: *Group, context: *const anyopaque) void {
+                _ = group;
+                const args_casted: *const Args = @ptrCast(@alignCast(context));
+                @call(.auto, function, args_casted.*);
+            }
+        };
+        return io.vtable.groupConcurrent(io.userdata, g, @ptrCast(&args), .of(Args), TypeErased.start);
     }
 
     /// Blocks until all tasks of the group finish. During this time,

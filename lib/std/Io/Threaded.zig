@@ -116,6 +116,7 @@ pub fn init(
     /// * `Io.VTable.async`
     /// * `Io.VTable.concurrent`
     /// * `Io.VTable.groupAsync`
+    /// * `Io.VTable.groupConcurrent`
     /// If these functions are avoided, then `Allocator.failing` may be passed
     /// here.
     gpa: Allocator,
@@ -221,6 +222,7 @@ pub fn io(t: *Threaded) Io {
             .select = select,
 
             .groupAsync = groupAsync,
+            .groupConcurrent = groupConcurrent,
             .groupWait = groupWait,
             .groupCancel = groupCancel,
 
@@ -317,6 +319,7 @@ pub fn ioBasic(t: *Threaded) Io {
             .select = select,
 
             .groupAsync = groupAsync,
+            .groupConcurrent = groupConcurrent,
             .groupWait = groupWait,
             .groupCancel = groupCancel,
 
@@ -726,6 +729,57 @@ fn groupAsync(
     assert((prev_state / GroupClosure.sync_one_pending) < (std.math.maxInt(usize) / GroupClosure.sync_one_pending));
 
     t.mutex.unlock();
+    t.cond.signal();
+}
+
+fn groupConcurrent(
+    userdata: ?*anyopaque,
+    group: *Io.Group,
+    context: []const u8,
+    context_alignment: Alignment,
+    start: *const fn (*Io.Group, context: *const anyopaque) void,
+) Io.ConcurrentError!void {
+    if (builtin.single_threaded) return error.ConcurrencyUnavailable;
+
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+
+    const gpa = t.allocator;
+    const gc = GroupClosure.init(gpa, t, group, context, context_alignment, start) catch
+        return error.ConcurrencyUnavailable;
+
+    t.mutex.lock();
+    defer t.mutex.unlock();
+
+    const busy_count = t.busy_count;
+
+    if (busy_count >= @intFromEnum(t.concurrent_limit))
+        return error.ConcurrencyUnavailable;
+
+    t.busy_count = busy_count + 1;
+    errdefer t.busy_count = busy_count;
+
+    const pool_size = t.wait_group.value();
+    if (pool_size - busy_count == 0) {
+        t.wait_group.start();
+        errdefer t.wait_group.finish();
+
+        const thread = std.Thread.spawn(.{ .stack_size = t.stack_size }, worker, .{t}) catch
+            return error.ConcurrencyUnavailable;
+        thread.detach();
+    }
+
+    // Append to the group linked list inside the mutex to make `Io.Group.concurrent` thread-safe.
+    gc.node = .{ .next = @ptrCast(@alignCast(group.token)) };
+    group.token = &gc.node;
+
+    t.run_queue.prepend(&gc.closure.node);
+
+    // This needs to be done before unlocking the mutex to avoid a race with
+    // the associated task finishing.
+    const group_state: *std.atomic.Value(usize) = @ptrCast(&group.state);
+    const prev_state = group_state.fetchAdd(GroupClosure.sync_one_pending, .monotonic);
+    assert((prev_state / GroupClosure.sync_one_pending) < (std.math.maxInt(usize) / GroupClosure.sync_one_pending));
+
     t.cond.signal();
 }
 
