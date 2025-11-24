@@ -980,12 +980,3 @@ const CommonOpenFlags = packed struct {
         return result;
     }
 };
-
-test "kill 0 can be used to perform checks of sending signal" {
-    if (native_os == .wasi) return error.SkipZigTest;
-    if (native_os == .windows) return error.SkipZigTest;
-    posix.kill(posix.getpid(), .INVAL) catch |err| switch (err) {
-        posix.KillError.PermissionDenied => return,
-        else => return err,
-    };
-}

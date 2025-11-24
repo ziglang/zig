@@ -141,6 +141,8 @@ pub fn getpid() u32 {
     return tos.pid;
 }
 pub const SIG = struct {
+    /// Invalid signal. Used in kill to perform checking without sending signal.
+    pub const INVAL = 0;
     /// hangup
     pub const HUP = 1;
     /// interrupt

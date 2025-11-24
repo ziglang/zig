@@ -20,6 +20,9 @@ const cases = [_]Case{
     .{
         .src_path = "relpaths.zig",
     },
+    .{
+        .src_path = "kill.zig",
+    },
 };
 
 pub fn build(b: *std.Build) void {
