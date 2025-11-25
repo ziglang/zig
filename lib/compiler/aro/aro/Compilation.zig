@@ -1700,7 +1700,8 @@ pub fn initSearchPath(comp: *Compilation, includes: []const Include, verbose: bo
                 std.debug.print("#include <...> search starts here:\n", .{});
             }
             std.debug.print(" {s}{s}\n", .{
-                include.path, if (include.kind.isFramework())
+                include.path,
+                if (include.kind.isFramework())
                     " (framework directory)"
                 else
                     "",

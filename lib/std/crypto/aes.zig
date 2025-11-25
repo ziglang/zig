@@ -8,8 +8,7 @@ const has_armaes = builtin.cpu.has(.aarch64, .aes);
 // C backend doesn't currently support passing vectors to inline asm.
 const impl = if (builtin.cpu.arch == .x86_64 and builtin.zig_backend != .stage2_c and has_aesni and has_avx) impl: {
     break :impl @import("aes/aesni.zig");
-} else if (builtin.cpu.arch == .aarch64 and builtin.zig_backend != .stage2_c and has_armaes)
-impl: {
+} else if (builtin.cpu.arch == .aarch64 and builtin.zig_backend != .stage2_c and has_armaes) impl: {
     break :impl @import("aes/armcrypto.zig");
 } else impl: {
     break :impl @import("aes/soft.zig");

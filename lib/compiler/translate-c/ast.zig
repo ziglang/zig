@@ -1213,7 +1213,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .slice,
                 .main_token = l_bracket,
                 .data = .{ .node_and_extra = .{
-                    string, try c.addExtra(std.zig.Ast.Node.Slice{
+                    string,
+                    try c.addExtra(std.zig.Ast.Node.Slice{
                         .start = start,
                         .end = end,
                     }),
@@ -2720,7 +2721,8 @@ fn renderCall(c: *Context, lhs: NodeIndex, args: []const Node) !NodeIndex {
                 .tag = .call,
                 .main_token = lparen,
                 .data = .{ .node_and_extra = .{
-                    lhs, try c.addExtra(NodeSubRange{
+                    lhs,
+                    try c.addExtra(NodeSubRange{
                         .start = span.start,
                         .end = span.end,
                     }),
