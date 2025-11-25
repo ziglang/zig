@@ -768,6 +768,21 @@ pub const Header = struct {
         };
     }
 
+    pub fn iterateDynamicSectionBuffer(
+        h: *const Header,
+        buf: []const u8,
+        offset: u64,
+        size: u64,
+    ) DynamicSectionBufferIterator {
+        return .{
+            .is_64 = h.is_64,
+            .endian = h.endian,
+            .offset = offset,
+            .end_offset = offset + size,
+            .buf = buf,
+        };
+    }
+
     pub const ReadError = Io.Reader.Error || error{
         InvalidElfMagic,
         InvalidElfVersion,
@@ -960,6 +975,23 @@ pub const DynamicSectionIterator = struct {
         defer it.offset += size;
         try it.file_reader.seekTo(it.offset);
         return try takeDynamicSection(&it.file_reader.interface, it.is_64, it.endian);
+    }
+};
+
+pub const DynamicSectionBufferIterator = struct {
+    is_64: bool,
+    endian: Endian,
+    offset: u64,
+    end_offset: u64,
+
+    buf: []const u8,
+
+    pub fn next(it: *DynamicSectionBufferIterator) !?Elf64_Dyn {
+        if (it.offset >= it.end_offset) return null;
+        const size: u64 = if (it.is_64) @sizeOf(Elf64_Dyn) else @sizeOf(Elf32_Dyn);
+        defer it.offset += size;
+        var reader: std.Io.Reader = .fixed(it.buf[it.offset..]);
+        return try takeDynamicSection(&reader, it.is_64, it.endian);
     }
 };
 
