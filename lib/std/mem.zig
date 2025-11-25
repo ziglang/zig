@@ -3935,13 +3935,7 @@ fn ReverseIterator(comptime T: type) type {
         .many, .c => @compileError("expected slice or pointer to array, found '" ++ @typeName(T) ++ "'"),
     }
     const Element = std.meta.Elem(T);
-    const attrs: std.builtin.Type.Pointer.Attributes = .{
-        .@"const" = ptr.is_const,
-        .@"volatile" = ptr.is_volatile,
-        .@"allowzero" = ptr.is_allowzero,
-        .@"align" = ptr.alignment,
-        .@"addrspace" = ptr.address_space,
-    };
+    const attrs: std.builtin.Type.Pointer.Attributes = .of(ptr);
     const Pointer = @Pointer(.many, attrs, Element, std.meta.sentinel(T));
     const ElementPointer = @Pointer(.one, attrs, Element, null);
     return struct {

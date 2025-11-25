@@ -628,6 +628,17 @@ pub const Type = union(enum) {
             @"allowzero": bool = false,
             @"addrspace": ?AddressSpace = null,
             @"align": ?usize = null,
+
+            pub fn of(comptime T: type) Attributes {
+                const ptr_info = @typeInfo(T).pointer;
+                return .{
+                    .@"const" = ptr_info.is_const,
+                    .@"volatile" = ptr_info.is_volatile,
+                    .@"allowzero" = ptr_info.is_allowzero,
+                    .@"addrspace" = ptr_info.address_space,
+                    .@"align" = ptr_info.alignment,
+                };
+            }
         };
     };
 
