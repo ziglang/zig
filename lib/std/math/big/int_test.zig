@@ -583,7 +583,9 @@ test "bitcount + sizeInBaseUpperBound" {
     try testing.expect(a.sizeInBaseUpperBound(2) >= 32);
     try testing.expect(a.sizeInBaseUpperBound(10) >= 10);
 
-    try a.shiftLeft(&a, 5000);
+    const shift = 5000;
+    try a.ensureCapacity(a.len() + (shift / @bitSizeOf(Limb)) + 1);
+    try a.shiftLeft(&a, shift);
     try testing.expectEqual(5032, a.bitCountAbs());
     try testing.expect(a.sizeInBaseUpperBound(2) >= 5032);
     a.setSign(false);
@@ -2380,7 +2382,9 @@ test "truncate negative multi to single" {
 test "truncate multi unsigned many" {
     var a = try Managed.initSet(testing.allocator, 1);
     defer a.deinit();
-    try a.shiftLeft(&a, 1023);
+    const shift = 1023;
+    try a.ensureCapacity(a.len() + (shift / @bitSizeOf(Limb)) + 1);
+    try a.shiftLeft(&a, shift);
 
     var b = try Managed.init(testing.allocator);
     defer b.deinit();
@@ -3263,7 +3267,7 @@ test "regression test for 1 limb overflow with alias" {
     var b = try Managed.initSet(testing.allocator, 12200160415121876738);
     defer b.deinit();
 
-    try a.ensureAddCapacity(a.toConst(), b.toConst());
+    try a.ensureAddCapacity(&a, &b);
     try a.add(&a, &b);
 
     try testing.expectEqual(.eq, a.toConst().orderAgainstScalar(19740274219868223167));
@@ -3277,7 +3281,7 @@ test "regression test for realloc with alias" {
     var b = try Managed.initSet(testing.allocator, 9079598147510263717870894449029933369491131786514446266146);
     defer b.deinit();
 
-    try a.ensureAddCapacity(a.toConst(), b.toConst());
+    try a.ensureAddCapacity(&a, &b);
     try a.add(&a, &b);
 
     try testing.expectEqual(.eq, a.toConst().orderAgainstScalar(14691098406862188148944207245954912110548093601382197697835));
@@ -3692,6 +3696,7 @@ test "mul multi-multi alias r with a and b" {
     var a = try Managed.initSet(testing.allocator, 2 * maxInt(Limb));
     defer a.deinit();
 
+    try a.ensureMulCapacity(&a, &a);
     try a.mul(&a, &a);
 
     var want = try Managed.initSet(testing.allocator, 4 * maxInt(Limb) * maxInt(Limb));
