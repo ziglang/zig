@@ -2937,7 +2937,13 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
 
 fn writeHeader(self: *MachO, ncmds: usize, sizeofcmds: usize) !void {
     var header: macho.mach_header_64 = .{};
-    header.flags = macho.MH_NOUNDEFS | macho.MH_DYLDLINK;
+    header.flags = macho.MH_DYLDLINK;
+
+    // Only set MH_NOUNDEFS if we're not allowing undefined symbols via dynamic lookup.
+    // When dynamic_lookup is enabled, undefined symbols are resolved at runtime by dyld.
+    if (self.undefined_treatment != .dynamic_lookup) {
+        header.flags |= macho.MH_NOUNDEFS;
+    }
 
     // TODO: if (self.options.namespace == .two_level) {
     header.flags |= macho.MH_TWOLEVEL;

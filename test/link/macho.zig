@@ -68,6 +68,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testTlsLargeTbss(b, .{ .target = default_target }));
     macho_step.dependOn(testTlsZig(b, .{ .target = default_target }));
     macho_step.dependOn(testUndefinedFlag(b, .{ .target = default_target }));
+    macho_step.dependOn(testUndefinedDynamicLookup(b, .{ .target = default_target }));
     macho_step.dependOn(testDiscardLocalSymbols(b, .{ .target = default_target }));
     macho_step.dependOn(testUnresolvedError(b, .{ .target = default_target }));
     macho_step.dependOn(testUnresolvedError2(b, .{ .target = default_target }));
@@ -2628,6 +2629,29 @@ fn testUndefinedFlag(b: *Build, opts: Options) *Step {
         check.checkNotPresent("_foo");
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+fn testUndefinedDynamicLookup(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "undefined-dynamic-lookup", opts);
+
+    // Create a dylib with an undefined external symbol reference
+    const dylib = addSharedLibrary(b, opts, .{ .name = "a" });
+    addCSourceBytes(dylib,
+        \\extern int undefined_symbol(void);
+        \\int call_undefined(void) {
+        \\    return undefined_symbol();
+        \\}
+    , &.{});
+    dylib.linker_allow_shlib_undefined = true;
+
+    // Verify the Mach-O header does NOT contain NOUNDEFS flag
+    const check = dylib.checkObject();
+    check.checkInHeaders();
+    check.checkExact("header");
+    check.checkNotPresent("NOUNDEFS");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }
