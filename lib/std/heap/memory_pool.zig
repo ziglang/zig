@@ -140,8 +140,8 @@ pub fn Extra(comptime Item: type, comptime pool_options: Options) type {
             // a capacity greater than 0, then its internals consist
             // of a *single* buffer node of said capacity. This means,
             // we can safely pre-heat without causing additional allocations.
-            const arena_capacity = arena.queryCapacity() / item_size;
-            if (arena_capacity != 0) self.addCapacity(arena_capacity) catch unreachable;
+            const num = arena.queryCapacity() / item_size;
+            if (num != 0) self.addCapacity(allocator, num) catch unreachable;
             return true;
         }
 
