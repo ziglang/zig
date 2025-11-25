@@ -40,8 +40,8 @@ pub fn egcd(a: anytype, b: anytype) ExtendedGreatestCommonDivisor(@TypeOf(a, b))
     };
     const toinv = @shrExact(other, @intCast(shift));
     const ctrl = @shrExact(odd, @intCast(shift)); // Invariant: |s|, |t|, |ctrl| < |MIN_OF(S)|
-    const half_ctrl = 1 + @shrExact(ctrl - 1, 1);
     const abs_ctrl = @abs(ctrl);
+    const half_ctrl: S = @intCast(1 + abs_ctrl >> 1);
 
     var s: S = std.math.sign(toinv);
     var t: S = 0;
