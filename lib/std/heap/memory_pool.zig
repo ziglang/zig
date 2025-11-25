@@ -408,13 +408,13 @@ test "reset" {
     try std.testing.expect(pool.create(a) != error.OutOfMemory);
     try std.testing.expect(pool.create(a) == error.OutOfMemory);
 
-    try std.testing.expect(pool.reset(.{ .retain_with_limit = 2 }));
+    try std.testing.expect(pool.reset(a, .{ .retain_with_limit = 2 }));
 
     try std.testing.expect(pool.create(a) != error.OutOfMemory);
     try std.testing.expect(pool.create(a) != error.OutOfMemory);
     try std.testing.expect(pool.create(a) == error.OutOfMemory);
 
-    try std.testing.expect(pool.reset(.{ .retain_with_limit = 1 }));
+    try std.testing.expect(pool.reset(a, .{ .retain_with_limit = 1 }));
 
     try std.testing.expect(pool.create(a) != error.OutOfMemory);
     try std.testing.expect(pool.create(a) == error.OutOfMemory);
