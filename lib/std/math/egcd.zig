@@ -2,7 +2,7 @@
 const std = @import("../std.zig");
 
 /// Result type of `egcd`.
-pub fn ExtendedGreatestCommonDivisor(S: anytype) type {
+pub fn Result(S: anytype) type {
     const N = switch (S) {
         comptime_int => comptime_int,
         else => |T| std.meta.Int(.unsigned, @bitSizeOf(T)),
@@ -16,7 +16,7 @@ pub fn ExtendedGreatestCommonDivisor(S: anytype) type {
 }
 
 /// Returns the Extended Greatest Common Divisor (EGCD) of two signed integers (`a` and `b`) which are not both zero.
-pub fn egcd(a: anytype, b: anytype) ExtendedGreatestCommonDivisor(@TypeOf(a, b)) {
+pub fn egcd(a: anytype, b: anytype) Result(@TypeOf(a, b)) {
     const S = switch (@TypeOf(a, b)) {
         comptime_int => b: {
             const n = @max(@abs(a), @abs(b));
