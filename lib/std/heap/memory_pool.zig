@@ -126,19 +126,18 @@ pub fn Extra(comptime Item: type, comptime pool_options: Options) type {
         ///
         /// NOTE: If `mode` is `free_all`, the function will always return `true`.
         pub fn reset(self: *Pool, allocator: Allocator, mode: ResetMode) bool {
+            self.free_list = .{};
             var arena = self.arena_state.promote(allocator);
-            defer self.arena_state = arena.state;
-
-            const ArenaResetMode = std.heap.ArenaAllocator.ResetMode;
-            const arena_mode = switch (mode) {
+            const arena_mode: std.heap.ArenaAllocator.ResetMode = switch (mode) {
                 .free_all => .free_all,
                 .retain_capacity => .retain_capacity,
-                .retain_with_limit => |limit| ArenaResetMode{ .retain_with_limit = limit * item_size },
+                .retain_with_limit => |limit| .{ .retain_with_limit = limit * item_size },
             };
-            self.free_list = .{};
-            if (!arena.reset(arena_mode)) return false;
+            const arena_result = arena.reset(arena_mode);
+            self.arena_state = arena.state;
+            if (!arena_result) return false;
             // When the backing arena allocator is being reset to
-            // a capacity greater than 0, then its internals consists
+            // a capacity greater than 0, then its internals consist
             // of a *single* buffer node of said capacity. This means,
             // we can safely pre-heat without causing additional allocations.
             const arena_capacity = arena.queryCapacity() / item_size;
