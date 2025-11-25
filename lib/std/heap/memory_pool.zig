@@ -1,5 +1,4 @@
-const std = @import("std");
-//const std = @import("../std.zig");
+const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
 const Alignment = std.mem.Alignment;
 const MemoryPool = std.heap.MemoryPool;
@@ -136,7 +135,7 @@ pub fn Extra(comptime Item: type, comptime pool_options: Options) type {
                 .retain_capacity => .retain_capacity,
                 .retain_with_limit => |limit| ArenaResetMode{ .retain_with_limit = limit * item_size },
             };
-            self.free_list = null;
+            self.free_list = .{};
             if (!arena.reset(arena_mode)) return false;
             // When the backing arena allocator is being reset to
             // a capacity greater than 0, then its internals consists
@@ -249,10 +248,6 @@ pub fn ExtraManaged(comptime Item: type, comptime pool_options: Options) type {
         /// Only pass items to `ptr` that were previously created with `create()` of the same memory pool!
         pub fn destroy(self: *Pool, ptr: ItemPtr) void {
             return self.unmanaged.destroy(ptr);
-        }
-
-        fn allocNew(self: *Pool, num: usize) Allocator.Error![*]align(unit_al_bytes) Unit {
-            return self.unmanaged.allocNew(self.allocator, num);
         }
     };
 }
