@@ -760,7 +760,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
         .error_set,
         => {
             if (actual != expected) {
-                print("expected {}, found {}\n", .{ expected, actual });
+                print("expected {any}, found {any}\n", .{ expected, actual });
                 return error.TestExpectedEqual;
             }
         },
