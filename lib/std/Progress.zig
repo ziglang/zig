@@ -698,13 +698,13 @@ const save = "\x1b7";
 const restore = "\x1b8";
 const finish_sync = "\x1b[?2026l";
 
-const progress_remove = "\x1b]9;4;0\x07";
-const @"progress_normal {d}" = "\x1b]9;4;1;{d}\x07";
-const @"progress_error {d}" = "\x1b]9;4;2;{d}\x07";
-const progress_pulsing = "\x1b]9;4;3\x07";
-const progress_pulsing_error = "\x1b]9;4;2\x07";
-const progress_normal_100 = "\x1b]9;4;1;100\x07";
-const progress_error_100 = "\x1b]9;4;2;100\x07";
+const progress_remove = "\x1b]9;4;0\x1b\\";
+const @"progress_normal {d}" = "\x1b]9;4;1;{d}\x1b\\";
+const @"progress_error {d}" = "\x1b]9;4;2;{d}\x1b\\";
+const progress_pulsing = "\x1b]9;4;3\x1b\\";
+const progress_pulsing_error = "\x1b]9;4;2\x1b\\";
+const progress_normal_100 = "\x1b]9;4;1;100\x1b\\";
+const progress_error_100 = "\x1b]9;4;2;100\x1b\\";
 
 const TreeSymbol = enum {
     /// ├─
