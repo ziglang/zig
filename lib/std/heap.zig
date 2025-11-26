@@ -30,7 +30,7 @@ pub const GeneralPurposeAllocator = DebugAllocator;
 /// because it outperforms general purpose allocators.
 /// Functions that potentially allocate memory accept an `Allocator` parameter.
 pub fn MemoryPool(comptime Item: type) type {
-    return memory_pool.Extra(Item, .{ .alignment = null });
+    return memory_pool.Extra(Item, .{});
 }
 pub const memory_pool = @import("heap/memory_pool.zig");
 
