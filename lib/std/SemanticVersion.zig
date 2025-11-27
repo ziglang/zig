@@ -140,6 +140,21 @@ pub fn parse(text: []const u8) !Version {
     return ver;
 }
 
+/// Parse versions coming from `uname` releases that are not fully semver compliant: a '+' sign can be appended without a build version.
+/// See https://github.com/torvalds/linux/blob/8f5ae30d69d7543eee0d70083daf4de8fe15d585/scripts/setlocalversion#L197-L210
+pub fn parseUtsnameRelease(release: []const u8) !Version {
+    // Directly parse release if no '+'.
+    const build_index = std.mem.indexOfScalar(u8, release, '+') orelse return parse(release);
+
+    if (build_index == release.len - 1) {
+        // If '+' is the last character, strip it.
+        return parse(release[0..build_index]);
+    }
+
+    // There is a '+', but it is not the last character. Keep everything.
+    return parse(release);
+}
+
 fn parseNum(text: []const u8) error{ InvalidVersion, Overflow }!usize {
     // Leading zeroes are not allowed.
     if (text.len > 1 and text[0] == '0') return error.InvalidVersion;
@@ -195,7 +210,10 @@ test format {
         "1.0.0+0.build.1-rc.10000aaa-kk-0.1",
         "5.4.0-1018-raspi",
         "5.7.123",
-    }) |valid| try std.testing.expectFmt(valid, "{f}", .{try parse(valid)});
+    }) |valid| {
+        try std.testing.expectFmt(valid, "{f}", .{try parse(valid)});
+        try std.testing.expectFmt(valid, "{f}", .{try parseUtsnameRelease(valid)});
+    }
 
     // Invalid version strings should be rejected.
     for ([_][]const u8{
@@ -257,17 +275,24 @@ test format {
         "+4",
         ".",
         "....3",
-    }) |invalid| try expectError(error.InvalidVersion, parse(invalid));
+    }) |invalid| {
+        try expectError(error.InvalidVersion, parse(invalid));
+        try expectError(error.InvalidVersion, parseUtsnameRelease(invalid));
+    }
 
     // Valid version string that may overflow.
     const big_valid = "99999999999999999999999.999999999999999999.99999999999999999";
     if (parse(big_valid)) |ver| {
         try std.testing.expectFmt(big_valid, "{f}", .{ver});
     } else |err| try expect(err == error.Overflow);
+    if (parseUtsnameRelease(big_valid)) |ver| {
+        try std.testing.expectFmt(big_valid, "{f}", .{ver});
+    } else |err| try expect(err == error.Overflow);
 
     // Invalid version string that may overflow.
     const big_invalid = "99999999999999999999999.999999999999999999.99999999999999999----RC-SNAPSHOT.12.09.1--------------------------------..12";
     if (parse(big_invalid)) |ver| std.debug.panic("expected error, found {f}", .{ver}) else |_| {}
+    if (parseUtsnameRelease(big_invalid)) |ver| std.debug.panic("expected error, found {f}", .{ver}) else |_| {}
 }
 
 test "precedence" {
@@ -297,4 +322,13 @@ test "zig_version" {
     // Simulated compatibility check using Zig version.
     const compatible = comptime @import("builtin").zig_version.order(older_version) == .gt;
     if (!compatible) @compileError("zig_version test failed");
+}
+
+test "utsname release version" {
+    // Non compliant utsname release version strings should be correctly parsed.
+    for ([_][2][]const u8{
+        .{ "0.0.4", "0.0.4" },
+        .{ "0.0.4+", "0.0.4" },
+        .{ "0.0.4+build-info", "0.0.4+build-info" },
+    }) |valid| try std.testing.expectFmt(valid[1], "{f}", .{try parseUtsnameRelease(valid[0])});
 }
