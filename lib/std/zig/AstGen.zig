@@ -5011,7 +5011,7 @@ fn structDeclInner(
     defer block_scope.unstack();
 
     const scratch_top = astgen.scratch.items.len;
-    defer astgen.scratch.items.len = scratch_top;
+    defer astgen.scratch.shrinkRetainingCapacity(scratch_top);
 
     var backing_int_body_len: usize = 0;
     const backing_int_ref: Zir.Inst.Ref = blk: {
@@ -5232,7 +5232,7 @@ fn tupleDecl(
     //        init: Inst.Ref, // `.none` for non-`comptime` fields
     //    }
     const fields_start = astgen.scratch.items.len;
-    defer astgen.scratch.items.len = fields_start;
+    defer astgen.scratch.shrinkRetainingCapacity(fields_start);
 
     try astgen.scratch.ensureUnusedCapacity(gpa, container_decl.ast.members.len * 2);
 
@@ -7276,7 +7276,7 @@ fn switchExprErrUnion(
     const case_table_end = multi_case_table + multi_cases_len;
 
     try astgen.scratch.resize(gpa, case_table_end);
-    defer astgen.scratch.items.len = scratch_top;
+    defer astgen.scratch.shrinkRetainingCapacity(scratch_top);
 
     var block_scope = parent_gz.makeSubBlock(scope);
     // block_scope not used for collecting instructions
@@ -7811,7 +7811,7 @@ fn switchExpr(
     const multi_case_table = scalar_case_table + scalar_cases_len;
     const case_table_end = multi_case_table + multi_cases_len;
     try astgen.scratch.resize(gpa, case_table_end);
-    defer astgen.scratch.items.len = scratch_top;
+    defer astgen.scratch.shrinkRetainingCapacity(scratch_top);
 
     var block_scope = parent_gz.makeSubBlock(scope);
     // block_scope not used for collecting instructions
@@ -10238,7 +10238,7 @@ fn callExpr(
     try gz.instructions.append(astgen.gpa, call_index);
 
     const scratch_top = astgen.scratch.items.len;
-    defer astgen.scratch.items.len = scratch_top;
+    defer astgen.scratch.shrinkRetainingCapacity(scratch_top);
 
     var scratch_index = scratch_top;
     try astgen.scratch.resize(astgen.gpa, scratch_top + call.ast.params.len);
