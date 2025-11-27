@@ -2181,6 +2181,7 @@ test "write_fixed/read_fixed" {
     var raw_buffers: [2][11]u8 = undefined;
     // First buffer will be written to the file.
     @memset(&raw_buffers[0], 'z');
+    @memset(&raw_buffers[1], 0);
     raw_buffers[0][0.."foobar".len].* = "foobar".*;
 
     var buffers = [2]posix.iovec{
