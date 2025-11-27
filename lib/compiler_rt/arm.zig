@@ -46,6 +46,14 @@ comptime {
                 @export(&__aeabi_read_tp, .{ .name = "__aeabi_read_tp", .linkage = common.linkage, .visibility = common.visibility });
             }
 
+            if (arch.isThumb()) {
+                @export(&__gnu_thumb1_case_sqi, .{ .name = "__gnu_thumb1_case_sqi", .linkage = common.linkage, .visibility = common.visibility });
+                @export(&__gnu_thumb1_case_uqi, .{ .name = "__gnu_thumb1_case_uqi", .linkage = common.linkage, .visibility = common.visibility });
+                @export(&__gnu_thumb1_case_shi, .{ .name = "__gnu_thumb1_case_shi", .linkage = common.linkage, .visibility = common.visibility });
+                @export(&__gnu_thumb1_case_uhi, .{ .name = "__gnu_thumb1_case_uhi", .linkage = common.linkage, .visibility = common.visibility });
+                @export(&__gnu_thumb1_case_si, .{ .name = "__gnu_thumb1_case_si", .linkage = common.linkage, .visibility = common.visibility });
+            }
+
             // floating-point helper functions (single+double-precision reverse subtraction, y – x), see subdf3.zig
             @export(&__aeabi_frsub, .{ .name = "__aeabi_frsub", .linkage = common.linkage, .visibility = common.visibility });
             @export(&__aeabi_drsub, .{ .name = "__aeabi_drsub", .linkage = common.linkage, .visibility = common.visibility });
@@ -203,6 +211,92 @@ pub fn __aeabi_ldivmod() callconv(.naked) void {
         :
         : [__divmoddi4] "X" (&__divmoddi4),
         : .{ .memory = true });
+    unreachable;
+}
+
+// GCC Thumb1 compressed switch tables: <https://gcc.gnu.org/legacy-ml/gcc-patches/2009-06/msg01698.html>
+
+pub fn __gnu_thumb1_case_sqi() callconv(.naked) void {
+    @setRuntimeSafety(false);
+    asm volatile (
+        \\ push {r1}
+        \\ mov r1, lr
+        \\ lsrs r1, r1, #1
+        \\ lsls r1, r1, #1
+        \\ ldrsb r1, [r1, r0]
+        \\ lsls r1, r1, #1
+        \\ add lr, lr, r1
+        \\ pop {r1}
+        \\ bx lr
+    );
+    unreachable;
+}
+
+pub fn __gnu_thumb1_case_uqi() callconv(.naked) void {
+    @setRuntimeSafety(false);
+    asm volatile (
+        \\ push {r1}
+        \\ mov r1, lr
+        \\ lsrs r1, r1, #1
+        \\ lsls r1, r1, #1
+        \\ ldrb r1, [r1, r0]
+        \\ lsls r1, r1, #1
+        \\ add lr, lr, r1
+        \\ pop {r1}
+        \\ bx lr
+    );
+    unreachable;
+}
+
+pub fn __gnu_thumb1_case_shi() callconv(.naked) void {
+    @setRuntimeSafety(false);
+    asm volatile (
+        \\ push {r0, r1}
+        \\ mov r1, lr
+        \\ lsrs r1, r1, #1
+        \\ lsls r0, r0, #1
+        \\ lsls r1, r1, #1
+        \\ ldrsh r1, [r1, r0]
+        \\ lsls r1, r1, #1
+        \\ add lr, lr, r1
+        \\ pop {r0, r1}
+        \\ bx lr
+    );
+    unreachable;
+}
+
+pub fn __gnu_thumb1_case_uhi() callconv(.naked) void {
+    @setRuntimeSafety(false);
+    asm volatile (
+        \\ push {r0, r1}
+        \\ mov r1, lr
+        \\ lsrs r1, r1, #1
+        \\ lsls r0, r0, #1
+        \\ lsls r1, r1, #1
+        \\ ldrh r1, [r1, r0]
+        \\ lsls r1, r1, #1
+        \\ add lr, lr, r1
+        \\ pop {r0, r1}
+        \\ bx lr
+    );
+    unreachable;
+}
+
+pub fn __gnu_thumb1_case_si() callconv(.naked) void {
+    @setRuntimeSafety(false);
+    asm volatile (
+        \\ push {r0, r1}
+        \\ mov r1, lr
+        \\ adds r1, r1, #2
+        \\ lsrs r1, r1, #2
+        \\ lsls r0, r0, #2
+        \\ lsls r1, r1, #2
+        \\ ldr r0, [r1, r0]
+        \\ adds r0, r0, r1
+        \\ mov lr, r0
+        \\ pop {r0, r1}
+        \\ mov pc, lr
+    );
     unreachable;
 }
 
