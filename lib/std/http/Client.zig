@@ -1803,6 +1803,11 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
         try body.writer.writeAll(payload);
         try body.end();
         try req.connection.?.flush();
+    } else if (http.Method.requestHasBody(req.method)) {
+        req.transfer_encoding = .{ .content_length = 0 };
+        var body = try req.sendBodyUnflushed(&.{});
+        try body.end();
+        try req.connection.?.flush();
     } else {
         try req.sendBodiless();
     }
