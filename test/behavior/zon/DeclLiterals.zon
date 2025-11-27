@@ -1,0 +1,5 @@
+.{
+    .a = .ADeclLitStruct,
+    .b = .ADeclLitUnion,
+    .c = .ADeclLitEnum,
+}

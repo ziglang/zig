@@ -571,3 +571,33 @@ test "build.zig.zon" {
 
     try expectEqual(.{ "build.zig", "build.zig.zon", "src" }, build.paths);
 }
+
+test "decl literal" {
+    const Struct = struct {
+        pub const ADeclLitStruct: @This() = .{.a = 5,.b = 0.6};
+        a: u64,
+        b: f64,
+    };
+    const Union = union(enum){
+        pub const ADeclLitUnion: @This() = .{.a = 5,};
+        a: u64,
+        b: f64,
+    };
+    const Enum = enum {
+        pub const ADeclLitEnum: @This() = .B;
+        A,
+        B,
+        C,
+    };
+
+    const Lits = struct {
+        a: Struct,
+        b: Union,
+        c: Enum,
+    };
+
+    const Preset: Lits = @import("zon/DeclLiterals.zon");
+    try expectEqual(Preset.a, Struct.ADeclLitStruct);
+    try expectEqual(Preset.b, Union.ADeclLitUnion);
+    try expectEqual(Preset.c, Enum.ADeclLitEnum);
+}
