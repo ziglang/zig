@@ -641,7 +641,14 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                                 // certificate_verify message later.
                                 try main_cert_pub_key.init(subject.pub_key_algo, subject.pubKey());
                             } else {
-                                try prev_cert.verify(subject, now_sec);
+                                prev_cert.verify(subject, now_sec) catch |err| switch (err) {
+                                    error.CertificateIssuerMismatch => {
+                                        // Skip certificate which is not part of the chain
+                                        cert_index += 1;
+                                        continue;
+                                    },
+                                    else => |e| return e,
+                                };
                             }
 
                             switch (options.ca) {
