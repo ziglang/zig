@@ -413,26 +413,19 @@ pub fn HashMap(
 
         /// If there is an `Entry` with a matching key, it is deleted from
         /// the hash map, and this function returns true.  Otherwise this
-        /// function returns false.
-        ///
-        /// TODO: answer the question in these doc comments, does this
-        /// increase the unused capacity by one?
+        /// function returns false. Increases the unused capacity by one.
         pub fn remove(self: *Self, key: K) bool {
             return self.unmanaged.removeContext(key, self.ctx);
         }
 
-        /// TODO: answer the question in these doc comments, does this
-        /// increase the unused capacity by one?
+        /// Increases the unused capacity by one.
         pub fn removeAdapted(self: *Self, key: anytype, ctx: anytype) bool {
             return self.unmanaged.removeAdapted(key, ctx);
         }
 
         /// Delete the entry with key pointed to by key_ptr from the hash map.
         /// key_ptr is assumed to be a valid pointer to a key that is present
-        /// in the hash map.
-        ///
-        /// TODO: answer the question in these doc comments, does this
-        /// increase the unused capacity by one?
+        /// in the hash map. Increases the unused capacity by one.
         pub fn removeByPtr(self: *Self, key_ptr: *K) void {
             self.unmanaged.removeByPtr(key_ptr);
         }
@@ -1233,24 +1226,19 @@ pub fn HashMapUnmanaged(
 
         /// If there is an `Entry` with a matching key, it is deleted from
         /// the hash map, and this function returns true.  Otherwise this
-        /// function returns false.
-        ///
-        /// TODO: answer the question in these doc comments, does this
-        /// increase the unused capacity by one?
+        /// function returns false. Increases the unused capacity by one.
         pub fn remove(self: *Self, key: K) bool {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call removeContext instead.");
             return self.removeContext(key, undefined);
         }
 
-        /// TODO: answer the question in these doc comments, does this
-        /// increase the unused capacity by one?
+        /// Increases the unused capacity by one.
         pub fn removeContext(self: *Self, key: K, ctx: Context) bool {
             return self.removeAdapted(key, ctx);
         }
 
-        /// TODO: answer the question in these doc comments, does this
-        /// increase the unused capacity by one?
+        /// Increases the unused capacity by one.
         pub fn removeAdapted(self: *Self, key: anytype, ctx: anytype) bool {
             if (self.getIndex(key, ctx)) |idx| {
                 self.removeByIndex(idx);
@@ -1262,10 +1250,7 @@ pub fn HashMapUnmanaged(
 
         /// Delete the entry with key pointed to by key_ptr from the hash map.
         /// key_ptr is assumed to be a valid pointer to a key that is present
-        /// in the hash map.
-        ///
-        /// TODO: answer the question in these doc comments, does this
-        /// increase the unused capacity by one?
+        /// in the hash map. Increases the unused capacity by one.
         pub fn removeByPtr(self: *Self, key_ptr: *K) void {
             // if @sizeOf(K) == 0 then there is at most one item in the hash
             // map, which is assumed to exist as key_ptr must be valid.  This
@@ -1713,10 +1698,18 @@ test "remove" {
         try map.put(i, i);
     }
 
+    var available_slots: u32 = 9;
+    var size: u32 = 16;
+
     i = 0;
     while (i < 16) : (i += 1) {
         if (i % 3 == 0) {
             _ = map.remove(i);
+            try expectEqual(32, map.capacity());
+            available_slots += 1;
+            try expectEqual(available_slots, map.unmanaged.available);
+            size -= 1;
+            try expectEqual(size, map.unmanaged.size);
         }
     }
     try expectEqual(map.count(), 10);
