@@ -14,6 +14,7 @@ fd: linux.fd_t = -1,
 sq: SubmissionQueue,
 cq: CompletionQueue,
 flags: u32,
+int_flags: u8,
 features: u32,
 
 /// A friendly way to setup an io_uring, with default linux.io_uring_params.
@@ -113,6 +114,8 @@ pub fn init_params(entries: u16, p: *linux.io_uring_params) !IoUring {
         .sq = sq,
         .cq = cq,
         .flags = p.flags,
+        // TODO set int_flags according to p.flags
+        .int_flags = 0,
         .features = p.features,
     };
 }
@@ -124,6 +127,21 @@ pub fn deinit(self: *IoUring) void {
     self.sq.deinit();
     posix.close(self.fd);
     self.fd = -1;
+}
+
+pub fn io_uring_set_io_wait(self: *IoUring, enable_iowait: bool) !void {
+    if ((self.features & linux.IORING_FEAT_NO_IOWAIT) == 0) {
+        return error.SystemOutdated;
+    }
+    if (enable_iowait) {
+        self.int_flags &= ~@as(u8, linux.IORING_INT_FLAG_NO_IOWAIT);
+    } else {
+        self.int_flags |= linux.IORING_INT_FLAG_NO_IOWAIT;
+    }
+}
+
+pub fn ring_enter_flags(self: *IoUring) u32 {
+    return self.int_flags & linux.IORING_INT_FLAGS_MASK;
 }
 
 /// Returns a pointer to a vacant SQE, or an error if the submission queue is full.
@@ -160,7 +178,7 @@ pub fn submit(self: *IoUring) !u32 {
 /// Matches the implementation of io_uring_submit_and_wait() in liburing.
 pub fn submit_and_wait(self: *IoUring, wait_nr: u32) !u32 {
     const submitted = self.flush_sq();
-    var flags: u32 = 0;
+    var flags: u32 = self.ring_enter_flags();
     if (self.sq_ring_needs_enter(&flags) or wait_nr > 0) {
         if (wait_nr > 0 or (self.flags & linux.IORING_SETUP_IOPOLL) != 0) {
             flags |= linux.IORING_ENTER_GETEVENTS;
@@ -233,7 +251,7 @@ pub fn flush_sq(self: *IoUring) u32 {
 /// For the latter case, we set the SQ thread wakeup flag.
 /// Matches the implementation of sq_ring_needs_enter() in liburing.
 pub fn sq_ring_needs_enter(self: *IoUring, flags: *u32) bool {
-    assert(flags.* == 0);
+    assert(flags.* & (~@as(u8, linux.IORING_INT_FLAGS_MASK)) == 0);
     if ((self.flags & linux.IORING_SETUP_SQPOLL) == 0) return true;
     if ((@atomicLoad(u32, self.sq.flags, .unordered) & linux.IORING_SQ_NEED_WAKEUP) != 0) {
         flags.* |= linux.IORING_ENTER_SQ_WAKEUP;
@@ -273,7 +291,8 @@ pub fn copy_cqes(self: *IoUring, cqes: []linux.io_uring_cqe, wait_nr: u32) !u32 
     const count = self.copy_cqes_ready(cqes);
     if (count > 0) return count;
     if (self.cq_ring_needs_flush() or wait_nr > 0) {
-        _ = try self.enter(0, wait_nr, linux.IORING_ENTER_GETEVENTS);
+        const flags = self.ring_enter_flags() | linux.IORING_ENTER_GETEVENTS;
+        _ = try self.enter(0, wait_nr, flags);
         return self.copy_cqes_ready(cqes);
     }
     return 0;
