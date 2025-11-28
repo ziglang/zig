@@ -14,7 +14,7 @@ test "parse and render IP addresses at comptime" {
         const ipv4addr = net.IpAddress.parse("127.0.0.1", 0) catch unreachable;
         try testing.expectFmt("127.0.0.1:0", "{f}", .{ipv4addr});
 
-        try testing.expectError(error.ParseFailed, net.IpAddress.parse("::123.123.123.123", 0));
+        try testing.expectError(error.ParseFailed, net.IpAddress.parse("1::2::123.123.123.123", 0));
         try testing.expectError(error.ParseFailed, net.IpAddress.parse("127.01.0.1", 0));
     }
 }
@@ -57,7 +57,9 @@ test "parse and render IPv6 addresses" {
     try testParseAndRenderIp6Address("::1234:5678", "::1234:5678");
     try testParseAndRenderIp6Address("2001:db8::1234:5678", "2001:db8::1234:5678");
     try testParseAndRenderIp6Address("FF01::FB%1234", "ff01::fb%1234");
+    try testParseAndRenderIp6Address("::123.5.123.5", "::7b05:7b05");
     try testParseAndRenderIp6Address("::ffff:123.5.123.5", "::ffff:123.5.123.5");
+    try testParseAndRenderIp6Address("64:ff9b::123.5.123.5", "64:ff9b::123.5.123.5");
     try testParseAndRenderIp6Address("ff01::fb%12345678901234", "ff01::fb%12345678901234");
 }
 
@@ -78,7 +80,7 @@ test "IPv6 address parse failures" {
     try testing.expectEqual(Unresolved.Parsed{ .invalid_byte = 9 }, Unresolved.parse("FF01::Fb:zig"));
     try testing.expectEqual(Unresolved.Parsed{ .junk_after_end = 19 }, Unresolved.parse("FF01:0:0:0:0:0:0:FB:"));
     try testing.expectEqual(Unresolved.Parsed.incomplete, Unresolved.parse("FF01:"));
-    try testing.expectEqual(Unresolved.Parsed{ .invalid_byte = 5 }, Unresolved.parse("::123.123.123.123"));
+    try testing.expectEqual(Unresolved.Parsed{ .invalid_byte = 5 }, Unresolved.parse("1::2::123.123.123.123"));
     try testing.expectEqual(Unresolved.Parsed.incomplete, Unresolved.parse("1"));
     try testing.expectEqual(Unresolved.Parsed.incomplete, Unresolved.parse("ff01::fb%"));
 }
