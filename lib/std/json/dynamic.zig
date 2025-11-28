@@ -10,8 +10,11 @@ const ParseError = @import("./static.zig").ParseError;
 
 const isNumberFormattedLikeAnInteger = @import("Scanner.zig").isNumberFormattedLikeAnInteger;
 
-pub const ObjectMap = StringArrayHashMap(Value);
-pub const Array = std.array_list.Managed(Value);
+pub const ObjectMap = std.StringArrayHashMapUnmanaged(Value);
+pub const Array = std.ArrayList(Value);
+
+pub const ObjectMapManaged = StringArrayHashMap(Value);
+pub const ArrayManaged = std.array_list.Managed(Value);
 
 /// Represents any JSON value, potentially containing other JSON values.
 /// A .float value may be an approximation of the original value.
@@ -26,6 +29,9 @@ pub const Value = union(enum) {
     string: []const u8,
     array: Array,
     object: ObjectMap,
+
+    array_managed: *ArrayManaged,
+    object_managed: *ObjectMapManaged,
 
     pub fn parseFromNumberSlice(s: []const u8) Value {
         if (!isNumberFormattedLikeAnInteger(s)) {
@@ -62,7 +68,17 @@ pub const Value = union(enum) {
             .number_string => |inner| try jws.print("{s}", .{inner}),
             .string => |inner| try jws.write(inner),
             .array => |inner| try jws.write(inner.items),
+            .array_managed => |inner| try jws.write(inner.items),
             .object => |inner| {
+                try jws.beginObject();
+                var it = inner.iterator();
+                while (it.next()) |entry| {
+                    try jws.objectField(entry.key_ptr.*);
+                    try jws.write(entry.value_ptr.*);
+                }
+                try jws.endObject();
+            },
+            .object_managed => |inner| {
                 try jws.beginObject();
                 var it = inner.iterator();
                 while (it.next()) |entry| {
@@ -77,11 +93,12 @@ pub const Value = union(enum) {
     pub fn jsonParse(allocator: Allocator, source: anytype, options: ParseOptions) ParseError(@TypeOf(source.*))!@This() {
         // The grammar of the stack is:
         //  (.array | .object .string)*
-        var stack = Array.init(allocator);
+        var stack = ArrayManaged.init(allocator);
         defer stack.deinit();
 
         while (true) {
             // Assert the stack grammar at the top of the stack.
+            // This doesn't need to check for managed, since we only use unmanaged here
             debug.assert(stack.items.len == 0 or
                 stack.items[stack.items.len - 1] == .array or
                 (stack.items[stack.items.len - 2] == .object and stack.items[stack.items.len - 1] == .string));
@@ -104,10 +121,10 @@ pub const Value = union(enum) {
 
                 .object_begin => {
                     switch (try source.nextAllocMax(allocator, .alloc_always, options.max_value_len.?)) {
-                        .object_end => return try handleCompleteValue(&stack, allocator, source, Value{ .object = ObjectMap.init(allocator) }, options) orelse continue,
+                        .object_end => return try handleCompleteValue(&stack, allocator, source, Value{ .object = ObjectMap.empty }, options) orelse continue,
                         .allocated_string => |key| {
                             try stack.appendSlice(&[_]Value{
-                                Value{ .object = ObjectMap.init(allocator) },
+                                Value{ .object = .empty },
                                 Value{ .string = key },
                             });
                         },
@@ -115,7 +132,7 @@ pub const Value = union(enum) {
                     }
                 },
                 .array_begin => {
-                    try stack.append(Value{ .array = Array.init(allocator) });
+                    try stack.append(Value{ .array = .empty });
                 },
                 .array_end => return try handleCompleteValue(&stack, allocator, source, stack.pop().?, options) orelse continue,
 
@@ -131,11 +148,12 @@ pub const Value = union(enum) {
     }
 };
 
-fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, value_: Value, options: ParseOptions) !?Value {
+fn handleCompleteValue(stack: *ArrayManaged, allocator: Allocator, source: anytype, value_: Value, options: ParseOptions) !?Value {
     if (stack.items.len == 0) return value_;
     var value = value_;
     while (true) {
         // Assert the stack grammar at the top of the stack.
+        // This doesn't need to check for managed, since we only use unmanaged here
         debug.assert(stack.items[stack.items.len - 1] == .array or
             (stack.items[stack.items.len - 2] == .object and stack.items[stack.items.len - 1] == .string));
         switch (stack.items[stack.items.len - 1]) {
@@ -146,7 +164,7 @@ fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, val
                 // stack: [..., .object]
                 var object = &stack.items[stack.items.len - 1].object;
 
-                const gop = try object.getOrPut(key);
+                const gop = try object.getOrPut(allocator, key);
                 if (gop.found_existing) {
                     switch (options.duplicate_field_behavior) {
                         .use_first => {},
@@ -180,7 +198,7 @@ fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, val
             },
             .array => |*array| {
                 // stack: [..., .array]
-                try array.append(value);
+                try array.append(allocator, value);
                 return null;
             },
             else => unreachable,
