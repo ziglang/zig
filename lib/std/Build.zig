@@ -416,7 +416,7 @@ fn createChildOnly(
 fn userInputOptionsFromArgs(arena: Allocator, args: anytype) UserInputOptionsMap {
     var map = UserInputOptionsMap.init(arena);
     inline for (@typeInfo(@TypeOf(args)).@"struct".fields) |field| {
-        if (field.type == @Type(.null)) continue;
+        if (field.type == @TypeOf(null)) continue;
         addUserInputOptionFromArg(arena, &map, field, field.type, @field(args, field.name));
     }
     return map;
@@ -526,16 +526,11 @@ fn addUserInputOptionFromArg(
             .pointer => |ptr_info| switch (ptr_info.size) {
                 .one => switch (@typeInfo(ptr_info.child)) {
                     .array => |array_info| {
-                        comptime var slice_info = ptr_info;
-                        slice_info.size = .slice;
-                        slice_info.is_const = true;
-                        slice_info.child = array_info.child;
-                        slice_info.sentinel_ptr = null;
                         addUserInputOptionFromArg(
                             arena,
                             map,
                             field,
-                            @Type(.{ .pointer = slice_info }),
+                            @Pointer(.slice, .{ .@"const" = true }, array_info.child, null),
                             maybe_value orelse null,
                         );
                         return;
@@ -553,14 +548,11 @@ fn addUserInputOptionFromArg(
                         }) catch @panic("OOM");
                     },
                     else => {
-                        comptime var slice_info = ptr_info;
-                        slice_info.is_const = true;
-                        slice_info.sentinel_ptr = null;
                         addUserInputOptionFromArg(
                             arena,
                             map,
                             field,
-                            @Type(.{ .pointer = slice_info }),
+                            @Pointer(ptr_info.size, .{ .@"const" = true }, ptr_info.child, null),
                             maybe_value orelse null,
                         );
                         return;

@@ -33,22 +33,8 @@ pub fn fromInt(comptime E: type, integer: anytype) ?E {
 /// default, which may be undefined.
 pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_default: ?Data) type {
     @setEvalBranchQuota(@typeInfo(E).@"enum".fields.len + eval_branch_quota_cushion);
-    var struct_fields: [@typeInfo(E).@"enum".fields.len]std.builtin.Type.StructField = undefined;
-    for (&struct_fields, @typeInfo(E).@"enum".fields) |*struct_field, enum_field| {
-        struct_field.* = .{
-            .name = enum_field.name,
-            .type = Data,
-            .default_value_ptr = if (field_default) |d| @as(?*const anyopaque, @ptrCast(&d)) else null,
-            .is_comptime = false,
-            .alignment = if (@sizeOf(Data) > 0) @alignOf(Data) else 0,
-        };
-    }
-    return @Type(.{ .@"struct" = .{
-        .layout = .auto,
-        .fields = &struct_fields,
-        .decls = &.{},
-        .is_tuple = false,
-    } });
+    const default_ptr: ?*const anyopaque = if (field_default) |d| @ptrCast(&d) else null;
+    return @Struct(.auto, null, std.meta.fieldNames(E), &@splat(Data), &@splat(.{ .default_value_ptr = default_ptr }));
 }
 
 /// Looks up the supplied fields in the given enum type.
@@ -1532,19 +1518,15 @@ test "EnumIndexer empty" {
 test "EnumIndexer large dense unsorted" {
     @setEvalBranchQuota(500_000); // many `comptimePrint`s
     // Make an enum with 500 fields with values in *descending* order.
-    const E = @Type(.{ .@"enum" = .{
-        .tag_type = u32,
-        .fields = comptime fields: {
-            var fields: [500]EnumField = undefined;
-            for (&fields, 0..) |*f, i| f.* = .{
-                .name = std.fmt.comptimePrint("f{d}", .{i}),
-                .value = 500 - i,
-            };
-            break :fields &fields;
-        },
-        .decls = &.{},
-        .is_exhaustive = true,
-    } });
+    const E = @Enum(u32, .exhaustive, names: {
+        var names: [500][]const u8 = undefined;
+        for (&names, 0..) |*name, i| name.* = std.fmt.comptimePrint("f{d}", .{i});
+        break :names &names;
+    }, vals: {
+        var vals: [500]u32 = undefined;
+        for (&vals, 0..) |*val, i| val.* = 500 - i;
+        break :vals &vals;
+    });
     const Indexer = EnumIndexer(E);
     try testing.expectEqual(E.f0, Indexer.keyForIndex(499));
     try testing.expectEqual(E.f499, Indexer.keyForIndex(0));

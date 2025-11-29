@@ -1,6 +1,6 @@
 name: Error message improvement
 description: Compiler produces an unhelpful or misleading error message.
-labels: ["error message"]
+labels: ["kind/error message"]
 body:
   - type: input
     id: version

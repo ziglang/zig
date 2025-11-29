@@ -643,7 +643,7 @@ const MsvcLibDir = struct {
 
         if (!std.fs.path.isAbsolute(dll_path)) return error.PathNotFound;
 
-        var path_it = std.fs.path.componentIterator(dll_path) catch return error.PathNotFound;
+        var path_it = std.fs.path.componentIterator(dll_path);
         // the .dll filename
         _ = path_it.last();
         const root_path = while (path_it.previous()) |dir_component| {

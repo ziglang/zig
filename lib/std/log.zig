@@ -57,13 +57,13 @@ pub const default_level: Level = switch (builtin.mode) {
 };
 
 pub const ScopeLevel = struct {
-    scope: @Type(.enum_literal),
+    scope: @EnumLiteral(),
     level: Level,
 };
 
 fn log(
     comptime level: Level,
-    comptime scope: @Type(.enum_literal),
+    comptime scope: @EnumLiteral(),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -73,7 +73,7 @@ fn log(
 }
 
 /// Determine if a specific log message level and scope combination are enabled for logging.
-pub fn logEnabled(comptime level: Level, comptime scope: @Type(.enum_literal)) bool {
+pub fn logEnabled(comptime level: Level, comptime scope: @EnumLiteral()) bool {
     inline for (std.options.log_scope_levels) |scope_level| {
         if (scope_level.scope == scope) return @intFromEnum(level) <= @intFromEnum(scope_level.level);
     }
@@ -87,7 +87,7 @@ pub fn logEnabled(comptime level: Level, comptime scope: @Type(.enum_literal)) b
 /// function returns.
 pub fn defaultLog(
     comptime level: Level,
-    comptime scope: @Type(.enum_literal),
+    comptime scope: @EnumLiteral(),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -115,7 +115,7 @@ pub fn defaultLog(
 
 /// Returns a scoped logging namespace that logs all messages using the scope
 /// provided here.
-pub fn scoped(comptime scope: @Type(.enum_literal)) type {
+pub fn scoped(comptime scope: @EnumLiteral()) type {
     return struct {
         /// Log an error message. This log level is intended to be used
         /// when something has gone wrong. This might be recoverable or might

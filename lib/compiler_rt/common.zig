@@ -290,10 +290,7 @@ pub fn normalize(comptime T: type, significand: *std.meta.Int(.unsigned, @typeIn
 pub inline fn fneg(a: anytype) @TypeOf(a) {
     const F = @TypeOf(a);
     const bits = @typeInfo(F).float.bits;
-    const U = @Type(.{ .int = .{
-        .signedness = .unsigned,
-        .bits = bits,
-    } });
+    const U = @Int(.unsigned, bits);
     const sign_bit_mask = @as(U, 1) << (bits - 1);
     const negated = @as(U, @bitCast(a)) ^ sign_bit_mask;
     return @bitCast(negated);

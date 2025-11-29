@@ -2470,8 +2470,8 @@ pub fn renameZ(old_path: [*:0]const u8, new_path: [*:0]const u8) RenameError!voi
 /// Same as `rename` except the parameters are null-terminated and WTF16LE encoded.
 /// Assumes target is Windows.
 pub fn renameW(old_path: [*:0]const u16, new_path: [*:0]const u16) RenameError!void {
-    const flags = windows.MOVEFILE_REPLACE_EXISTING | windows.MOVEFILE_WRITE_THROUGH;
-    return windows.MoveFileExW(old_path, new_path, flags);
+    const cwd_handle = std.fs.cwd().fd;
+    return windows.RenameFile(cwd_handle, mem.span(old_path), cwd_handle, mem.span(new_path), true);
 }
 
 /// Change the name or location of a file based on an open directory handle.
@@ -2588,110 +2588,7 @@ pub fn renameatW(
     new_path_w: []const u16,
     ReplaceIfExists: windows.BOOLEAN,
 ) RenameError!void {
-    const src_fd = windows.OpenFile(old_path_w, .{
-        .dir = old_dir_fd,
-        .access_mask = windows.SYNCHRONIZE | windows.GENERIC_WRITE | windows.DELETE,
-        .creation = windows.FILE_OPEN,
-        .filter = .any, // This function is supposed to rename both files and directories.
-        .follow_symlinks = false,
-    }) catch |err| switch (err) {
-        error.WouldBlock => unreachable, // Not possible without `.share_access_nonblocking = true`.
-        else => |e| return e,
-    };
-    defer windows.CloseHandle(src_fd);
-
-    var rc: windows.NTSTATUS = undefined;
-    // FileRenameInformationEx has varying levels of support:
-    // - FILE_RENAME_INFORMATION_EX requires >= win10_rs1
-    //   (INVALID_INFO_CLASS is returned if not supported)
-    // - Requires the NTFS filesystem
-    //   (on filesystems like FAT32, INVALID_PARAMETER is returned)
-    // - FILE_RENAME_POSIX_SEMANTICS requires >= win10_rs1
-    // - FILE_RENAME_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5
-    //   (NOT_SUPPORTED is returned if a flag is unsupported)
-    //
-    // The strategy here is just to try using FileRenameInformationEx and fall back to
-    // FileRenameInformation if the return value lets us know that some aspect of it is not supported.
-    const need_fallback = need_fallback: {
-        const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION_EX) + (max_path_bytes - 1);
-        var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION_EX)) = undefined;
-        const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION_EX) - 1 + new_path_w.len * 2;
-        if (struct_len > struct_buf_len) return error.NameTooLong;
-
-        const rename_info: *windows.FILE_RENAME_INFORMATION_EX = @ptrCast(&rename_info_buf);
-        var io_status_block: windows.IO_STATUS_BLOCK = undefined;
-
-        var flags: windows.ULONG = windows.FILE_RENAME_POSIX_SEMANTICS | windows.FILE_RENAME_IGNORE_READONLY_ATTRIBUTE;
-        if (ReplaceIfExists == windows.TRUE) flags |= windows.FILE_RENAME_REPLACE_IF_EXISTS;
-        rename_info.* = .{
-            .Flags = flags,
-            .RootDirectory = if (fs.path.isAbsoluteWindowsWtf16(new_path_w)) null else new_dir_fd,
-            .FileNameLength = @intCast(new_path_w.len * 2), // already checked error.NameTooLong
-            .FileName = undefined,
-        };
-        @memcpy((&rename_info.FileName).ptr, new_path_w);
-        rc = windows.ntdll.NtSetInformationFile(
-            src_fd,
-            &io_status_block,
-            rename_info,
-            @intCast(struct_len), // already checked for error.NameTooLong
-            .FileRenameInformationEx,
-        );
-        switch (rc) {
-            .SUCCESS => return,
-            // The filesystem does not support FileDispositionInformationEx
-            .INVALID_PARAMETER,
-            // The operating system does not support FileDispositionInformationEx
-            .INVALID_INFO_CLASS,
-            // The operating system does not support one of the flags
-            .NOT_SUPPORTED,
-            => break :need_fallback true,
-            // For all other statuses, fall down to the switch below to handle them.
-            else => break :need_fallback false,
-        }
-    };
-
-    if (need_fallback) {
-        const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION) + (max_path_bytes - 1);
-        var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION)) = undefined;
-        const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION) - 1 + new_path_w.len * 2;
-        if (struct_len > struct_buf_len) return error.NameTooLong;
-
-        const rename_info: *windows.FILE_RENAME_INFORMATION = @ptrCast(&rename_info_buf);
-        var io_status_block: windows.IO_STATUS_BLOCK = undefined;
-
-        rename_info.* = .{
-            .Flags = ReplaceIfExists,
-            .RootDirectory = if (fs.path.isAbsoluteWindowsWtf16(new_path_w)) null else new_dir_fd,
-            .FileNameLength = @intCast(new_path_w.len * 2), // already checked error.NameTooLong
-            .FileName = undefined,
-        };
-        @memcpy((&rename_info.FileName).ptr, new_path_w);
-
-        rc = windows.ntdll.NtSetInformationFile(
-            src_fd,
-            &io_status_block,
-            rename_info,
-            @intCast(struct_len), // already checked for error.NameTooLong
-            .FileRenameInformation,
-        );
-    }
-
-    switch (rc) {
-        .SUCCESS => {},
-        .INVALID_HANDLE => unreachable,
-        .INVALID_PARAMETER => unreachable,
-        .OBJECT_PATH_SYNTAX_BAD => unreachable,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .NOT_SAME_DEVICE => return error.RenameAcrossMountPoints,
-        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-        .DIRECTORY_NOT_EMPTY => return error.PathAlreadyExists,
-        .FILE_IS_A_DIRECTORY => return error.IsDir,
-        .NOT_A_DIRECTORY => return error.NotDir,
-        else => return windows.unexpectedStatus(rc),
-    }
+    return windows.RenameFile(old_dir_fd, old_path_w, new_dir_fd, new_path_w, ReplaceIfExists != 0);
 }
 
 /// On Windows, `sub_dir_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
@@ -4409,7 +4306,7 @@ pub fn mmap(
 /// Note that while POSIX allows unmapping a region in the middle of an existing mapping,
 /// Zig's munmap function does not, for two reasons:
 /// * It violates the Zig principle that resource deallocation must succeed.
-/// * The Windows function, VirtualFree, has this restriction.
+/// * The Windows function, NtFreeVirtualMemory, has this restriction.
 pub fn munmap(memory: []align(page_size_min) const u8) void {
     switch (errno(system.munmap(memory.ptr, memory.len))) {
         .SUCCESS => return,

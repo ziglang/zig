@@ -54,8 +54,7 @@ fn testToPrefixedFileOnlyOracle(comptime path: []const u8) !void {
 }
 
 test "toPrefixedFileW" {
-    if (builtin.os.tag != .windows)
-        return;
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
 
     // Most test cases come from https://googleprojectzero.blogspot.com/2016/02/the-definitive-guide-on-win32-to-nt.html
     // Note that these tests do not actually touch the filesystem or care about whether or not
@@ -236,4 +235,105 @@ test "removeDotDirs" {
 
     try testRemoveDotDirs("a\\b\\..\\", "a\\");
     try testRemoveDotDirs("a\\b\\..\\c", "a\\c");
+}
+
+const RTL_PATH_TYPE = enum(c_int) {
+    Unknown,
+    UncAbsolute,
+    DriveAbsolute,
+    DriveRelative,
+    Rooted,
+    Relative,
+    LocalDevice,
+    RootLocalDevice,
+};
+
+pub extern "ntdll" fn RtlDetermineDosPathNameType_U(
+    Path: [*:0]const u16,
+) callconv(.winapi) RTL_PATH_TYPE;
+
+test "getWin32PathType vs RtlDetermineDosPathNameType_U" {
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    var buf: std.ArrayList(u16) = .empty;
+    defer buf.deinit(std.testing.allocator);
+
+    var wtf8_buf: std.ArrayList(u8) = .empty;
+    defer wtf8_buf.deinit(std.testing.allocator);
+
+    var random = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const rand = random.random();
+
+    for (0..1000) |_| {
+        buf.clearRetainingCapacity();
+        const path = try getRandomWtf16Path(std.testing.allocator, &buf, rand);
+        wtf8_buf.clearRetainingCapacity();
+        const wtf8_len = std.unicode.calcWtf8Len(path);
+        try wtf8_buf.ensureTotalCapacity(std.testing.allocator, wtf8_len);
+        wtf8_buf.items.len = wtf8_len;
+        std.debug.assert(std.unicode.wtf16LeToWtf8(wtf8_buf.items, path) == wtf8_len);
+
+        const windows_type = RtlDetermineDosPathNameType_U(path);
+        const wtf16_type = windows.getWin32PathType(u16, path);
+        const wtf8_type = windows.getWin32PathType(u8, wtf8_buf.items);
+
+        checkPathType(windows_type, wtf16_type) catch |err| {
+            std.debug.print("expected type {}, got {} for path: {f}\n", .{ windows_type, wtf16_type, std.unicode.fmtUtf16Le(path) });
+            std.debug.print("path bytes:\n", .{});
+            std.debug.dumpHex(std.mem.sliceAsBytes(path));
+            return err;
+        };
+
+        if (wtf16_type != wtf8_type) {
+            std.debug.print("type mismatch between wtf8: {} and wtf16: {} for path: {f}\n", .{ wtf8_type, wtf16_type, std.unicode.fmtUtf16Le(path) });
+            std.debug.print("wtf-16 path bytes:\n", .{});
+            std.debug.dumpHex(std.mem.sliceAsBytes(path));
+            std.debug.print("wtf-8 path bytes:\n", .{});
+            std.debug.dumpHex(std.mem.sliceAsBytes(wtf8_buf.items));
+            return error.Wtf8Wtf16Mismatch;
+        }
+    }
+}
+
+fn checkPathType(windows_type: RTL_PATH_TYPE, zig_type: windows.Win32PathType) !void {
+    const expected_windows_type: RTL_PATH_TYPE = switch (zig_type) {
+        .unc_absolute => .UncAbsolute,
+        .drive_absolute => .DriveAbsolute,
+        .drive_relative => .DriveRelative,
+        .rooted => .Rooted,
+        .relative => .Relative,
+        .local_device => .LocalDevice,
+        .root_local_device => .RootLocalDevice,
+    };
+    if (windows_type != expected_windows_type) return error.PathTypeMismatch;
+}
+
+fn getRandomWtf16Path(allocator: std.mem.Allocator, buf: *std.ArrayList(u16), rand: std.Random) ![:0]const u16 {
+    const Choice = enum {
+        backslash,
+        slash,
+        control,
+        printable,
+        non_ascii,
+    };
+
+    const choices = rand.uintAtMostBiased(u16, 32);
+
+    for (0..choices) |_| {
+        const choice = rand.enumValue(Choice);
+        const code_unit = switch (choice) {
+            .backslash => '\\',
+            .slash => '/',
+            .control => switch (rand.uintAtMostBiased(u8, 0x20)) {
+                0x20 => '\x7F',
+                else => |b| b + 1, // no NUL
+            },
+            .printable => '!' + rand.uintAtMostBiased(u8, '~' - '!'),
+            .non_ascii => rand.intRangeAtMostBiased(u16, 0x80, 0xFFFF),
+        };
+        try buf.append(allocator, std.mem.nativeToLittle(u16, code_unit));
+    }
+
+    try buf.append(allocator, 0);
+    return buf.items[0 .. buf.items.len - 1 :0];
 }

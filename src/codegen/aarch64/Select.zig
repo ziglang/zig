@@ -8928,12 +8928,16 @@ pub const Value = struct {
         constant: Constant,
 
         pub const Tag = @typeInfo(Parent).@"union".tag_type.?;
-        pub const Payload = @Type(.{ .@"union" = .{
-            .layout = .auto,
-            .tag_type = null,
-            .fields = @typeInfo(Parent).@"union".fields,
-            .decls = &.{},
-        } });
+        pub const Payload = Payload: {
+            const fields = @typeInfo(Parent).@"union".fields;
+            var types: [fields.len]type = undefined;
+            var names: [fields.len][]const u8 = undefined;
+            for (fields, &types, &names) |f, *ty, *name| {
+                ty.* = f.type;
+                name.* = f.name;
+            }
+            break :Payload @Union(.auto, null, &names, &types, &@splat(.{}));
+        };
     };
 
     pub const Location = union(enum(u1)) {
@@ -8949,12 +8953,16 @@ pub const Value = struct {
         },
 
         pub const Tag = @typeInfo(Location).@"union".tag_type.?;
-        pub const Payload = @Type(.{ .@"union" = .{
-            .layout = .auto,
-            .tag_type = null,
-            .fields = @typeInfo(Location).@"union".fields,
-            .decls = &.{},
-        } });
+        pub const Payload = Payload: {
+            const fields = @typeInfo(Location).@"union".fields;
+            var types: [fields.len]type = undefined;
+            var names: [fields.len][]const u8 = undefined;
+            for (fields, &types, &names) |f, *ty, *name| {
+                ty.* = f.type;
+                name.* = f.name;
+            }
+            break :Payload @Union(.auto, null, &names, &types, &@splat(.{}));
+        };
     };
 
     pub const Indirect = packed struct(u32) {
@@ -11210,7 +11218,7 @@ pub const Value = struct {
                                     .storage = .{ .u64 = switch (size) {
                                         else => unreachable,
                                         inline 1...8 => |ct_size| std.mem.readInt(
-                                            @Type(.{ .int = .{ .signedness = .unsigned, .bits = 8 * ct_size } }),
+                                            @Int(.unsigned, 8 * ct_size),
                                             buffer[@intCast(offset)..][0..ct_size],
                                             isel.target.cpu.arch.endian(),
                                         ),
@@ -11438,7 +11446,7 @@ fn writeKeyToMemory(isel: *Select, constant_key: InternPool.Key, buffer: []u8) e
             switch (buffer.len) {
                 else => unreachable,
                 inline 1...4 => |size| std.mem.writeInt(
-                    @Type(.{ .int = .{ .signedness = .unsigned, .bits = 8 * size } }),
+                    @Int(.unsigned, 8 * size),
                     buffer[0..size],
                     @intCast(error_int),
                     isel.target.cpu.arch.endian(),

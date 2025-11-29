@@ -708,7 +708,7 @@ pub fn emitMir(emit: *Emit) Error!void {
         switch (reloc.source_length) {
             else => unreachable,
             inline 1, 4 => |source_length| std.mem.writeInt(
-                @Type(.{ .int = .{ .signedness = .signed, .bits = @as(u16, 8) * source_length } }),
+                @Int(.signed, @as(u16, 8) * source_length),
                 inst_bytes[reloc.source_offset..][0..source_length],
                 @intCast(disp),
                 .little,

@@ -846,17 +846,18 @@ fn Span(comptime T: type) type {
             return ?Span(optional_info.child);
         },
         .pointer => |ptr_info| {
-            var new_ptr_info = ptr_info;
-            switch (ptr_info.size) {
-                .c => {
-                    new_ptr_info.sentinel_ptr = &@as(ptr_info.child, 0);
-                    new_ptr_info.is_allowzero = false;
-                },
-                .many => if (ptr_info.sentinel() == null) @compileError("invalid type given to std.mem.span: " ++ @typeName(T)),
+            const new_sentinel: ?ptr_info.child = switch (ptr_info.size) {
                 .one, .slice => @compileError("invalid type given to std.mem.span: " ++ @typeName(T)),
-            }
-            new_ptr_info.size = .slice;
-            return @Type(.{ .pointer = new_ptr_info });
+                .many => ptr_info.sentinel() orelse @compileError("invalid type given to std.mem.span: " ++ @typeName(T)),
+                .c => 0,
+            };
+            return @Pointer(.slice, .{
+                .@"const" = ptr_info.is_const,
+                .@"volatile" = ptr_info.is_volatile,
+                .@"allowzero" = ptr_info.is_allowzero and ptr_info.size != .c,
+                .@"align" = ptr_info.alignment,
+                .@"addrspace" = ptr_info.address_space,
+            }, ptr_info.child, new_sentinel);
         },
         else => {},
     }
@@ -910,45 +911,18 @@ fn SliceTo(comptime T: type, comptime end: std.meta.Elem(T)) type {
             return ?SliceTo(optional_info.child, end);
         },
         .pointer => |ptr_info| {
-            var new_ptr_info = ptr_info;
-            new_ptr_info.size = .slice;
-            switch (ptr_info.size) {
-                .one => switch (@typeInfo(ptr_info.child)) {
-                    .array => |array_info| {
-                        new_ptr_info.child = array_info.child;
-                        // The return type must only be sentinel terminated if we are guaranteed
-                        // to find the value searched for, which is only the case if it matches
-                        // the sentinel of the type passed.
-                        if (array_info.sentinel()) |s| {
-                            if (end == s) {
-                                new_ptr_info.sentinel_ptr = &end;
-                            } else {
-                                new_ptr_info.sentinel_ptr = null;
-                            }
-                        }
-                    },
-                    else => {},
-                },
-                .many, .slice => {
-                    // The return type must only be sentinel terminated if we are guaranteed
-                    // to find the value searched for, which is only the case if it matches
-                    // the sentinel of the type passed.
-                    if (ptr_info.sentinel()) |s| {
-                        if (end == s) {
-                            new_ptr_info.sentinel_ptr = &end;
-                        } else {
-                            new_ptr_info.sentinel_ptr = null;
-                        }
-                    }
-                },
-                .c => {
-                    new_ptr_info.sentinel_ptr = &end;
-                    // C pointers are always allowzero, but we don't want the return type to be.
-                    assert(new_ptr_info.is_allowzero);
-                    new_ptr_info.is_allowzero = false;
-                },
-            }
-            return @Type(.{ .pointer = new_ptr_info });
+            const Elem = std.meta.Elem(T);
+            const have_sentinel: bool = switch (ptr_info.size) {
+                .one, .slice, .many => if (std.meta.sentinel(T)) |s| s == end else false,
+                .c => false,
+            };
+            return @Pointer(.slice, .{
+                .@"const" = ptr_info.is_const,
+                .@"volatile" = ptr_info.is_volatile,
+                .@"allowzero" = ptr_info.is_allowzero and ptr_info.size != .c,
+                .@"align" = ptr_info.alignment,
+                .@"addrspace" = ptr_info.address_space,
+            }, Elem, if (have_sentinel) end else null);
         },
         else => {},
     }
@@ -3951,38 +3925,25 @@ test reverse {
     }
 }
 fn ReverseIterator(comptime T: type) type {
-    const Pointer = blk: {
-        switch (@typeInfo(T)) {
-            .pointer => |ptr_info| switch (ptr_info.size) {
-                .one => switch (@typeInfo(ptr_info.child)) {
-                    .array => |array_info| {
-                        var new_ptr_info = ptr_info;
-                        new_ptr_info.size = .many;
-                        new_ptr_info.child = array_info.child;
-                        new_ptr_info.sentinel_ptr = array_info.sentinel_ptr;
-                        break :blk @Type(.{ .pointer = new_ptr_info });
-                    },
-                    else => {},
-                },
-                .slice => {
-                    var new_ptr_info = ptr_info;
-                    new_ptr_info.size = .many;
-                    break :blk @Type(.{ .pointer = new_ptr_info });
-                },
-                else => {},
-            },
-            else => {},
-        }
-        @compileError("expected slice or pointer to array, found '" ++ @typeName(T) ++ "'");
+    const ptr = switch (@typeInfo(T)) {
+        .pointer => |ptr| ptr,
+        else => @compileError("expected slice or pointer to array, found '" ++ @typeName(T) ++ "'"),
     };
-    const Element = std.meta.Elem(Pointer);
-    const ElementPointer = @Type(.{ .pointer = ptr: {
-        var ptr = @typeInfo(Pointer).pointer;
-        ptr.size = .one;
-        ptr.child = Element;
-        ptr.sentinel_ptr = null;
-        break :ptr ptr;
-    } });
+    switch (ptr.size) {
+        .slice => {},
+        .one => if (@typeInfo(ptr.child) != .array) @compileError("expected slice or pointer to array, found '" ++ @typeName(T) ++ "'"),
+        .many, .c => @compileError("expected slice or pointer to array, found '" ++ @typeName(T) ++ "'"),
+    }
+    const Element = std.meta.Elem(T);
+    const attrs: std.builtin.Type.Pointer.Attributes = .{
+        .@"const" = ptr.is_const,
+        .@"volatile" = ptr.is_volatile,
+        .@"allowzero" = ptr.is_allowzero,
+        .@"align" = ptr.alignment,
+        .@"addrspace" = ptr.address_space,
+    };
+    const Pointer = @Pointer(.many, attrs, Element, std.meta.sentinel(T));
+    const ElementPointer = @Pointer(.one, attrs, Element, null);
     return struct {
         ptr: Pointer,
         index: usize,
@@ -4342,19 +4303,14 @@ fn CopyPtrAttrs(
     comptime size: std.builtin.Type.Pointer.Size,
     comptime child: type,
 ) type {
-    const info = @typeInfo(source).pointer;
-    return @Type(.{
-        .pointer = .{
-            .size = size,
-            .is_const = info.is_const,
-            .is_volatile = info.is_volatile,
-            .is_allowzero = info.is_allowzero,
-            .alignment = info.alignment,
-            .address_space = info.address_space,
-            .child = child,
-            .sentinel_ptr = null,
-        },
-    });
+    const ptr = @typeInfo(source).pointer;
+    return @Pointer(size, .{
+        .@"const" = ptr.is_const,
+        .@"volatile" = ptr.is_volatile,
+        .@"allowzero" = ptr.is_allowzero,
+        .@"align" = ptr.alignment,
+        .@"addrspace" = ptr.address_space,
+    }, child, null);
 }
 
 fn AsBytesReturnType(comptime P: type) type {
@@ -4936,19 +4892,14 @@ test "freeing empty string with null-terminated sentinel" {
 /// Returns a slice with the given new alignment,
 /// all other pointer attributes copied from `AttributeSource`.
 fn AlignedSlice(comptime AttributeSource: type, comptime new_alignment: usize) type {
-    const info = @typeInfo(AttributeSource).pointer;
-    return @Type(.{
-        .pointer = .{
-            .size = .slice,
-            .is_const = info.is_const,
-            .is_volatile = info.is_volatile,
-            .is_allowzero = info.is_allowzero,
-            .alignment = new_alignment,
-            .address_space = info.address_space,
-            .child = info.child,
-            .sentinel_ptr = null,
-        },
-    });
+    const ptr = @typeInfo(AttributeSource).pointer;
+    return @Pointer(.slice, .{
+        .@"const" = ptr.is_const,
+        .@"volatile" = ptr.is_volatile,
+        .@"allowzero" = ptr.is_allowzero,
+        .@"align" = new_alignment,
+        .@"addrspace" = ptr.address_space,
+    }, ptr.child, null);
 }
 
 /// Returns the largest slice in the given bytes that conforms to the new alignment,

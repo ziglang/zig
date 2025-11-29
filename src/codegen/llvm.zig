@@ -277,7 +277,6 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .gnusf => "gnusf",
         .gnux32 => "gnux32",
         .ilp32 => "unknown",
-        .code16 => "code16",
         .eabi => "eabi",
         .eabihf => "eabihf",
         .android => "android",

@@ -230,6 +230,7 @@ fn printType(
         .int,
         .comptime_int,
         .float,
+        .comptime_float,
         .null,
         => {
             if (name) |some| {
@@ -594,6 +595,7 @@ test Options {
     options.addOption(?usize, "option2", null);
     options.addOption(?usize, "option3", 3);
     options.addOption(comptime_int, "option4", 4);
+    options.addOption(comptime_float, "option5", 5.01);
     options.addOption([]const u8, "string", "zigisthebest");
     options.addOption(?[]const u8, "optional_string", null);
     options.addOption([2][2]u16, "nested_array", nested_array);
@@ -618,6 +620,7 @@ test Options {
         \\pub const option2: ?usize = null;
         \\pub const option3: ?usize = 3;
         \\pub const option4: comptime_int = 4;
+        \\pub const option5: comptime_float = 5.01;
         \\pub const string: []const u8 = "zigisthebest";
         \\pub const optional_string: ?[]const u8 = null;
         \\pub const nested_array: [2][2]u16 = [2][2]u16 {

@@ -843,7 +843,8 @@ test "switch capture peer type resolution for in-memory coercible payloads" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const T1 = c_int;
-    const T2 = @Type(@typeInfo(T1));
+    const t1_info = @typeInfo(T1).int;
+    const T2 = @Int(t1_info.signedness, t1_info.bits);
 
     comptime assert(T1 != T2);
 
@@ -865,7 +866,8 @@ test "switch pointer capture peer type resolution" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const T1 = c_int;
-    const T2 = @Type(@typeInfo(T1));
+    const t1_info = @typeInfo(T1).int;
+    const T2 = @Int(t1_info.signedness, t1_info.bits);
 
     comptime assert(T1 != T2);
 

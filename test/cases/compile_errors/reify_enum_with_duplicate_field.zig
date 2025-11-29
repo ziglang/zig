@@ -1,18 +1,8 @@
 export fn entry() void {
-    _ = @Type(.{
-        .@"enum" = .{
-            .tag_type = u32,
-            .fields = &.{
-                .{ .name = "A", .value = 0 },
-                .{ .name = "A", .value = 1 },
-            },
-            .decls = &.{},
-            .is_exhaustive = false,
-        },
-    });
+    _ = @Enum(u32, .nonexhaustive, &.{ "A", "A" }, &.{ 0, 1 });
 }
 
 // error
 //
-// :2:9: error: duplicate enum field 'A'
-// :2:9: note: other field here
+// :2:36: error: duplicate enum field 'A'
+// :2:36: note: other field here

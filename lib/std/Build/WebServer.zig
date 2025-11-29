@@ -1,5 +1,4 @@
 gpa: Allocator,
-thread_pool: *std.Thread.Pool,
 graph: *const Build.Graph,
 all_steps: []const *Build.Step,
 listen_address: net.IpAddress,
@@ -20,7 +19,7 @@ step_names_trailing: []u8,
 step_status_bits: []u8,
 
 fuzz: ?Fuzz,
-time_report_mutex: std.Thread.Mutex,
+time_report_mutex: Io.Mutex,
 time_report_msgs: [][]u8,
 time_report_update_times: []i64,
 
@@ -34,9 +33,9 @@ build_status: std.atomic.Value(abi.BuildStatus),
 /// an unreasonable number of packets.
 update_id: std.atomic.Value(u32),
 
-runner_request_mutex: std.Thread.Mutex,
-runner_request_ready_cond: std.Thread.Condition,
-runner_request_empty_cond: std.Thread.Condition,
+runner_request_mutex: Io.Mutex,
+runner_request_ready_cond: Io.Condition,
+runner_request_empty_cond: Io.Condition,
 runner_request: ?RunnerRequest,
 
 /// If a client is not explicitly notified of changes with `notifyUpdate`, it will be sent updates
@@ -53,7 +52,6 @@ pub fn notifyUpdate(ws: *WebServer) void {
 
 pub const Options = struct {
     gpa: Allocator,
-    thread_pool: *std.Thread.Pool,
     ttyconf: Io.tty.Config,
     graph: *const std.Build.Graph,
     all_steps: []const *Build.Step,
@@ -100,7 +98,6 @@ pub fn init(opts: Options) WebServer {
 
     return .{
         .gpa = opts.gpa,
-        .thread_pool = opts.thread_pool,
         .ttyconf = opts.ttyconf,
         .graph = opts.graph,
         .all_steps = all_steps,
@@ -117,14 +114,14 @@ pub fn init(opts: Options) WebServer {
         .step_status_bits = step_status_bits,
 
         .fuzz = null,
-        .time_report_mutex = .{},
+        .time_report_mutex = .init,
         .time_report_msgs = time_report_msgs,
         .time_report_update_times = time_report_update_times,
 
         .build_status = .init(.idle),
         .update_id = .init(0),
 
-        .runner_request_mutex = .{},
+        .runner_request_mutex = .init,
         .runner_request_ready_cond = .{},
         .runner_request_empty_cond = .{},
         .runner_request = null,
@@ -235,7 +232,6 @@ pub fn finishBuild(ws: *WebServer, opts: struct {
         ws.fuzz = Fuzz.init(
             ws.gpa,
             ws.graph.io,
-            ws.thread_pool,
             ws.ttyconf,
             ws.all_steps,
             ws.root_prog_node,
@@ -300,6 +296,8 @@ fn accept(ws: *WebServer, stream: net.Stream) void {
 }
 
 fn serveWebSocket(ws: *WebServer, sock: *http.Server.WebSocket) !noreturn {
+    const io = ws.graph.io;
+
     var prev_build_status = ws.build_status.load(.monotonic);
 
     const prev_step_status_bits = try ws.gpa.alloc(u8, ws.step_status_bits.len);
@@ -335,8 +333,8 @@ fn serveWebSocket(ws: *WebServer, sock: *http.Server.WebSocket) !noreturn {
         }
 
         {
-            ws.time_report_mutex.lock();
-            defer ws.time_report_mutex.unlock();
+            try ws.time_report_mutex.lock(io);
+            defer ws.time_report_mutex.unlock(io);
             for (ws.time_report_msgs, ws.time_report_update_times) |msg, update_time| {
                 if (update_time <= prev_time) continue;
                 // We want to send `msg`, but shouldn't block `ws.time_report_mutex` while we do, so
@@ -344,8 +342,8 @@ fn serveWebSocket(ws: *WebServer, sock: *http.Server.WebSocket) !noreturn {
                 const owned_msg = try ws.gpa.dupe(u8, msg);
                 defer ws.gpa.free(owned_msg);
                 // Temporarily unlock, then re-lock after the message is sent.
-                ws.time_report_mutex.unlock();
-                defer ws.time_report_mutex.lock();
+                ws.time_report_mutex.unlock(io);
+                defer ws.time_report_mutex.lockUncancelable(io);
                 try sock.writeMessage(owned_msg, .binary);
             }
         }
@@ -386,6 +384,8 @@ fn serveWebSocket(ws: *WebServer, sock: *http.Server.WebSocket) !noreturn {
     }
 }
 fn recvWebSocketMessages(ws: *WebServer, sock: *http.Server.WebSocket) void {
+    const io = ws.graph.io;
+
     while (true) {
         const msg = sock.readSmallMessage() catch return;
         if (msg.opcode != .binary) continue;
@@ -394,14 +394,16 @@ fn recvWebSocketMessages(ws: *WebServer, sock: *http.Server.WebSocket) void {
         switch (tag) {
             _ => continue,
             .rebuild => while (true) {
-                ws.runner_request_mutex.lock();
-                defer ws.runner_request_mutex.unlock();
+                ws.runner_request_mutex.lock(io) catch |err| switch (err) {
+                    error.Canceled => return,
+                };
+                defer ws.runner_request_mutex.unlock(io);
                 if (ws.runner_request == null) {
                     ws.runner_request = .rebuild;
-                    ws.runner_request_ready_cond.signal();
+                    ws.runner_request_ready_cond.signal(io);
                     break;
                 }
-                ws.runner_request_empty_cond.wait(&ws.runner_request_mutex);
+                ws.runner_request_empty_cond.wait(io, &ws.runner_request_mutex) catch return;
             },
         }
     }
@@ -695,14 +697,15 @@ pub fn updateTimeReportCompile(ws: *WebServer, opts: struct {
     trailing: []const u8,
 }) void {
     const gpa = ws.gpa;
+    const io = ws.graph.io;
 
     const step_idx: u32 = for (ws.all_steps, 0..) |s, i| {
         if (s == &opts.compile.step) break @intCast(i);
     } else unreachable;
 
     const old_buf = old: {
-        ws.time_report_mutex.lock();
-        defer ws.time_report_mutex.unlock();
+        ws.time_report_mutex.lock(io) catch return;
+        defer ws.time_report_mutex.unlock(io);
         const old = ws.time_report_msgs[step_idx];
         ws.time_report_msgs[step_idx] = &.{};
         break :old old;
@@ -724,8 +727,8 @@ pub fn updateTimeReportCompile(ws: *WebServer, opts: struct {
     @memcpy(buf[@sizeOf(abi.time_report.CompileResult)..], opts.trailing);
 
     {
-        ws.time_report_mutex.lock();
-        defer ws.time_report_mutex.unlock();
+        ws.time_report_mutex.lock(io) catch return;
+        defer ws.time_report_mutex.unlock(io);
         assert(ws.time_report_msgs[step_idx].len == 0);
         ws.time_report_msgs[step_idx] = buf;
         ws.time_report_update_times[step_idx] = ws.now();
@@ -735,14 +738,15 @@ pub fn updateTimeReportCompile(ws: *WebServer, opts: struct {
 
 pub fn updateTimeReportGeneric(ws: *WebServer, step: *Build.Step, ns_total: u64) void {
     const gpa = ws.gpa;
+    const io = ws.graph.io;
 
     const step_idx: u32 = for (ws.all_steps, 0..) |s, i| {
         if (s == step) break @intCast(i);
     } else unreachable;
 
     const old_buf = old: {
-        ws.time_report_mutex.lock();
-        defer ws.time_report_mutex.unlock();
+        ws.time_report_mutex.lock(io) catch return;
+        defer ws.time_report_mutex.unlock(io);
         const old = ws.time_report_msgs[step_idx];
         ws.time_report_msgs[step_idx] = &.{};
         break :old old;
@@ -754,8 +758,8 @@ pub fn updateTimeReportGeneric(ws: *WebServer, step: *Build.Step, ns_total: u64)
         .ns_total = ns_total,
     };
     {
-        ws.time_report_mutex.lock();
-        defer ws.time_report_mutex.unlock();
+        ws.time_report_mutex.lock(io) catch return;
+        defer ws.time_report_mutex.unlock(io);
         assert(ws.time_report_msgs[step_idx].len == 0);
         ws.time_report_msgs[step_idx] = buf;
         ws.time_report_update_times[step_idx] = ws.now();
@@ -770,6 +774,7 @@ pub fn updateTimeReportRunTest(
     ns_per_test: []const u64,
 ) void {
     const gpa = ws.gpa;
+    const io = ws.graph.io;
 
     const step_idx: u32 = for (ws.all_steps, 0..) |s, i| {
         if (s == &run.step) break @intCast(i);
@@ -786,8 +791,8 @@ pub fn updateTimeReportRunTest(
         break :len @sizeOf(abi.time_report.RunTestResult) + names_len + 8 * tests_len;
     };
     const old_buf = old: {
-        ws.time_report_mutex.lock();
-        defer ws.time_report_mutex.unlock();
+        ws.time_report_mutex.lock(io) catch return;
+        defer ws.time_report_mutex.unlock(io);
         const old = ws.time_report_msgs[step_idx];
         ws.time_report_msgs[step_idx] = &.{};
         break :old old;
@@ -812,8 +817,8 @@ pub fn updateTimeReportRunTest(
     assert(offset == buf.len);
 
     {
-        ws.time_report_mutex.lock();
-        defer ws.time_report_mutex.unlock();
+        ws.time_report_mutex.lock(io) catch return;
+        defer ws.time_report_mutex.unlock(io);
         assert(ws.time_report_msgs[step_idx].len == 0);
         ws.time_report_msgs[step_idx] = buf;
         ws.time_report_update_times[step_idx] = ws.now();
@@ -825,8 +830,9 @@ const RunnerRequest = union(enum) {
     rebuild,
 };
 pub fn getRunnerRequest(ws: *WebServer) ?RunnerRequest {
-    ws.runner_request_mutex.lock();
-    defer ws.runner_request_mutex.unlock();
+    const io = ws.graph.io;
+    ws.runner_request_mutex.lock(io) catch return;
+    defer ws.runner_request_mutex.unlock(io);
     if (ws.runner_request) |req| {
         ws.runner_request = null;
         ws.runner_request_empty_cond.signal();
@@ -834,16 +840,17 @@ pub fn getRunnerRequest(ws: *WebServer) ?RunnerRequest {
     }
     return null;
 }
-pub fn wait(ws: *WebServer) RunnerRequest {
-    ws.runner_request_mutex.lock();
-    defer ws.runner_request_mutex.unlock();
+pub fn wait(ws: *WebServer) Io.Cancelable!RunnerRequest {
+    const io = ws.graph.io;
+    try ws.runner_request_mutex.lock(io);
+    defer ws.runner_request_mutex.unlock(io);
     while (true) {
         if (ws.runner_request) |req| {
             ws.runner_request = null;
-            ws.runner_request_empty_cond.signal();
+            ws.runner_request_empty_cond.signal(io);
             return req;
         }
-        ws.runner_request_ready_cond.wait(&ws.runner_request_mutex);
+        try ws.runner_request_ready_cond.wait(io, &ws.runner_request_mutex);
     }
 }
 

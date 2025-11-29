@@ -172,6 +172,32 @@ fn sleep(io: Io, result: *usize) void {
     result.* = 1;
 }
 
+test "Group concurrent" {
+    const io = testing.io;
+
+    var group: Io.Group = .init;
+    defer group.cancel(io);
+    var results: [2]usize = undefined;
+
+    group.concurrent(io, count, .{ 1, 10, &results[0] }) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => {
+            try testing.expect(builtin.single_threaded);
+            return;
+        },
+    };
+
+    group.concurrent(io, count, .{ 20, 30, &results[1] }) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => {
+            try testing.expect(builtin.single_threaded);
+            return;
+        },
+    };
+
+    group.wait(io);
+
+    try testing.expectEqualSlices(usize, &.{ 45, 245 }, &results);
+}
+
 test "select" {
     const io = testing.io;
 

@@ -33,6 +33,9 @@ wait_group: std.Thread.WaitGroup = .{},
 /// immediately.
 ///
 /// Defaults to a number equal to logical CPU cores.
+///
+/// Protected by `mutex` once the I/O instance is already in use. See
+/// `setAsyncLimit`.
 async_limit: Io.Limit,
 /// Maximum thread pool size (excluding main thread) for dispatching concurrent
 /// tasks. Until this limit, calls to `Io.concurrent` will increase the thread
@@ -116,6 +119,7 @@ pub fn init(
     /// * `Io.VTable.async`
     /// * `Io.VTable.concurrent`
     /// * `Io.VTable.groupAsync`
+    /// * `Io.VTable.groupConcurrent`
     /// If these functions are avoided, then `Allocator.failing` may be passed
     /// here.
     gpa: Allocator,
@@ -166,6 +170,12 @@ pub const init_single_threaded: Threaded = .{
     .old_sig_pipe = undefined,
     .have_signal_handler = false,
 };
+
+pub fn setAsyncLimit(t: *Threaded, new_limit: Io.Limit) void {
+    t.mutex.lock();
+    defer t.mutex.unlock();
+    t.async_limit = new_limit;
+}
 
 pub fn deinit(t: *Threaded) void {
     t.join();
@@ -221,6 +231,7 @@ pub fn io(t: *Threaded) Io {
             .select = select,
 
             .groupAsync = groupAsync,
+            .groupConcurrent = groupConcurrent,
             .groupWait = groupWait,
             .groupCancel = groupCancel,
 
@@ -317,6 +328,7 @@ pub fn ioBasic(t: *Threaded) Io {
             .select = select,
 
             .groupAsync = groupAsync,
+            .groupConcurrent = groupConcurrent,
             .groupWait = groupWait,
             .groupCancel = groupCancel,
 
@@ -504,7 +516,7 @@ fn async(
     start: *const fn (context: *const anyopaque, result: *anyopaque) void,
 ) ?*Io.AnyFuture {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    if (builtin.single_threaded or t.async_limit == .nothing) {
+    if (builtin.single_threaded) {
         start(context.ptr, result.ptr);
         return null;
     }
@@ -681,8 +693,7 @@ fn groupAsync(
     start: *const fn (*Io.Group, context: *const anyopaque) void,
 ) void {
     const t: *Threaded = @ptrCast(@alignCast(userdata));
-    if (builtin.single_threaded or t.async_limit == .nothing)
-        return start(group, context.ptr);
+    if (builtin.single_threaded) return start(group, context.ptr);
 
     const gpa = t.allocator;
     const gc = GroupClosure.init(gpa, t, group, context, context_alignment, start) catch
@@ -726,6 +737,57 @@ fn groupAsync(
     assert((prev_state / GroupClosure.sync_one_pending) < (std.math.maxInt(usize) / GroupClosure.sync_one_pending));
 
     t.mutex.unlock();
+    t.cond.signal();
+}
+
+fn groupConcurrent(
+    userdata: ?*anyopaque,
+    group: *Io.Group,
+    context: []const u8,
+    context_alignment: Alignment,
+    start: *const fn (*Io.Group, context: *const anyopaque) void,
+) Io.ConcurrentError!void {
+    if (builtin.single_threaded) return error.ConcurrencyUnavailable;
+
+    const t: *Threaded = @ptrCast(@alignCast(userdata));
+
+    const gpa = t.allocator;
+    const gc = GroupClosure.init(gpa, t, group, context, context_alignment, start) catch
+        return error.ConcurrencyUnavailable;
+
+    t.mutex.lock();
+    defer t.mutex.unlock();
+
+    const busy_count = t.busy_count;
+
+    if (busy_count >= @intFromEnum(t.concurrent_limit))
+        return error.ConcurrencyUnavailable;
+
+    t.busy_count = busy_count + 1;
+    errdefer t.busy_count = busy_count;
+
+    const pool_size = t.wait_group.value();
+    if (pool_size - busy_count == 0) {
+        t.wait_group.start();
+        errdefer t.wait_group.finish();
+
+        const thread = std.Thread.spawn(.{ .stack_size = t.stack_size }, worker, .{t}) catch
+            return error.ConcurrencyUnavailable;
+        thread.detach();
+    }
+
+    // Append to the group linked list inside the mutex to make `Io.Group.concurrent` thread-safe.
+    gc.node = .{ .next = @ptrCast(@alignCast(group.token)) };
+    group.token = &gc.node;
+
+    t.run_queue.prepend(&gc.closure.node);
+
+    // This needs to be done before unlocking the mutex to avoid a race with
+    // the associated task finishing.
+    const group_state: *std.atomic.Value(usize) = @ptrCast(&group.state);
+    const prev_state = group_state.fetchAdd(GroupClosure.sync_one_pending, .monotonic);
+    assert((prev_state / GroupClosure.sync_one_pending) < (std.math.maxInt(usize) / GroupClosure.sync_one_pending));
+
     t.cond.signal();
 }
 
@@ -1156,7 +1218,7 @@ fn dirMakeOpenPathWindows(
         w.SYNCHRONIZE | w.FILE_TRAVERSE |
         (if (options.iterate) w.FILE_LIST_DIRECTORY else @as(u32, 0));
 
-    var it = try std.fs.path.componentIterator(sub_path);
+    var it = std.fs.path.componentIterator(sub_path);
     // If there are no components in the path, then create a dummy component with the full path.
     var component: std.fs.path.NativeComponentIterator.Component = it.last() orelse .{
         .name = "",
@@ -2894,7 +2956,22 @@ fn nowWindows(userdata: ?*anyopaque, clock: Io.Clock) Io.Clock.Error!Io.Timestam
         },
         .awake, .boot => {
             // QPC on windows doesn't fail on >= XP/2000 and includes time suspended.
-            return .{ .nanoseconds = windows.QueryPerformanceCounter() };
+            const qpc = windows.QueryPerformanceCounter();
+            // We don't need to cache QPF as it's internally just a memory read to KUSER_SHARED_DATA
+            // (a read-only page of info updated and mapped by the kernel to all processes):
+            // https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddk/ns-ntddk-kuser_shared_data
+            // https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi_x/kuser_shared_data/index.htm
+            const qpf = windows.QueryPerformanceFrequency();
+
+            // 10Mhz (1 qpc tick every 100ns) is a common enough QPF value that we can optimize on it.
+            // https://github.com/microsoft/STL/blob/785143a0c73f030238ef618890fd4d6ae2b3a3a0/stl/inc/chrono#L694-L701
+            const common_qpf = 10_000_000;
+            if (qpf == common_qpf) return .{ .nanoseconds = qpc * (std.time.ns_per_s / common_qpf) };
+
+            // Convert to ns using fixed point.
+            const scale = @as(u64, std.time.ns_per_s << 32) / @as(u32, @intCast(qpf));
+            const result = (@as(u96, qpc) * scale) >> 32;
+            return .{ .nanoseconds = @intCast(result) };
         },
         .cpu_process,
         .cpu_thread,

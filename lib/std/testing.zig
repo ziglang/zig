@@ -760,7 +760,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
         .error_set,
         => {
             if (actual != expected) {
-                print("expected {}, found {}\n", .{ expected, actual });
+                print("expected {any}, found {any}\n", .{ expected, actual });
                 return error.TestExpectedEqual;
             }
         },
@@ -922,6 +922,18 @@ test "expectEqualDeep primitive type" {
             }
         }.foo;
         try expectEqualDeep(fnType, fnType);
+    }
+    // enum with formatter
+    {
+        const TestEnum = enum {
+            a,
+            b,
+
+            pub fn format(self: @This(), writer: *std.Io.Writer) !void {
+                try writer.writeAll(@tagName(self));
+            }
+        };
+        try expectEqualDeep(TestEnum.b, TestEnum.b);
     }
 }
 

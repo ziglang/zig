@@ -56,21 +56,6 @@ pub var argv: [][*:0]u8 = if (builtin.link_libc) undefined else switch (native_o
     else => undefined,
 };
 
-/// Call from Windows-specific code if you already have a WTF-16LE encoded, null terminated string.
-/// Otherwise use `access`.
-pub fn accessW(path: [*:0]const u16) windows.GetFileAttributesError!void {
-    const ret = try windows.GetFileAttributesW(path);
-    if (ret != windows.INVALID_FILE_ATTRIBUTES) {
-        return;
-    }
-    switch (windows.GetLastError()) {
-        .FILE_NOT_FOUND => return error.FileNotFound,
-        .PATH_NOT_FOUND => return error.FileNotFound,
-        .ACCESS_DENIED => return error.AccessDenied,
-        else => |err| return windows.unexpectedError(err),
-    }
-}
-
 pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
     return switch (os.tag) {
         .windows,

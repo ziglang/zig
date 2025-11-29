@@ -2851,6 +2851,7 @@ fn cleanupAfterUpdate(comp: *Compilation, tmp_dir_rand_int: u64) void {
 
 pub const UpdateError = error{
     OutOfMemory,
+    Canceled,
     Unexpected,
     CurrentWorkingDirectoryUnlinked,
 };
@@ -2930,6 +2931,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
                     },
                 },
                 error.OutOfMemory => return error.OutOfMemory,
+                error.Canceled => return error.Canceled,
                 error.InvalidFormat => return comp.setMiscFailure(
                     .check_whole_cache,
                     "failed to check cache: invalid manifest file format",
@@ -5010,7 +5012,7 @@ fn performAllTheWork(
     }
 }
 
-const JobError = Allocator.Error;
+const JobError = Allocator.Error || Io.Cancelable;
 
 pub fn queueJob(comp: *Compilation, job: Job) !void {
     try comp.work_queues[Job.stage(job)].pushBack(comp.gpa, job);
@@ -5117,6 +5119,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
 
             pt.ensureFuncBodyUpToDate(func) catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
+                error.Canceled => |e| return e,
                 error.AnalysisFail => return,
             };
         },
@@ -5137,6 +5140,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
             };
             maybe_err catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
+                error.Canceled => |e| return e,
                 error.AnalysisFail => return,
             };
 
@@ -5166,7 +5170,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
             const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
             defer pt.deactivate();
             Type.fromInterned(ty).resolveFully(pt) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory, error.Canceled => |e| return e,
                 error.AnalysisFail => return,
             };
         },
@@ -5177,7 +5181,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
             const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
             defer pt.deactivate();
             pt.semaMod(mod) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory, error.Canceled => |e| return e,
                 error.AnalysisFail => return,
             };
         },
@@ -5190,8 +5194,8 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .windows_import_lib,
-                    "unable to generate DLL import .lib file for {s}: {s}",
-                    .{ link_lib, @errorName(err) },
+                    "unable to generate DLL import .lib file for {s}: {t}",
+                    .{ link_lib, err },
                 );
             };
         },
@@ -6066,14 +6070,10 @@ fn buildLibZigC(comp: *Compilation, prog_node: std.Progress.Node) void {
     };
 }
 
-fn reportRetryableCObjectError(
-    comp: *Compilation,
-    c_object: *CObject,
-    err: anyerror,
-) error{OutOfMemory}!void {
+fn reportRetryableCObjectError(comp: *Compilation, c_object: *CObject, err: anyerror) error{OutOfMemory}!void {
     c_object.status = .failure_retryable;
 
-    switch (comp.failCObj(c_object, "{s}", .{@errorName(err)})) {
+    switch (comp.failCObj(c_object, "{t}", .{err})) {
         error.AnalysisFail => return,
         else => |e| return e,
     }
@@ -7317,7 +7317,7 @@ fn failCObj(
     c_object: *CObject,
     comptime format: []const u8,
     args: anytype,
-) SemaError {
+) error{ OutOfMemory, AnalysisFail } {
     @branchHint(.cold);
     const diag_bundle = blk: {
         const diag_bundle = try comp.gpa.create(CObject.Diag.Bundle);
@@ -7341,7 +7341,7 @@ fn failCObjWithOwnedDiagBundle(
     comp: *Compilation,
     c_object: *CObject,
     diag_bundle: *CObject.Diag.Bundle,
-) SemaError {
+) error{ OutOfMemory, AnalysisFail } {
     @branchHint(.cold);
     assert(diag_bundle.diags.len > 0);
     {
@@ -7357,7 +7357,7 @@ fn failCObjWithOwnedDiagBundle(
     return error.AnalysisFail;
 }
 
-fn failWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, comptime format: []const u8, args: anytype) SemaError {
+fn failWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, comptime format: []const u8, args: anytype) error{ OutOfMemory, AnalysisFail } {
     @branchHint(.cold);
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(comp.gpa);
@@ -7384,7 +7384,7 @@ fn failWin32ResourceWithOwnedBundle(
     comp: *Compilation,
     win32_resource: *Win32Resource,
     err_bundle: ErrorBundle,
-) SemaError {
+) error{ OutOfMemory, AnalysisFail } {
     @branchHint(.cold);
     {
         comp.mutex.lock();

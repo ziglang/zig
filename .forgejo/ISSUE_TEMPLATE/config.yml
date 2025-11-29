@@ -7,7 +7,7 @@ contact_links:
     url: https://ziglang.org/community
   - name: C Translation
     about: "Issues related to `zig translate-c` and `@cImport` are tracked separately."
-    url: https://github.com/ziglang/translate-c/
+    url: https://codeberg.org/ziglang/translate-c
   - name: Copilot and Other LLMs
     about: "Please do not use GitHub Copilot or any other LLM to write an issue."
     url: https://ziglang.org/code-of-conduct

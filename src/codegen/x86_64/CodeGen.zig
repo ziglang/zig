@@ -189867,9 +189867,7 @@ const Select = struct {
         }
 
         fn adjustedImm(op: Select.Operand, comptime SignedImm: type, s: *const Select) SignedImm {
-            const UnsignedImm = @Type(.{
-                .int = .{ .signedness = .unsigned, .bits = @typeInfo(SignedImm).int.bits },
-            });
+            const UnsignedImm = @Int(.unsigned, @typeInfo(SignedImm).int.bits);
             const lhs: SignedImm = lhs: switch (op.flags.adjust.lhs) {
                 .none => 0,
                 .ptr_size => @divExact(s.cg.target.ptrBitWidth(), 8),
@@ -189934,10 +189932,10 @@ const Select = struct {
                         const RefImm = switch (size) {
                             else => comptime unreachable,
                             .none => Imm,
-                            .byte, .word, .dword, .qword => @Type(comptime .{ .int = .{
-                                .signedness = @typeInfo(Imm).int.signedness,
-                                .bits = size.bitSize(undefined),
-                            } }),
+                            .byte, .word, .dword, .qword => @Int(
+                                @typeInfo(Imm).int.signedness,
+                                size.bitSize(undefined),
+                            ),
                         };
                         break :lhs @bitCast(@as(Imm, @intCast(@as(RefImm, switch (adjust) {
                             else => comptime unreachable,

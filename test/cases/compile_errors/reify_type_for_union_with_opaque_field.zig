@@ -1,18 +1,9 @@
-const Untagged = @Type(.{
-    .@"union" = .{
-        .layout = .auto,
-        .tag_type = null,
-        .fields = &.{
-            .{ .name = "foo", .type = opaque {}, .alignment = 1 },
-        },
-        .decls = &.{},
-    },
-});
+const Untagged = @Union(.auto, null, &.{"foo"}, &.{opaque {}}, &.{.{}});
 export fn entry() usize {
     return @sizeOf(Untagged);
 }
 
 // error
 //
-// :1:18: error: opaque types have unknown size and therefore cannot be directly embedded in unions
-// :6:39: note: opaque declared here
+// :1:49: error: opaque types have unknown size and therefore cannot be directly embedded in unions
+// :1:52: note: opaque declared here

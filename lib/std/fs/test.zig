@@ -56,7 +56,7 @@ const PathType = enum {
                     // using '127.0.0.1' as the server name and '<drive letter>$' as the share name.
                     var fd_path_buf: [fs.max_path_bytes]u8 = undefined;
                     const dir_path = try std.os.getFdPath(dir.fd, &fd_path_buf);
-                    const windows_path_type = windows.getUnprefixedPathType(u8, dir_path);
+                    const windows_path_type = windows.getWin32PathType(u8, dir_path);
                     switch (windows_path_type) {
                         .unc_absolute => return fs.path.joinZ(allocator, &.{ dir_path, relative_path }),
                         .drive_absolute => {

@@ -638,7 +638,7 @@
       {#syntax#}i7{#endsyntax#} refers to a signed 7-bit integer. The maximum allowed bit-width of an
       integer type is {#syntax#}65535{#endsyntax#}.
       </p>
-      {#see_also|Integers|Floats|void|Errors|@Type#}
+      {#see_also|Integers|Floats|void|Errors|@Int#}
       {#header_close#}
       {#header_open|Primitive Values#}
       <div class="table-wrapper">
@@ -3723,9 +3723,9 @@ void do_a_thing(struct Foo *foo) {
             <td>{#syntax#}x{#endsyntax#} is a {#syntax#}@FieldType(T, "a"){#endsyntax#}</td>
           </tr>
           <tr>
-            <th scope="row">{#syntax#}@Type(x){#endsyntax#}</th>
+            <th scope="row">{#syntax#}@Int(x, y){#endsyntax#}</th>
             <td>-</td>
-            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.builtin.Type{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.builtin.Signedness{#endsyntax#}, {#syntax#}y{#endsyntax#} is a {#syntax#}u16{#endsyntax#}</td>
           </tr>
           <tr>
             <th scope="row">{#syntax#}@typeInfo(x){#endsyntax#}</th>
@@ -3839,9 +3839,9 @@ void do_a_thing(struct Foo *foo) {
             <td>{#syntax#}x{#endsyntax#} has no result location (typed initializers do not propagate result locations)</td>
           </tr>
           <tr>
-            <th scope="row">{#syntax#}@Type(x){#endsyntax#}</th>
-            <td>{#syntax#}ptr{#endsyntax#}</td>
-            <td>{#syntax#}x{#endsyntax#} has no result location</td>
+            <th scope="row">{#syntax#}@Int(x, y){#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} and {#syntax#}y{#endsyntax#} do not have result locations</td>
           </tr>
           <tr>
             <th scope="row">{#syntax#}@typeInfo(x){#endsyntax#}</th>
@@ -5755,41 +5755,75 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       {#header_close#}
 
-      {#header_open|@Type#}
-      <pre>{#syntax#}@Type(comptime info: std.builtin.Type) type{#endsyntax#}</pre>
-      <p>
-      This function is the inverse of {#link|@typeInfo#}. It reifies type information
-      into a {#syntax#}type{#endsyntax#}.
-      </p>
-      <p>
-      It is available for the following types:
-      </p>
-      <ul>
-          <li>{#syntax#}type{#endsyntax#}</li>
-          <li>{#syntax#}noreturn{#endsyntax#}</li>
-          <li>{#syntax#}void{#endsyntax#}</li>
-          <li>{#syntax#}bool{#endsyntax#}</li>
-          <li>{#link|Integers#} - The maximum bit count for an integer type is {#syntax#}65535{#endsyntax#}.</li>
-          <li>{#link|Floats#}</li>
-          <li>{#link|Pointers#}</li>
-          <li>{#syntax#}comptime_int{#endsyntax#}</li>
-          <li>{#syntax#}comptime_float{#endsyntax#}</li>
-          <li>{#syntax#}@TypeOf(undefined){#endsyntax#}</li>
-          <li>{#syntax#}@TypeOf(null){#endsyntax#}</li>
-          <li>{#link|Arrays#}</li>
-          <li>{#link|Optionals#}</li>
-          <li>{#link|Error Set Type#}</li>
-          <li>{#link|Error Union Type#}</li>
-          <li>{#link|Vectors#}</li>
-          <li>{#link|opaque#}</li>
-          <li>{#syntax#}anyframe{#endsyntax#}</li>
-          <li>{#link|struct#}</li>
-          <li>{#link|enum#}</li>
-          <li>{#link|Enum Literals#}</li>
-          <li>{#link|union#}</li>
-          <li>{#link|Functions#}</li>
-      </ul>
+      {#header_open|@EnumLiteral#}
+      <pre>{#syntax#}@EnumLiteral() type{#endsyntax#}</pre>
+      <p>Returns the comptime-only "enum literal" type. This is the type of uncoerced {#link|Enum Literals#}. Values of this type can coerce to any {#link|enum#} with a matching field.</p>
       {#header_close#}
+
+      {#header_open|@Int#}
+      <pre>{#syntax#}@Int(comptime signedness: std.builtin.Signedness, comptime bits: u16) type{#endsyntax#}</pre>
+      <p>Returns an integer type with the given signedness and bit width.</p>
+      <p>For instance, {#syntax#}@Int(.unsigned, 18){#endsyntax#} returns the type {#syntax#}u18{#endsyntax#}.</p>
+      {#header_close#}
+
+      {#header_open|@Tuple#}
+      <pre>{#syntax#}@Tuple(comptime field_types: []const type) type{#endsyntax#}</pre>
+      <p>Returns a {#link|tuple|Tuples#} type with the given field types.</p>
+      {#header_close#}
+
+      {#header_open|@Pointer#}
+      <pre>{#syntax#}@Pointer(
+    comptime size: std.builtin.Type.Pointer.Size,
+    comptime attrs: std.builtin.Type.Pointer.Attributes,
+    comptime Element: type,
+    comptime sentinel: ?Element,
+) type{#endsyntax#}</pre>
+      <p>Returns a {#link|pointer|Pointers#} type with the properties specified by the arguments.</p>
+      {#header_close#}
+
+      {#header_open|@Fn#}
+      <pre>{#syntax#}@Fn(
+    comptime param_types: []const type,
+    comptime param_attrs: *const [param_types.len]std.builtin.Type.Fn.Param.Attributes,
+    comptime ReturnType: type,
+    comptime attrs: std.builtin.Type.Fn.Attributes,
+) type{#endsyntax#}</pre>
+      <p>Returns a {#link|function|Functions#} type with the properties specified by the arguments.</p>
+      {#header_close#}
+
+      {#header_open|@Struct#}
+      <pre>{#syntax#}@Struct(
+    comptime layout: std.builtin.Type.ContainerLayout,
+    comptime BackingInt: ?type,
+    comptime field_names: []const []const u8,
+    comptime field_types: *const [field_names.len]type,
+    comptime field_attrs: *const [field_names.len]std.builtin.Type.StructField.Attributes,
+) type{#endsyntax#}</pre>
+      <p>Returns a {#link|struct#} type with the properties specified by the arguments.</p>
+      {#header_close#}
+
+      {#header_open|@Union#}
+      <pre>{#syntax#}@Union(
+    comptime layout: std.builtin.Type.ContainerLayout,
+    /// Either the integer tag type, or the integer backing type, depending on `layout`.
+    comptime ArgType: ?type,
+    comptime field_names: []const []const u8,
+    comptime field_types: *const [field_names.len]type,
+    comptime field_attrs: *const [field_names.len]std.builtin.Type.UnionField.Attributes,
+) type{#endsyntax#}</pre>
+      <p>Returns a {#link|union#} type with the properties specified by the arguments.</p>
+      {#header_close#}
+
+      {#header_open|@Enum#}
+      <pre>{#syntax#}@Enum(
+    comptime TagInt: type,
+    comptime mode: std.builtin.Type.Enum.Mode,
+    comptime field_names: []const []const u8,
+    comptime field_values: *const [field_names.len]TagInt,
+) type{#endsyntax#}</pre>
+      <p>Returns an {#link|enum#} type with the properties specified by the arguments.</p>
+      {#header_close#}
+
       {#header_open|@typeInfo#}
       <pre>{#syntax#}@typeInfo(comptime T: type) std.builtin.Type{#endsyntax#}</pre>
       <p>

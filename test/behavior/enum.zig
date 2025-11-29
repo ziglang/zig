@@ -1283,10 +1283,7 @@ test "Non-exhaustive enum backed by comptime_int" {
 test "matching captures causes enum equivalence" {
     const S = struct {
         fn Nonexhaustive(comptime I: type) type {
-            const UTag = @Type(.{ .int = .{
-                .signedness = .unsigned,
-                .bits = @typeInfo(I).int.bits,
-            } });
+            const UTag = @Int(.unsigned, @typeInfo(I).int.bits);
             return enum(UTag) { _ };
         }
     };

@@ -1,15 +1,8 @@
-const Tag = @Type(.{
-    .@"enum" = .{
-        .tag_type = bool,
-        .fields = &.{},
-        .decls = &.{},
-        .is_exhaustive = false,
-    },
-});
+const Tag = @Enum(bool, .nonexhaustive, &.{}, &.{});
 export fn entry() void {
     _ = @as(Tag, @enumFromInt(0));
 }
 
 // error
 //
-// :1:13: error: Type.Enum.tag_type must be an integer type
+// :1:19: error: tag type must be an integer type

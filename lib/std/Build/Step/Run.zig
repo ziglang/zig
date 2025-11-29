@@ -1151,7 +1151,6 @@ pub fn rerunInFuzzMode(
     const tmp_dir_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
     try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, .{
         .progress_node = prog_node,
-        .thread_pool = undefined, // not used by `runCommand`
         .watch = undefined, // not used by `runCommand`
         .web_server = null, // only needed for time reports
         .ttyconf = fuzz.ttyconf,
@@ -1831,6 +1830,7 @@ fn pollZigTest(
 } {
     const gpa = run.step.owner.allocator;
     const arena = run.step.owner.allocator;
+    const io = run.step.owner.graph.io;
 
     var sub_prog_node: ?std.Progress.Node = null;
     defer if (sub_prog_node) |n| n.end();
@@ -2036,8 +2036,8 @@ fn pollZigTest(
 
                 {
                     const fuzz = fuzz_context.?.fuzz;
-                    fuzz.queue_mutex.lock();
-                    defer fuzz.queue_mutex.unlock();
+                    fuzz.queue_mutex.lockUncancelable(io);
+                    defer fuzz.queue_mutex.unlock(io);
                     try fuzz.msg_queue.append(fuzz.gpa, .{ .coverage = .{
                         .id = coverage_id.?,
                         .cumulative = .{
@@ -2047,20 +2047,20 @@ fn pollZigTest(
                         },
                         .run = run,
                     } });
-                    fuzz.queue_cond.signal();
+                    fuzz.queue_cond.signal(io);
                 }
             },
             .fuzz_start_addr => {
                 const fuzz = fuzz_context.?.fuzz;
                 const addr = body_r.takeInt(u64, .little) catch unreachable;
                 {
-                    fuzz.queue_mutex.lock();
-                    defer fuzz.queue_mutex.unlock();
+                    fuzz.queue_mutex.lockUncancelable(io);
+                    defer fuzz.queue_mutex.unlock(io);
                     try fuzz.msg_queue.append(fuzz.gpa, .{ .entry_point = .{
                         .addr = addr,
                         .coverage_id = coverage_id.?,
                     } });
-                    fuzz.queue_cond.signal();
+                    fuzz.queue_cond.signal(io);
                 }
             },
             else => {}, // ignore other messages

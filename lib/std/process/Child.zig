@@ -1227,7 +1227,7 @@ fn windowsCreateProcessPathExt(
                     const app_name = app_buf.items[0..app_name_len];
                     const ext_start = std.mem.lastIndexOfScalar(u16, app_name, '.') orelse break :unappended err;
                     const ext = app_name[ext_start..];
-                    if (windows.eqlIgnoreCaseWTF16(ext, unicode.utf8ToUtf16LeStringLiteral(".EXE"))) {
+                    if (windows.eqlIgnoreCaseWtf16(ext, unicode.utf8ToUtf16LeStringLiteral(".EXE"))) {
                         return error.UnrecoverableInvalidExe;
                     }
                     break :unappended err;
@@ -1278,7 +1278,7 @@ fn windowsCreateProcessPathExt(
                 // On InvalidExe, if the extension of the app name is .exe then
                 // it's treated as an unrecoverable error. Otherwise, it'll be
                 // skipped as normal.
-                if (windows.eqlIgnoreCaseWTF16(ext, unicode.utf8ToUtf16LeStringLiteral(".EXE"))) {
+                if (windows.eqlIgnoreCaseWtf16(ext, unicode.utf8ToUtf16LeStringLiteral(".EXE"))) {
                     return error.UnrecoverableInvalidExe;
                 }
                 continue;

@@ -2034,10 +2034,7 @@ test "matching captures causes struct equivalence" {
         fn UnsignedWrapper(comptime I: type) type {
             const bits = @typeInfo(I).int.bits;
             return struct {
-                x: @Type(.{ .int = .{
-                    .signedness = .unsigned,
-                    .bits = bits,
-                } }),
+                x: @Int(.unsigned, bits),
             };
         }
     };

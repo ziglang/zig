@@ -1,26 +1,31 @@
 //! This type provides a wrapper around a `*Zcu` for uses which require a thread `Id`.
 //! Any operation which mutates `InternPool` state lives here rather than on `Zcu`.
 
-const Air = @import("../Air.zig");
+const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Ast = std.zig.Ast;
 const AstGen = std.zig.AstGen;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
+const Cache = std.Build.Cache;
+const log = std.log.scoped(.zcu);
+const mem = std.mem;
+const Zir = std.zig.Zir;
+const Zoir = std.zig.Zoir;
+const ZonGen = std.zig.ZonGen;
+const Io = std.Io;
+
+const Air = @import("../Air.zig");
 const Builtin = @import("../Builtin.zig");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
-const Cache = std.Build.Cache;
 const dev = @import("../dev.zig");
 const InternPool = @import("../InternPool.zig");
 const AnalUnit = InternPool.AnalUnit;
 const introspect = @import("../introspect.zig");
-const log = std.log.scoped(.zcu);
 const Module = @import("../Package.zig").Module;
 const Sema = @import("../Sema.zig");
-const std = @import("std");
-const mem = std.mem;
 const target_util = @import("../target.zig");
 const trace = @import("../tracy.zig").trace;
 const Type = @import("../Type.zig");
@@ -29,9 +34,6 @@ const Zcu = @import("../Zcu.zig");
 const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen.zig");
 const crash_report = @import("../crash_report.zig");
-const Zir = std.zig.Zir;
-const Zoir = std.zig.Zoir;
-const ZonGen = std.zig.ZonGen;
 
 zcu: *Zcu,
 
@@ -678,6 +680,7 @@ pub fn ensureMemoizedStateUpToDate(pt: Zcu.PerThread, stage: InternPool.Memoized
             // TODO: same as for `ensureComptimeUnitUpToDate` etc
             return error.OutOfMemory;
         },
+        error.Canceled => |e| return e,
         error.ComptimeReturn => unreachable,
         error.ComptimeBreak => unreachable,
     };
@@ -842,6 +845,7 @@ pub fn ensureComptimeUnitUpToDate(pt: Zcu.PerThread, cu_id: InternPool.ComptimeU
             // for reporting OOM errors without allocating.
             return error.OutOfMemory;
         },
+        error.Canceled => |e| return e,
         error.ComptimeReturn => unreachable,
         error.ComptimeBreak => unreachable,
     };
@@ -1030,6 +1034,7 @@ pub fn ensureNavValUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu
             // for reporting OOM errors without allocating.
             return error.OutOfMemory;
         },
+        error.Canceled => |e| return e,
         error.ComptimeReturn => unreachable,
         error.ComptimeBreak => unreachable,
     };
@@ -1443,6 +1448,7 @@ pub fn ensureNavTypeUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zc
             // for reporting OOM errors without allocating.
             return error.OutOfMemory;
         },
+        error.Canceled => |e| return e,
         error.ComptimeReturn => unreachable,
         error.ComptimeBreak => unreachable,
     };
@@ -1668,6 +1674,7 @@ pub fn ensureFuncBodyUpToDate(pt: Zcu.PerThread, func_index: InternPool.Index) Z
             // for reporting OOM errors without allocating.
             return error.OutOfMemory;
         },
+        error.Canceled => |e| return e,
     };
 
     if (was_outdated) {
@@ -2360,6 +2367,7 @@ pub fn embedFile(
     import_string: []const u8,
 ) error{
     OutOfMemory,
+    Canceled,
     ImportOutsideModulePath,
     CurrentWorkingDirectoryUnlinked,
 }!Zcu.EmbedFile.Index {
@@ -4123,7 +4131,7 @@ fn recreateEnumType(
     pt: Zcu.PerThread,
     old_ty: InternPool.Index,
     key: InternPool.Key.NamespaceType.Declared,
-) Allocator.Error!InternPool.Index {
+) (Allocator.Error || Io.Cancelable)!InternPool.Index {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -4234,6 +4242,7 @@ fn recreateEnumType(
         body_end,
     ) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
+        error.Canceled => |e| return e,
         error.AnalysisFail => {}, // call sites are responsible for checking `[transitive_]failed_analysis` to detect this
     };
 

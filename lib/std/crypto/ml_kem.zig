@@ -376,7 +376,6 @@ fn Kyber(comptime p: Params) type {
             /// Except in tests, applications should generally call `generate()` instead of this function.
             pub fn generateDeterministic(seed: [seed_length]u8) !KeyPair {
                 var ret: KeyPair = undefined;
-                ret.secret_key.z = seed[inner_seed_length..seed_length].*;
 
                 // Generate inner key
                 innerKeyFromSeed(
@@ -507,8 +506,8 @@ fn Kyber(comptime p: Params) type {
         fn innerKeyFromSeed(seed: [inner_seed_length]u8, pk: *InnerPk, sk: *InnerSk) void {
             var expanded_seed: [64]u8 = undefined;
             var h = sha3.Sha3_512.init(.{});
-            if (p.ml_kem) h.update(&[1]u8{p.k});
             h.update(&seed);
+            if (p.ml_kem) h.update(&[1]u8{p.k});
             h.final(&expanded_seed);
             pk.rho = expanded_seed[0..32].*;
             const sigma = expanded_seed[32..64];

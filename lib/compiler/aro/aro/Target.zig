@@ -1258,7 +1258,6 @@ pub fn toLLVMTriple(target: *const Target, buf: []u8) []const u8 {
 
         .android => "android",
         .androideabi => "androideabi",
-        .code16 => "code16",
         .eabi => "eabi",
         .eabihf => "eabihf",
         .gnu => "gnu",
@@ -1630,11 +1629,11 @@ test parseAbi {
     try testing.expect(query.abi == .android);
     try testing.expectEqual(query.android_api_level, 17);
 
-    try testing.expectError(error.InvalidAbiVersion, parseAbi(&query, "code162", null));
-    try testing.expect(query.abi == .code16);
+    try testing.expectError(error.InvalidAbiVersion, parseAbi(&query, "ilp322", null));
+    try testing.expect(query.abi == .ilp32);
 
-    try testing.expectError(error.InvalidAbiVersion, parseAbi(&query, "code16.2", null));
-    try testing.expect(query.abi == .code16);
+    try testing.expectError(error.InvalidAbiVersion, parseAbi(&query, "ilp32.2", null));
+    try testing.expect(query.abi == .ilp32);
 }
 
 /// Parse OS string with common aliases in `<os>(.?<version>(...<version>))?` format.

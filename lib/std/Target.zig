@@ -746,7 +746,6 @@ pub const Abi = enum {
     gnuf32,
     gnusf,
     gnux32,
-    code16,
     eabi,
     eabihf,
     ilp32,

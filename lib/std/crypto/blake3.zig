@@ -685,9 +685,9 @@ const ChunkBatch = struct {
 
         while (chunk_idx < ctx.end_chunk) {
             const remaining = ctx.end_chunk - chunk_idx;
-            const batch_size = @min(remaining, max_simd_degree);
+            const batch_size: usize = @min(remaining, max_simd_degree);
             const offset = chunk_idx * chunk_length;
-            const batch_len = @as(usize, batch_size) * chunk_length;
+            const batch_len = batch_size * chunk_length;
 
             const num_cvs = compressChunksParallel(
                 ctx.input[offset..][0..batch_len],
@@ -723,6 +723,44 @@ fn processParentBatch(ctx: ParentBatchContext) void {
     }
 }
 
+fn processParentBatchSIMD(ctx: ParentBatchContext) void {
+    const num_parents = ctx.end_idx - ctx.start_idx;
+    if (num_parents == 0) return;
+
+    // Convert input CVs to bytes for SIMD processing
+    var input_bytes: [max_simd_degree * 2 * Blake3.digest_length]u8 = undefined;
+    var output_bytes: [max_simd_degree * Blake3.digest_length]u8 = undefined;
+    var parents_array: [max_simd_degree][*]const u8 = undefined;
+
+    var processed: usize = 0;
+    while (processed < num_parents) {
+        const batch_size: usize = @min(num_parents - processed, max_simd_degree);
+
+        // Convert CV pairs to byte blocks for this batch
+        for (0..batch_size) |i| {
+            const pair_idx = ctx.start_idx + processed + i;
+            const left_cv = ctx.input_cvs[pair_idx * 2];
+            const right_cv = ctx.input_cvs[pair_idx * 2 + 1];
+
+            // Write left CV || right CV to form 64-byte parent block
+            for (0..8) |j| {
+                store32(input_bytes[i * 64 + j * 4 ..][0..4], left_cv[j]);
+                store32(input_bytes[i * 64 + 32 + j * 4 ..][0..4], right_cv[j]);
+            }
+            parents_array[i] = input_bytes[i * 64 ..].ptr;
+        }
+
+        hashMany(parents_array[0..batch_size], batch_size, 1, ctx.key, 0, false, ctx.flags.with(.{ .parent = true }), .{}, .{}, output_bytes[0 .. batch_size * Blake3.digest_length]);
+
+        for (0..batch_size) |i| {
+            const output_idx = ctx.start_idx + processed + i;
+            ctx.output_cvs[output_idx] = loadCvWords(output_bytes[i * Blake3.digest_length ..][0..Blake3.digest_length].*);
+        }
+
+        processed += batch_size;
+    }
+}
+
 fn buildMerkleTreeLayerParallel(
     input_cvs: [][8]u32,
     output_cvs: [][8]u32,
@@ -732,11 +770,17 @@ fn buildMerkleTreeLayerParallel(
 ) void {
     const num_parents = input_cvs.len / 2;
 
-    if (num_parents <= 16) {
-        for (0..num_parents) |i| {
-            const output = parentOutputFromCvs(input_cvs[i * 2], input_cvs[i * 2 + 1], key, flags);
-            output_cvs[i] = output.chainingValue();
-        }
+    // Process sequentially with SIMD for smaller tree layers to avoid thread overhead
+    // Tree layers shrink quickly, so only parallelize the first few large layers
+    if (num_parents <= 1024) {
+        processParentBatchSIMD(ParentBatchContext{
+            .input_cvs = input_cvs,
+            .output_cvs = output_cvs,
+            .start_idx = 0,
+            .end_idx = num_parents,
+            .key = key,
+            .flags = flags,
+        });
         return;
     }
 
@@ -748,7 +792,7 @@ fn buildMerkleTreeLayerParallel(
         const start_idx = worker_id * parents_per_worker;
         if (start_idx >= num_parents) break;
 
-        group.async(io, processParentBatch, .{ParentBatchContext{
+        group.async(io, processParentBatchSIMD, .{ParentBatchContext{
             .input_cvs = input_cvs,
             .output_cvs = output_cvs,
             .start_idx = start_idx,

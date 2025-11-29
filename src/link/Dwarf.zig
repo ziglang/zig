@@ -4490,7 +4490,12 @@ fn updateContainerTypeWriterError(
                     .enum_decl => @as(Zir.Inst.EnumDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
                     .union_decl => @as(Zir.Inst.UnionDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
                     .opaque_decl => @as(Zir.Inst.OpaqueDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
-                    .reify => @as(Zir.Inst.NameStrategy, @enumFromInt(decl_inst.data.extended.small)),
+
+                    .reify_enum,
+                    .reify_struct,
+                    .reify_union,
+                    => @enumFromInt(decl_inst.data.extended.small),
+
                     else => unreachable,
                 },
                 else => unreachable,
@@ -5125,25 +5130,23 @@ pub fn resolveRelocs(dwarf: *Dwarf) RelocError!void {
 
 fn DeclValEnum(comptime T: type) type {
     const decls = @typeInfo(T).@"struct".decls;
-    @setEvalBranchQuota(7 * decls.len);
-    var fields: [decls.len]std.builtin.Type.EnumField = undefined;
+    @setEvalBranchQuota(10 * decls.len);
+    var field_names: [decls.len][]const u8 = undefined;
     var fields_len = 0;
     var min_value: ?comptime_int = null;
     var max_value: ?comptime_int = null;
     for (decls) |decl| {
         if (std.mem.startsWith(u8, decl.name, "HP_") or std.mem.endsWith(u8, decl.name, "_user")) continue;
         const value = @field(T, decl.name);
-        fields[fields_len] = .{ .name = decl.name, .value = value };
+        field_names[fields_len] = decl.name;
         fields_len += 1;
         if (min_value == null or min_value.? > value) min_value = value;
         if (max_value == null or max_value.? < value) max_value = value;
     }
-    return @Type(.{ .@"enum" = .{
-        .tag_type = std.math.IntFittingRange(min_value orelse 0, max_value orelse 0),
-        .fields = fields[0..fields_len],
-        .decls = &.{},
-        .is_exhaustive = true,
-    } });
+    const TagInt = std.math.IntFittingRange(min_value orelse 0, max_value orelse 0);
+    var field_vals: [fields_len]TagInt = undefined;
+    for (field_names[0..fields_len], &field_vals) |name, *val| val.* = @field(T, name);
+    return @Enum(TagInt, .exhaustive, field_names[0..fields_len], &field_vals);
 }
 
 const AbbrevCode = enum {
@@ -6377,10 +6380,12 @@ fn freeCommonEntry(
 
 fn writeInt(dwarf: *Dwarf, buf: []u8, int: u64) void {
     switch (buf.len) {
-        inline 0...8 => |len| std.mem.writeInt(@Type(.{ .int = .{
-            .signedness = .unsigned,
-            .bits = len * 8,
-        } }), buf[0..len], @intCast(int), dwarf.endian),
+        inline 0...8 => |len| std.mem.writeInt(
+            @Int(.unsigned, len * 8),
+            buf[0..len],
+            @intCast(int),
+            dwarf.endian,
+        ),
         else => unreachable,
     }
 }

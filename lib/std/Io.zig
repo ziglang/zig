@@ -528,23 +528,7 @@ pub fn Poller(comptime StreamEnum: type) type {
 /// Given an enum, returns a struct with fields of that enum, each field
 /// representing an I/O stream for polling.
 pub fn PollFiles(comptime StreamEnum: type) type {
-    const enum_fields = @typeInfo(StreamEnum).@"enum".fields;
-    var struct_fields: [enum_fields.len]std.builtin.Type.StructField = undefined;
-    for (&struct_fields, enum_fields) |*struct_field, enum_field| {
-        struct_field.* = .{
-            .name = enum_field.name,
-            .type = std.fs.File,
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = @alignOf(std.fs.File),
-        };
-    }
-    return @Type(.{ .@"struct" = .{
-        .layout = .auto,
-        .fields = &struct_fields,
-        .decls = &.{},
-        .is_tuple = false,
-    } });
+    return @Struct(.auto, null, std.meta.fieldNames(StreamEnum), &@splat(std.fs.File), &@splat(.{}));
 }
 
 test {
@@ -642,8 +626,9 @@ pub const VTable = struct {
     /// Thread-safe.
     cancelRequested: *const fn (?*anyopaque) bool,
 
-    /// Executes `start` asynchronously in a manner such that it cleans itself
-    /// up. This mode does not support results, await, or cancel.
+    /// When this function returns, implementation guarantees that `start` has
+    /// either already been called, or a unit of concurrency has been assigned
+    /// to the task of calling the function.
     ///
     /// Thread-safe.
     groupAsync: *const fn (
@@ -656,6 +641,17 @@ pub const VTable = struct {
         context_alignment: std.mem.Alignment,
         start: *const fn (*Group, context: *const anyopaque) void,
     ) void,
+    /// Thread-safe.
+    groupConcurrent: *const fn (
+        /// Corresponds to `Io.userdata`.
+        userdata: ?*anyopaque,
+        /// Owner of the spawned async task.
+        group: *Group,
+        /// Copied and then passed to `start`.
+        context: []const u8,
+        context_alignment: std.mem.Alignment,
+        start: *const fn (*Group, context: *const anyopaque) void,
+    ) ConcurrentError!void,
     groupWait: *const fn (?*anyopaque, *Group, token: *anyopaque) void,
     groupCancel: *const fn (?*anyopaque, *Group, token: *anyopaque) void,
 
@@ -1037,8 +1033,8 @@ pub const Group = struct {
     /// Threadsafe.
     ///
     /// See also:
-    /// * `Io.async`
     /// * `concurrent`
+    /// * `Io.async`
     pub fn async(g: *Group, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) void {
         const Args = @TypeOf(args);
         const TypeErased = struct {
@@ -1049,6 +1045,34 @@ pub const Group = struct {
             }
         };
         io.vtable.groupAsync(io.userdata, g, @ptrCast(&args), .of(Args), TypeErased.start);
+    }
+
+    /// Calls `function` with `args`, such that the function is not guaranteed
+    /// to have returned until `wait` is called, allowing the caller to
+    /// progress while waiting for any `Io` operations.
+    ///
+    /// The resource spawned is owned by the group; after this is called,
+    /// `wait` or `cancel` must be called before the group is deinitialized.
+    ///
+    /// This has stronger guarantee than `async`, placing restrictions on what kind
+    /// of `Io` implementations are supported. By calling `async` instead, one
+    /// allows, for example, stackful single-threaded blocking I/O.
+    ///
+    /// Threadsafe.
+    ///
+    /// See also:
+    /// * `async`
+    /// * `Io.concurrent`
+    pub fn concurrent(g: *Group, io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) ConcurrentError!void {
+        const Args = @TypeOf(args);
+        const TypeErased = struct {
+            fn start(group: *Group, context: *const anyopaque) void {
+                _ = group;
+                const args_casted: *const Args = @ptrCast(@alignCast(context));
+                @call(.auto, function, args_casted.*);
+            }
+        };
+        return io.vtable.groupConcurrent(io.userdata, g, @ptrCast(&args), .of(Args), TypeErased.start);
     }
 
     /// Blocks until all tasks of the group finish. During this time,
@@ -1625,22 +1649,14 @@ pub fn sleep(io: Io, duration: Duration, clock: Clock) SleepError!void {
 /// fields, each field type the future's result.
 pub fn SelectUnion(S: type) type {
     const struct_fields = @typeInfo(S).@"struct".fields;
-    var fields: [struct_fields.len]std.builtin.Type.UnionField = undefined;
-    for (&fields, struct_fields) |*union_field, struct_field| {
-        const F = @typeInfo(struct_field.type).pointer.child;
-        const Result = @TypeOf(@as(F, undefined).result);
-        union_field.* = .{
-            .name = struct_field.name,
-            .type = Result,
-            .alignment = struct_field.alignment,
-        };
+    var names: [struct_fields.len][]const u8 = undefined;
+    var types: [struct_fields.len]type = undefined;
+    for (struct_fields, &names, &types) |struct_field, *union_field_name, *UnionFieldType| {
+        const FieldFuture = @typeInfo(struct_field.type).pointer.child;
+        union_field_name.* = struct_field.name;
+        UnionFieldType.* = @FieldType(FieldFuture, "result");
     }
-    return @Type(.{ .@"union" = .{
-        .layout = .auto,
-        .tag_type = std.meta.FieldEnum(S),
-        .fields = &fields,
-        .decls = &.{},
-    } });
+    return @Union(.auto, std.meta.FieldEnum(S), &names, &types, &@splat(.{}));
 }
 
 /// `s` is a struct with every field a `*Future(T)`, where `T` can be any type,
