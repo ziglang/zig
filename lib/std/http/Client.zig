@@ -1480,26 +1480,27 @@ pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connecti
     })) |node|
         return node;
 
-    const conn = try client.allocator.create(ConnectionPool.Node);
+    const conn = try client.allocator.create(Connection);
     errdefer client.allocator.destroy(conn);
-    conn.* = .{ .data = undefined };
 
     const stream = try Io.net.connectUnixSocket(path);
     errdefer stream.close();
 
-    conn.data = .{
+    conn.* = .{
         .stream = stream,
         .tls_client = undefined,
         .protocol = .plain,
 
         .host = try client.allocator.dupe(u8, path),
         .port = 0,
+
+        .pool_node = .{},
     };
-    errdefer client.allocator.free(conn.data.host);
+    errdefer client.allocator.free(conn.host);
 
     client.connection_pool.addUsed(conn);
 
-    return &conn.data;
+    return conn;
 }
 
 /// Connect to `proxied_host:proxied_port` using the specified proxy with HTTP
@@ -1746,6 +1747,9 @@ pub const FetchOptions = struct {
     raw_uri: bool = false,
     keep_alive: bool = true,
 
+    /// Must be an already acquired connection.
+    connection: ?*Connection = null,
+
     /// Standard headers that have default, but overridable, behavior.
     headers: Request.Headers = .{},
     /// These headers are kept including when following a redirect to a
@@ -1794,6 +1798,7 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
         .extra_headers = options.extra_headers,
         .privileged_headers = options.privileged_headers,
         .keep_alive = options.keep_alive,
+        .connection = options.connection,
     });
     defer req.deinit();
 
