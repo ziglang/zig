@@ -379,7 +379,7 @@ pub fn fromZoirNodeAlloc(
     diag: ?*Diagnostics,
     options: Options,
 ) error{ OutOfMemory, ParseZon }!T {
-    comptime assert(canParseType(T));
+    comptime assertCanParseType(T);
 
     if (diag) |s| {
         s.assertEmpty();
@@ -1185,24 +1185,43 @@ fn intFromFloatExact(T: type, value: anytype) ?T {
     return @intFromFloat(value);
 }
 
-fn canParseType(T: type) bool {
-    comptime return canParseTypeInner(T, &.{}, false);
+fn assertCanParseType(T: type) void {
+    comptime switch (canParseType(T)) {
+        .success => {},
+        .failure => |FailedType| {
+            @compileError(std.fmt.comptimePrint("cannot parse type {}", .{FailedType}));
+        },
+    };
 }
+
+const CanParseTypeResult = union(enum) {
+    success,
+    failure: type,
+};
+
+fn canParseType(T: type) CanParseTypeResult {
+    comptime return canParseTypeInner(T, &.{}).result;
+}
+
+const CanParseTypeInnerResult = struct {
+    // Keep track of optionals to reject nested optionals, which cannot be parsed.
+    is_optional: bool = false,
+    result: CanParseTypeResult,
+};
 
 fn canParseTypeInner(
     T: type,
     /// Visited structs and unions, to avoid infinite recursion.
     /// Tracking more types is unnecessary, and a little complex due to optional nesting.
     visited: []const type,
-    parent_is_optional: bool,
-) bool {
+) CanParseTypeInnerResult {
     return switch (@typeInfo(T)) {
         .bool,
         .int,
         .float,
         .null,
         .@"enum",
-        => true,
+        => .{ .result = .success },
 
         .noreturn,
         .void,
@@ -1217,62 +1236,89 @@ fn canParseTypeInner(
         .comptime_int,
         .comptime_float,
         .enum_literal,
-        => false,
+        => .{ .result = .{ .failure = T } },
 
         .pointer => |pointer| switch (pointer.size) {
-            .one => canParseTypeInner(pointer.child, visited, parent_is_optional),
-            .slice => canParseTypeInner(pointer.child, visited, false),
-            .many, .c => false,
+            .one => canParseTypeInner(pointer.child, visited),
+            .slice => .{ .result = canParseTypeInner(pointer.child, visited).result },
+            .many, .c => .{ .result = .{ .failure = T } },
         },
 
-        .optional => |optional| if (parent_is_optional)
-            false
-        else
-            canParseTypeInner(optional.child, visited, true),
+        .optional => |optional| {
+            const inner = canParseTypeInner(optional.child, visited);
+            return switch (inner.result) {
+                .success => .{
+                    .is_optional = true,
+                    .result = if (inner.is_optional) .{ .failure = T } else .success,
+                },
+                .failure => inner,
+            };
+        },
 
-        .array => |array| canParseTypeInner(array.child, visited, false),
-        .vector => |vector| canParseTypeInner(vector.child, visited, false),
+        .array => |array| .{ .result = canParseTypeInner(array.child, visited).result },
+        .vector => |vector| .{ .result = canParseTypeInner(vector.child, visited).result },
 
         .@"struct" => |@"struct"| {
-            for (visited) |V| if (T == V) return true;
+            for (visited) |V| if (T == V) return .{ .result = .success };
             const new_visited = visited ++ .{T};
             for (@"struct".fields) |field| {
-                if (!field.is_comptime and !canParseTypeInner(field.type, new_visited, false)) {
-                    return false;
-                }
+                if (field.is_comptime)
+                    continue;
+                const res = canParseTypeInner(field.type, new_visited);
+                if (res.result == .failure)
+                    return res;
             }
-            return true;
+            return .{ .result = .success };
         },
         .@"union" => |@"union"| {
             for (visited) |V| if (T == V) return true;
             const new_visited = visited ++ .{T};
             for (@"union".fields) |field| {
-                if (field.type != void and !canParseTypeInner(field.type, new_visited, false)) {
-                    return false;
-                }
+                if (field.type == void)
+                    continue;
+                const res = canParseTypeInner(field.type, new_visited);
+                if (res.result == .failure)
+                    return res;
             }
-            return true;
+            return .{ .result = .success };
         },
     };
 }
 
+fn canParseTypeResultEqual(a: CanParseTypeResult, b: CanParseTypeResult) bool {
+    const TagType = @typeInfo(CanParseTypeResult).@"union".tag_type.?;
+    if (@as(TagType, a) != @as(TagType, b))
+        return false;
+
+    return switch (a) {
+        .success => true,
+        .failure => |a_failure| a_failure == b.failure,
+    };
+}
+
+fn expectCanParseTypeResult(comptime T: type, result: CanParseTypeResult) !void {
+    try std.testing.expect(canParseTypeResultEqual(canParseType(T), result));
+}
+
 test "std.zon parse canParseType" {
-    try std.testing.expect(!comptime canParseType(void));
-    try std.testing.expect(!comptime canParseType(struct { f: [*]u8 }));
-    try std.testing.expect(!comptime canParseType(struct { error{foo} }));
-    try std.testing.expect(!comptime canParseType(union(enum) { a: void, b: [*c]u8 }));
-    try std.testing.expect(!comptime canParseType(@Vector(0, [*c]u8)));
-    try std.testing.expect(!comptime canParseType(*?[*c]u8));
-    try std.testing.expect(comptime canParseType(enum(u8) { _ }));
-    try std.testing.expect(comptime canParseType(union { foo: void }));
-    try std.testing.expect(comptime canParseType(union(enum) { foo: void }));
-    try std.testing.expect(!comptime canParseType(comptime_float));
-    try std.testing.expect(!comptime canParseType(comptime_int));
-    try std.testing.expect(comptime canParseType(struct { comptime foo: ??u8 = null }));
-    try std.testing.expect(!comptime canParseType(@TypeOf(.foo)));
-    try std.testing.expect(comptime canParseType(?u8));
-    try std.testing.expect(comptime canParseType(*?*u8));
-    try std.testing.expect(comptime canParseType(?struct {
+    try expectCanParseTypeResult(void, .{ .failure = void });
+    try expectCanParseTypeResult(?void, .{ .failure = void });
+    try expectCanParseTypeResult(struct { f: [*]u8 }, .{ .failure = [*]u8 });
+    try expectCanParseTypeResult(struct { error{foo} }, .{ .failure = error{foo} });
+    try expectCanParseTypeResult(union(enum) { a: void, b: [*c]u8 }, .{ .failure = [*c]u8 });
+    try expectCanParseTypeResult(@Vector(0, [*c]u8), .{ .failure = [*c]u8 });
+    try expectCanParseTypeResult(*?[*c]u8, .{ .failure = [*c]u8 });
+    try expectCanParseTypeResult(*?[*c]u8, .{ .failure = [*c]u8 });
+    try expectCanParseTypeResult(enum(u8) { _ }, .success);
+    try expectCanParseTypeResult(union { foo: void }, .success);
+    try expectCanParseTypeResult(union(enum) { foo: void }, .success);
+    try expectCanParseTypeResult(comptime_float, .{ .failure = comptime_float });
+    try expectCanParseTypeResult(comptime_int, .{ .failure = comptime_int });
+    try expectCanParseTypeResult(struct { comptime foo: ??u8 = null }, .success);
+    try expectCanParseTypeResult(@TypeOf(.foo), .{ .failure = @TypeOf(.foo) });
+    try expectCanParseTypeResult(?u8, .success);
+    try expectCanParseTypeResult(*?*u8, .success);
+    try expectCanParseTypeResult(?struct {
         foo: ?struct {
             ?union(enum) {
                 a: ?@Vector(0, ?*u8),
@@ -1281,23 +1327,23 @@ test "std.zon parse canParseType" {
                 f: ?[]?u8,
             },
         },
-    }));
-    try std.testing.expect(!comptime canParseType(??u8));
-    try std.testing.expect(!comptime canParseType(?*?u8));
-    try std.testing.expect(!comptime canParseType(*?*?*u8));
-    try std.testing.expect(!comptime canParseType(struct { x: comptime_int = 2 }));
-    try std.testing.expect(!comptime canParseType(struct { x: comptime_float = 2 }));
-    try std.testing.expect(comptime canParseType(struct { comptime x: @TypeOf(.foo) = .foo }));
-    try std.testing.expect(!comptime canParseType(struct { comptime_int }));
+    }, .success);
+    try expectCanParseTypeResult(??u8, .{ .failure = ??u8 });
+    try expectCanParseTypeResult(?*?u8, .{ .failure = ?*?u8 });
+    try expectCanParseTypeResult(*?*?*u8, .{ .failure = ?*?*u8 });
+    try expectCanParseTypeResult(struct { x: comptime_int = 2 }, .{ .failure = comptime_int });
+    try expectCanParseTypeResult(struct { x: comptime_float = 2 }, .{ .failure = comptime_float });
+    try expectCanParseTypeResult(struct { comptime x: @TypeOf(.foo) = .foo }, .success);
+    try expectCanParseTypeResult(struct { comptime_int }, .{ .failure = comptime_int });
     const Recursive = struct { foo: ?*@This() };
-    try std.testing.expect(comptime canParseType(Recursive));
+    try expectCanParseTypeResult(Recursive, .success);
 
     // Make sure we validate nested optional before we early out due to already having seen
     // a type recursion!
-    try std.testing.expect(!comptime canParseType(struct {
+    try expectCanParseTypeResult(struct {
         add_to_visited: ?u8,
         retrieve_from_visited: ??u8,
-    }));
+    }, .{ .failure = ??u8 });
 }
 
 test "std.zon requiresAllocator" {

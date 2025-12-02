@@ -122,7 +122,7 @@ pub fn valueMaxDepth(self: *Serializer, val: anytype, options: ValueOptions, dep
 
 /// Serialize a value, similar to `serializeArbitraryDepth`.
 pub fn valueArbitraryDepth(self: *Serializer, val: anytype, options: ValueOptions) Error!void {
-    comptime assert(canSerializeType(@TypeOf(val)));
+    comptime assertCanSerializeType(@TypeOf(val));
     switch (@typeInfo(@TypeOf(val))) {
         .int, .comptime_int => if (options.emit_codepoint_literals.emitAsCodepoint(val)) |c| {
             self.codePoint(c) catch |err| switch (err) {
@@ -321,7 +321,7 @@ pub fn tupleArbitraryDepth(
 }
 
 fn tupleImpl(self: *Serializer, val: anytype, options: ValueOptions) Error!void {
-    comptime assert(canSerializeType(@TypeOf(val)));
+    comptime assertCanSerializeType(@TypeOf(val));
     switch (@typeInfo(@TypeOf(val))) {
         .@"struct" => {
             var container = try self.beginTuple(.{ .whitespace_style = .{ .fields = val.len } });
@@ -812,17 +812,36 @@ test checkValueDepth {
     try expectValueDepthEquals(3, @as([]const []const u8, &.{&.{ 1, 2, 3 }}));
 }
 
-inline fn canSerializeType(T: type) bool {
-    comptime return canSerializeTypeInner(T, &.{}, false);
+fn assertCanSerializeType(T: type) void {
+    comptime switch (canSerializeType(T)) {
+        .success => {},
+        .failure => |FailedType| {
+            @compileError(std.fmt.comptimePrint("cannot serialize type {}", .{FailedType}));
+        },
+    };
 }
+
+const CanSerializeTypeResult = union(enum) {
+    success,
+    failure: type,
+};
+
+fn canSerializeType(T: type) CanSerializeTypeResult {
+    comptime return canSerializeTypeInner(T, &.{}).result;
+}
+
+const CanSerializeTypeInnerResult = struct {
+    // Keep track of optionals to reject nested optionals, which cannot be serialized.
+    is_optional: bool = false,
+    result: CanSerializeTypeResult,
+};
 
 fn canSerializeTypeInner(
     T: type,
     /// Visited structs and unions, to avoid infinite recursion.
     /// Tracking more types is unnecessary, and a little complex due to optional nesting.
     visited: []const type,
-    parent_is_optional: bool,
-) bool {
+) CanSerializeTypeInnerResult {
     return switch (@typeInfo(T)) {
         .bool,
         .int,
@@ -831,7 +850,7 @@ fn canSerializeTypeInner(
         .comptime_int,
         .null,
         .enum_literal,
-        => true,
+        => .{ .result = .success },
 
         .noreturn,
         .void,
@@ -843,63 +862,92 @@ fn canSerializeTypeInner(
         .frame,
         .@"anyframe",
         .@"opaque",
-        => false,
+        => .{ .result = .{ .failure = T } },
 
-        .@"enum" => |@"enum"| @"enum".is_exhaustive,
+        .@"enum" => |@"enum"| .{ .result = if (@"enum".is_exhaustive) .success else .{ .failure = T } },
 
         .pointer => |pointer| switch (pointer.size) {
-            .one => canSerializeTypeInner(pointer.child, visited, parent_is_optional),
-            .slice => canSerializeTypeInner(pointer.child, visited, false),
-            .many, .c => false,
+            .one => canSerializeTypeInner(pointer.child, visited),
+            .slice => .{ .result = canSerializeTypeInner(pointer.child, visited).result },
+            .many, .c => .{ .result = .{ .failure = T } },
         },
 
-        .optional => |optional| if (parent_is_optional)
-            false
-        else
-            canSerializeTypeInner(optional.child, visited, true),
+        .optional => |optional| {
+            const inner = canSerializeTypeInner(optional.child, visited);
+            return switch (inner.result) {
+                .success => .{
+                    .is_optional = true,
+                    .result = if (inner.is_optional) .{ .failure = T } else .success,
+                },
+                .failure => inner,
+            };
+        },
 
-        .array => |array| canSerializeTypeInner(array.child, visited, false),
-        .vector => |vector| canSerializeTypeInner(vector.child, visited, false),
+        .array => |array| .{ .result = canSerializeTypeInner(array.child, visited).result },
+        .vector => |vector| .{ .result = canSerializeTypeInner(vector.child, visited).result },
 
         .@"struct" => |@"struct"| {
-            for (visited) |V| if (T == V) return true;
+            for (visited) |V| if (T == V) return .{ .result = .success };
             const new_visited = visited ++ .{T};
             for (@"struct".fields) |field| {
-                if (!canSerializeTypeInner(field.type, new_visited, false)) return false;
+                const res = canSerializeTypeInner(field.type, new_visited);
+                if (res.result != .success)
+                    return res;
             }
-            return true;
+            return .{ .result = .success };
         },
         .@"union" => |@"union"| {
-            for (visited) |V| if (T == V) return true;
+            for (visited) |V| if (T == V) return .{ .result = .success };
             const new_visited = visited ++ .{T};
-            if (@"union".tag_type == null) return false;
+            if (@"union".tag_type == null) return .{ .result = .{ .failure = T } };
             for (@"union".fields) |field| {
-                if (field.type != void and !canSerializeTypeInner(field.type, new_visited, false)) {
-                    return false;
-                }
+                if (field.type == void)
+                    continue;
+                const res = canSerializeTypeInner(field.type, new_visited);
+                if (res.result != .success)
+                    return res;
             }
-            return true;
+            return .{ .result = .success };
         },
     };
 }
 
+fn canSerializeTypeResultEqual(a: CanSerializeTypeResult, b: CanSerializeTypeResult) bool {
+    const TagType = @typeInfo(CanSerializeTypeResult).@"union".tag_type.?;
+    if (@as(TagType, a) != @as(TagType, b))
+        return false;
+
+    return switch (a) {
+        .success => true,
+        .failure => |a_failure| a_failure == b.failure,
+    };
+}
+
+fn expectCanSerializeTypeResult(comptime T: type, result: CanSerializeTypeResult) !void {
+    try std.testing.expect(canSerializeTypeResultEqual(canSerializeType(T), result));
+}
+
 test canSerializeType {
-    try std.testing.expect(!comptime canSerializeType(void));
-    try std.testing.expect(!comptime canSerializeType(struct { f: [*]u8 }));
-    try std.testing.expect(!comptime canSerializeType(struct { error{foo} }));
-    try std.testing.expect(!comptime canSerializeType(union(enum) { a: void, f: [*c]u8 }));
-    try std.testing.expect(!comptime canSerializeType(@Vector(0, [*c]u8)));
-    try std.testing.expect(!comptime canSerializeType(*?[*c]u8));
-    try std.testing.expect(!comptime canSerializeType(enum(u8) { _ }));
-    try std.testing.expect(!comptime canSerializeType(union { foo: void }));
-    try std.testing.expect(comptime canSerializeType(union(enum) { foo: void }));
-    try std.testing.expect(comptime canSerializeType(comptime_float));
-    try std.testing.expect(comptime canSerializeType(comptime_int));
-    try std.testing.expect(!comptime canSerializeType(struct { comptime foo: ??u8 = null }));
-    try std.testing.expect(comptime canSerializeType(@TypeOf(.foo)));
-    try std.testing.expect(comptime canSerializeType(?u8));
-    try std.testing.expect(comptime canSerializeType(*?*u8));
-    try std.testing.expect(comptime canSerializeType(?struct {
+    try expectCanSerializeTypeResult(void, .{ .failure = void });
+    try expectCanSerializeTypeResult(?void, .{ .failure = void });
+    try expectCanSerializeTypeResult(struct { f: [*]u8 }, .{ .failure = [*]u8 });
+    try expectCanSerializeTypeResult(error{foo}, .{ .failure = error{foo} });
+    try expectCanSerializeTypeResult(union(enum) { a: void, f: [*c]u8 }, .{ .failure = [*c]u8 });
+    try expectCanSerializeTypeResult(@Vector(0, [*c]u8), .{ .failure = [*c]u8 });
+    try expectCanSerializeTypeResult(?*u8, .success);
+    try expectCanSerializeTypeResult(*?[*c]u8, .{ .failure = [*c]u8 });
+    const NonExhaustiveEnum = enum(u8) { _ };
+    try expectCanSerializeTypeResult(NonExhaustiveEnum, .{ .failure = NonExhaustiveEnum });
+    const NoTagUnion = union { foo: void };
+    try expectCanSerializeTypeResult(NoTagUnion, .{ .failure = NoTagUnion });
+    try expectCanSerializeTypeResult(union(enum) { foo: void }, .success);
+    try expectCanSerializeTypeResult(comptime_float, .success);
+    try expectCanSerializeTypeResult(comptime_int, .success);
+    try expectCanSerializeTypeResult(struct { comptime foo: ??u8 = null }, .{ .failure = ??u8 });
+    try expectCanSerializeTypeResult(@TypeOf(.foo), .success);
+    try expectCanSerializeTypeResult(?u8, .success);
+    try expectCanSerializeTypeResult(*?*u8, .success);
+    try expectCanSerializeTypeResult(?struct {
         foo: ?struct {
             ?union(enum) {
                 a: ?@Vector(0, ?*u8),
@@ -908,21 +956,21 @@ test canSerializeType {
                 f: ?[]?u8,
             },
         },
-    }));
-    try std.testing.expect(!comptime canSerializeType(??u8));
-    try std.testing.expect(!comptime canSerializeType(?*?u8));
-    try std.testing.expect(!comptime canSerializeType(*?*?*u8));
-    try std.testing.expect(comptime canSerializeType(struct { x: comptime_int = 2 }));
-    try std.testing.expect(comptime canSerializeType(struct { x: comptime_float = 2 }));
-    try std.testing.expect(comptime canSerializeType(struct { comptime_int }));
-    try std.testing.expect(comptime canSerializeType(struct { comptime x: @TypeOf(.foo) = .foo }));
+    }, .success);
+    try expectCanSerializeTypeResult(??u8, .{ .failure = ??u8 });
+    try expectCanSerializeTypeResult(?*?u8, .{ .failure = ?*?u8 });
+    try expectCanSerializeTypeResult(*?*?u8, .{ .failure = ?*?u8 });
+    try expectCanSerializeTypeResult(struct { x: comptime_int = 2 }, .success);
+    try expectCanSerializeTypeResult(struct { x: comptime_float = 2 }, .success);
+    try expectCanSerializeTypeResult(struct { comptime_int }, .success);
+    try expectCanSerializeTypeResult(struct { comptime x: @TypeOf(.foo) = .foo }, .success);
     const Recursive = struct { foo: ?*@This() };
-    try std.testing.expect(comptime canSerializeType(Recursive));
+    try expectCanSerializeTypeResult(Recursive, .success);
 
     // Make sure we validate nested optional before we early out due to already having seen
     // a type recursion!
-    try std.testing.expect(!comptime canSerializeType(struct {
+    try expectCanSerializeTypeResult(struct {
         add_to_visited: ?u8,
         retrieve_from_visited: ??u8,
-    }));
+    }, .{ .failure = ??u8 });
 }
