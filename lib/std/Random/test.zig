@@ -292,15 +292,13 @@ test "Random float correctness" {
     var prng = DefaultPrng.init(0);
     const random = prng.random();
 
-    var i: usize = 0;
-    while (i < 1000) : (i += 1) {
-        const val1 = random.float(f32);
-        try expect(val1 >= 0.0);
-        try expect(val1 < 1.0);
-
-        const val2 = random.float(f64);
-        try expect(val2 >= 0.0);
-        try expect(val2 < 1.0);
+    inline for (.{ f16, f32, f64, f80, c_longdouble, f128 }) |Float| {
+        var i: usize = 0;
+        while (i < 1000) : (i += 1) {
+            const val = random.float(Float);
+            try expect(val >= 0.0);
+            try expect(val < 1.0);
+        }
     }
 }
 
@@ -309,74 +307,42 @@ test "Random float coverage" {
     var prng = try Dilbert.init(&[_]u8{0});
     const random = prng.random();
 
-    const rand_f64 = random.float(f64);
-    const rand_f32 = random.float(f32);
-
-    try expect(rand_f32 == 0.0);
-    try expect(rand_f64 == 0.0);
+    inline for (.{ f16, f32, f64, f80, c_longdouble, f128 }) |Float| {
+        const rand_float = random.float(Float);
+        try expect(rand_float == 0.0);
+    }
 }
 
 test "Random float chi-square goodness of fit" {
     const num_numbers = 100000;
-    const num_buckets = 1000;
-
-    var f32_hist = std.AutoHashMap(u32, u32).init(std.testing.allocator);
-    defer f32_hist.deinit();
-    var f64_hist = std.AutoHashMap(u64, u32).init(std.testing.allocator);
-    defer f64_hist.deinit();
+    const num_buckets = 1024;
+    const expected_count_per_bucket = @as(f64, num_numbers) / @as(f64, num_buckets);
 
     var prng = DefaultPrng.init(0);
     const random = prng.random();
 
-    var i: usize = 0;
-    while (i < num_numbers) : (i += 1) {
-        const rand_f32 = random.float(f32);
-        const rand_f64 = random.float(f64);
-        const f32_put = try f32_hist.getOrPut(@as(u32, @intFromFloat(rand_f32 * @as(f32, @floatFromInt(num_buckets)))));
-        if (f32_put.found_existing) {
-            f32_put.value_ptr.* += 1;
-        } else {
-            f32_put.value_ptr.* = 1;
+    inline for (.{ f16, f32, f64, f80, c_longdouble, f128 }) |Float| {
+        var hist: [num_buckets]u32 = @splat(0);
+
+        for (0..num_numbers) |_| {
+            const rand_float = random.float(Float);
+            hist[@intFromFloat(rand_float * num_buckets)] += 1;
         }
-        const f64_put = try f64_hist.getOrPut(@as(u32, @intFromFloat(rand_f64 * @as(f64, @floatFromInt(num_buckets)))));
-        if (f64_put.found_existing) {
-            f64_put.value_ptr.* += 1;
-        } else {
-            f64_put.value_ptr.* = 1;
+
+        var total_variance: f64 = 0;
+
+        for (hist) |count| {
+            const delta = @as(f64, @floatFromInt(count)) - expected_count_per_bucket;
+            const variance = (delta * delta) / expected_count_per_bucket;
+            total_variance += variance;
         }
+
+        // Accept p-values >= 0.05.
+        // Critical value is calculated by opening a Python interpreter and running:
+        // scipy.stats.chi2.isf(0.05, num_buckets - 1)
+        const critical_value = 1098.5207819245886;
+        try expect(total_variance < critical_value);
     }
-
-    var f32_total_variance: f64 = 0;
-    var f64_total_variance: f64 = 0;
-
-    {
-        var j: u32 = 0;
-        while (j < num_buckets) : (j += 1) {
-            const count = @as(f64, @floatFromInt((if (f32_hist.get(j)) |v| v else 0)));
-            const expected = @as(f64, @floatFromInt(num_numbers)) / @as(f64, @floatFromInt(num_buckets));
-            const delta = count - expected;
-            const variance = (delta * delta) / expected;
-            f32_total_variance += variance;
-        }
-    }
-
-    {
-        var j: u64 = 0;
-        while (j < num_buckets) : (j += 1) {
-            const count = @as(f64, @floatFromInt((if (f64_hist.get(j)) |v| v else 0)));
-            const expected = @as(f64, @floatFromInt(num_numbers)) / @as(f64, @floatFromInt(num_buckets));
-            const delta = count - expected;
-            const variance = (delta * delta) / expected;
-            f64_total_variance += variance;
-        }
-    }
-
-    // Accept p-values >= 0.05.
-    // Critical value is calculated by opening a Python interpreter and running:
-    // scipy.stats.chi2.isf(0.05, num_buckets - 1)
-    const critical_value = 1073.6426506574246;
-    try expect(f32_total_variance < critical_value);
-    try expect(f64_total_variance < critical_value);
 }
 
 test "Random shuffle" {
