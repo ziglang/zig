@@ -1543,20 +1543,70 @@ const Assoc = enum {
 };
 
 const PrecClass = struct {
-    major: Major,
-    minor: u8 = 0,
+    group: Group,
     assoc: Assoc = Assoc.left,
 
     const Major = enum(u3) {
-        arithmetic = 0,
-        bitwise = 1,
-        comparison = 2,
-        logical = 3,
-        coercion = 4,
-        root = 5,
+        arithmetic,
+        bitwise,
+        comparison,
+        logical ,
+        coercion,
+        root,
     };
 
-    pub const start: PrecClass = .{ .major = .root };
+    const Group = union (Major) {
+        const distinct_classes = b: {
+            var sum: usize = 0;
+            for (std.meta.fieldNames(Group)) |fieldname| {
+                const FieldType: type = @TypeOf(@field(Group, fieldname));
+                sum += std.meta.fields(FieldType).len;
+            }
+            @compileLog(sum);
+            break :b sum;
+        };
+        
+
+        arithmetic: enum {
+            product_chainable,
+            product_nonchainable,
+            sum,
+        },
+        
+        bitwise: enum {
+            shift,
+            product,
+            xor,
+            sum,
+        },
+        
+        comparison: enum {
+            comparison,
+        },
+        
+        logical: enum {
+            product,
+            sum,
+        },
+        
+        coercion: enum {
+            coercion,
+        },
+        
+        root: enum {
+            root,
+        },
+
+        fn asInt(self: Group) usize {
+            switch (self) {
+                inline else => |tag| {
+
+                }
+            }
+        }
+    };
+
+    pub const start: PrecClass = .{ .group = .root };
 
     pub const Rel = enum(i2) {
         lt = -1,
@@ -1572,17 +1622,17 @@ const PrecClass = struct {
     /// bitwi > coerc
     /// coerc > compr > logic > root
     /// order[y][x] --> y cmp x
-    const major_ordering = b: {
-        const base_greater_than_relations = [_][2]Major{
+    const precedence_ordering = b: {
+        const major_greater_than_relations = [_][2]Major{
             .{ .arithmetic, .coercion },
-            .{ .bitwise, .coercion },
-            .{ .coercion, .comparison },
+            .{ .bitwise,    .coercion },
+            .{ .coercion,   .comparison },
             .{ .comparison, .logical },
-            .{ .logical, .root },
+            .{ .logical,    .root },
         };
 
         var order: [6][6]?Rel = @splat(@splat(null));
-        for (base_greater_than_relations) |relation| {
+        for (major_greater_than_relations) |relation| {
             const i = @intFromEnum(relation[0]);
             const j = @intFromEnum(relation[1]);
             order[i][j] = .gt;
