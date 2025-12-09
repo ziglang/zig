@@ -329,17 +329,19 @@ fn Kyber(comptime p: Params) type {
                 // ct' = innerEnc(pk, m', r')
                 const ct2 = sk.pk.encrypt(&m2, kr2[32..64]);
 
-                // Compute H(ct) and put in the second slot of kr2 which will be (K'', H(ct)).
-                sha3.Sha3_256.hash(ct, kr2[32..], .{});
-
-                // Replace K'' by z in the first slot of kr2 if ct ≠ ct'.
-                cmov(32, kr2[0..32], sk.z, ctneq(ciphertext_length, ct.*, ct2));
-
                 if (p.ml_kem) {
-                    // ML-KEM: K = K''/z
+                    // ML-KEM: K = K'' if ct == ct', else K = J(z || c) per FIPS 203
+                    var k_bar: [shared_length]u8 = undefined;
+                    var j = sha3.Shake256.init(.{});
+                    j.update(&sk.z);
+                    j.update(ct);
+                    j.squeeze(&k_bar);
+                    cmov(shared_length, kr2[0..shared_length], k_bar, ctneq(ciphertext_length, ct.*, ct2));
                     return kr2[0..shared_length].*;
                 } else {
                     // Kyber: K = KDF(K''/z ‖ H(c))
+                    sha3.Sha3_256.hash(ct, kr2[32..], .{});
+                    cmov(32, kr2[0..32], sk.z, ctneq(ciphertext_length, ct.*, ct2));
                     var ss: [shared_length]u8 = undefined;
                     sha3.Shake256.hash(&kr2, &ss, .{});
                     return ss;

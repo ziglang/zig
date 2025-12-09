@@ -211,7 +211,7 @@ fn Sha2x32(comptime iv: Iv32, digest_bits: comptime_int) type {
                                 s_v[k] = asm (
                                     \\sha256su0.4s %[w0_3], %[w4_7]
                                     \\sha256su1.4s %[w0_3], %[w8_11], %[w12_15]
-                                    : [w0_3] "=w" (-> V4u32),
+                                    : [w0_3] "=&w" (-> V4u32),
                                     : [_] "0" (s_v[k - 4]),
                                       [w4_7] "w" (s_v[k - 3]),
                                       [w8_11] "w" (s_v[k - 2]),

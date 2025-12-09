@@ -879,7 +879,7 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerModOptions) *std.Build.Ste
                 .loongarch64 => 5_024_158_515,
                 .riscv64 => 6_996_309_196,
                 .s390x => 4_997_174_476,
-                .x86_64 => 5_486_090_649,
+                .x86_64 => 6_664_025_702,
                 else => 7_000_000_000,
             },
             .macos => switch (b.graph.host.result.cpu.arch) {
