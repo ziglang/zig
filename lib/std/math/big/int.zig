@@ -4647,10 +4647,10 @@ test "format" {
     try a.set(20000000000000000000); // > maxInt(u64)
     try testFormat(a, "20000000000000000000");
 
-    try a.set(1 << 64 * @sizeOf(usize) * 8);
+    try a.set(1 << (64 * @sizeOf(usize) * 8));
     try testFormat(a, "(BigInt)");
 
-    try a.set(-(1 << 64 * @sizeOf(usize) * 8));
+    try a.set(-(1 << (64 * @sizeOf(usize) * 8)));
     try testFormat(a, "(BigInt)");
 }
 

@@ -1568,6 +1568,7 @@ const PrecClass = struct {
         root,
 
         /// For this to work correctly we require that all subgroups are strictly adjacent
+        /// Major groups are defined by the first text before an underscore
         const Major: type = b: {
             var major_names: [] const [] const u8 = &.{};
             for (std.meta.fieldNames(Group)) |fieldname| {
@@ -1593,28 +1594,15 @@ const PrecClass = struct {
                 major_names,
                 &values,
             );
-
-            // break :b @Type( .{ .@"enum" = 
-            //     .{ .@"enum" = .{ 
-            //         .decls = &.{},
-            //         .fields = &major_names,
-            //         .is_exhaustive = true,
-            //         .tag_type = null,
-            //     } } 
-            // } );
         };
     };
 
     pub const start: PrecClass = .{ .group = .root };
 
-    pub const Rel = enum(i2) {
-        lt = -1,
-        eq = 0,
-        gt = 1,
-
-        pub fn inverted(self: @This()) @This() {
-            return @enumFromInt(-@intFromEnum(self));
-        }
+    pub const Rel = enum {
+        lt,
+        eq,
+        gt,
     };
 
     const PrecedenceArray = [Group.num_distinct][Group.num_distinct] ?Rel;
@@ -1635,9 +1623,13 @@ const PrecClass = struct {
         prec_array.*[@intFromEnum(minor_a)][@intFromEnum(minor_b)] = rel;
     }
 
-    /// arith > coerc
-    /// bitwi > coerc
-    /// coerc > compr > logic > root
+    /// Arithmetic_* > Coercion
+    /// Bitwise_* > Coercion
+    /// Coercion > Comparison > Logical_* > Root
+    /// 
+    /// *_Product > *_Sum
+    /// Bitwise_Shift > Bitwise_Product
+    /// 
     /// order[y][x] --> y cmp x
     const precedence_ordering = b: {
         @setEvalBranchQuota(20_000);
@@ -1655,22 +1647,25 @@ const PrecClass = struct {
             setMajorRelation(&order, relation[0], .gt, relation[1]);
         }
 
-        setMinorRelation(&order, .arithmetic_product_chainable, .eq, .arithmetic_product_nonchainable);
-        setMinorRelation(&order, .arithmetic_product_chainable, .gt, .arithmetic_sum);
+        setMinorRelation(&order, .arithmetic_product_chainable,     .eq, .arithmetic_product_nonchainable);
+        setMinorRelation(&order, .arithmetic_product_nonchainable,  .gt, .arithmetic_sum);
+        setMinorRelation(&order, .arithmetic_product_chainable,     .gt, .arithmetic_sum);
+        //We have to add both >'s here since the Transative Order computer doesnt know that a == b > c --> a > c
 
-        setMinorRelation(&order, .bitwise_shift, .gt, .bitwise_product);
-        setMinorRelation(&order, .bitwise_product, .gt, .bitwise_sum);
+        setMinorRelation(&order, .bitwise_shift,    .gt, .bitwise_product);
+        setMinorRelation(&order, .bitwise_product,  .gt, .bitwise_sum);
 
         setMinorRelation(&order, .logical_product, .gt, .logical_sum);
         
 
         computeTransativeOrdering(&order);
-        @compileLog(order);
         break :b order;
     };
 
     pub fn cmp(lhs: PrecClass, rhs: PrecClass) ?Rel {
-        return PrecClass.precedence_ordering[@intFromEnum(lhs.group)][@intFromEnum(rhs.group)];
+        const ret = PrecClass.precedence_ordering[@intFromEnum(lhs.group)][@intFromEnum(rhs.group)];
+        if (ret == null) std.debug.print("CMP is {?}\n", .{ret});
+        return ret;
     }
 
     fn computeTransativeOrdering(order: *PrecedenceArray) void {
@@ -1689,27 +1684,6 @@ const OperInfo = struct {
     tag: Node.Tag,
 };
 
-// A table of binary operator information. Operator classes are as follows:
-//  arith 0:                 * *% *| / ||
-//  arith 1 nonchainable:    ** %
-//  arith 2:                 + - +% -% +| -| ++
-//  bitwi 0:                 << <<| >>
-//  bitwi 1:                 &
-//  bitwi 2:                 ^
-//  bitwi 3:                 |
-//  bitwi 1:                 &
-//  coerc:                   orelse catch
-//  compr nonchainable:      == != < <= >= >
-//  logic 0:                 and
-//  logic 1:                 or
-// Class Ordering is this:
-//  arith > coerc
-//  bitwi > coerc
-//  coerc > compr > logic
-// With subclass order of this:
-//  a0 == a1 > a2
-//  b0 > b1 > b3
-//  l0 > l1
 const operTable = std.enums.directEnumArrayDefault(Token.Tag, OperInfo, .{ .prec = .start, .tag = Node.Tag.root }, 0, .{
     .keyword_or =                            .{ .prec = .{ .group = .logical_sum },                                          .tag = .bool_or },         
                                                                                                                                                         
@@ -1764,6 +1738,7 @@ fn parseExprPrecedence(p: *Parse, min_exc_prec: PrecClass) Error!?Node.Index {
         }
 
         if (min_exc_prec.group == info.prec.group and min_exc_prec.assoc == .none and info.prec.assoc == .none) {
+            //Special cased check to maintain the old more helpful error for chained comparisons.
             if (info.prec.group == .comparison) {
                 return p.fail(.chained_comparison_operators);
             } else {
