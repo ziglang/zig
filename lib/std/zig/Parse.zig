@@ -1599,10 +1599,14 @@ const PrecClass = struct {
 
     pub const start: PrecClass = .{ .group = .root };
 
-    pub const Rel = enum {
-        lt,
-        eq,
-        gt,
+    pub const Rel = enum (i2) {
+        lt = -1,
+        eq =  0,
+        gt =  1,
+
+        fn inverted(self: Rel) Rel {
+            return @enumFromInt(-@intFromEnum(self));
+        }
     };
 
     const PrecedenceArray = [Group.num_distinct][Group.num_distinct] ?Rel;
