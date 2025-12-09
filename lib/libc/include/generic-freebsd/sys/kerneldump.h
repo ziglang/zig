@@ -161,6 +161,7 @@ void dumpsys_pb_progress(size_t);
 extern int do_minidump;
 
 int livedump_start(int, int, uint8_t);
+int livedump_start_vnode(struct vnode *, int, uint8_t);
 
 /* Live minidump events */
 typedef void (*livedump_start_fn)(void *arg, int *errorp);

@@ -184,7 +184,7 @@ struct ciss_softc
 {
     /* bus connections */
     device_t			ciss_dev;		/* bus attachment */
-    struct cdev *ciss_dev_t;		/* control device */
+    struct cdev			*ciss_dev_t;		/* control device */
 
     struct resource		*ciss_regs_resource;	/* register interface window */
     int				ciss_regs_rid;		/* resource ID */
@@ -236,6 +236,7 @@ struct ciss_softc
     int				ciss_max_bus_number;	/* maximum bus number */
     int				ciss_max_logical_bus;
     int				ciss_max_physical_bus;
+    int				ciss_max_physical_target;	/* highest physical target number */
 
     struct cam_devq		*ciss_cam_devq;
     struct cam_sim		**ciss_cam_sim;

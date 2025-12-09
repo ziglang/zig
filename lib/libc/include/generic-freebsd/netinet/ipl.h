@@ -2,8 +2,6 @@
  * Copyright (C) 2012 by Darren Reed.
  *
  * See the IPFILTER.LICENCE file for details on licencing.
- *
- * @(#)ipl.h	1.21 6/5/96
  * Id: ipl.h,v 2.52.2.30 2007/10/16 09:41:00 darrenr Exp $
  */
 

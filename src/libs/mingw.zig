@@ -235,6 +235,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     dev.check(.build_import_lib);
 
     const gpa = comp.gpa;
+    const io = comp.io;
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
@@ -255,6 +256,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     // Use the global cache directory.
     var cache: Cache = .{
         .gpa = gpa,
+        .io = io,
         .manifest_dir = try comp.dirs.global_cache.handle.makeOpenPath("h", .{}),
     };
     cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
@@ -302,21 +304,21 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         .output = .{ .to_list = .{ .arena = .init(gpa) } },
     };
     defer diagnostics.deinit();
-    var aro_comp = aro.Compilation.init(gpa, arena, &diagnostics, std.fs.cwd());
+    var aro_comp = aro.Compilation.init(gpa, arena, io, &diagnostics, std.fs.cwd());
     defer aro_comp.deinit();
 
-    aro_comp.target = target.*;
+    aro_comp.target = .fromZigTarget(target.*);
 
     const include_dir = try comp.dirs.zig_lib.join(arena, &.{ "libc", "mingw", "def-include" });
 
     if (comp.verbose_cc) print: {
-        var stderr = std.debug.lockStderrWriter(&.{});
+        var stderr, _ = std.debug.lockStderrWriter(&.{});
         defer std.debug.unlockStderrWriter();
         nosuspend stderr.print("def file: {s}\n", .{def_file_path}) catch break :print;
         nosuspend stderr.print("include dir: {s}\n", .{include_dir}) catch break :print;
     }
 
-    try aro_comp.include_dirs.append(gpa, include_dir);
+    try aro_comp.search_path.append(gpa, .{ .path = include_dir, .kind = .normal });
 
     const builtin_macros = try aro_comp.generateBuiltinMacros(.include_system_defines);
     const def_file_source = try aro_comp.addSourceFromPath(def_file_path);
@@ -326,15 +328,15 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     pp.linemarkers = .none;
     pp.preserve_whitespace = true;
 
-    try pp.preprocessSources(&.{ def_file_source, builtin_macros });
+    try pp.preprocessSources(.{ .main = def_file_source, .builtin = builtin_macros });
 
     if (aro_comp.diagnostics.output.to_list.messages.items.len != 0) {
         var buffer: [64]u8 = undefined;
-        const w = std.debug.lockStderrWriter(&buffer);
+        const w, const ttyconf = std.debug.lockStderrWriter(&buffer);
         defer std.debug.unlockStderrWriter();
         for (aro_comp.diagnostics.output.to_list.messages.items) |msg| {
             if (msg.kind == .@"fatal error" or msg.kind == .@"error") {
-                msg.write(w, .detect(std.fs.File.stderr()), true) catch {};
+                msg.write(w, ttyconf, true) catch {};
                 return error.AroPreprocessorFailed;
             }
         }
@@ -354,7 +356,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
             error.OutOfMemory => |e| return e,
             error.ParseError => {
                 var buffer: [64]u8 = undefined;
-                const w = std.debug.lockStderrWriter(&buffer);
+                const w, _ = std.debug.lockStderrWriter(&buffer);
                 defer std.debug.unlockStderrWriter();
                 try w.writeAll("error: ");
                 try def_diagnostics.writeMsg(w, input);

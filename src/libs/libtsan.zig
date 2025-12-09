@@ -25,11 +25,12 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
+    const io = comp.io;
     const target = comp.getTarget();
     const root_name = switch (target.os.tag) {
         // On Apple platforms, we use the same name as LLVM because the
         // TSAN library implementation hard-codes a check for these names.
-        .driverkit, .macos => "clang_rt.tsan_osx_dynamic",
+        .driverkit, .maccatalyst, .macos => "clang_rt.tsan_osx_dynamic",
         .ios => if (target.abi == .simulator) "clang_rt.tsan_iossim_dynamic" else "clang_rt.tsan_ios_dynamic",
         .tvos => if (target.abi == .simulator) "clang_rt.tsan_tvossim_dynamic" else "clang_rt.tsan_tvos_dynamic",
         .visionos => if (target.abi == .simulator) "clang_rt.tsan_xrossim_dynamic" else "clang_rt.tsan_xros_dynamic",
@@ -133,7 +134,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     }
 
     const platform_tsan_sources = switch (target.os.tag) {
-        .ios, .macos, .watchos, .tvos, .visionos => &darwin_tsan_sources,
+        .driverkit, .ios, .maccatalyst, .macos, .watchos, .tvos, .visionos => &darwin_tsan_sources,
         .windows => &windows_tsan_sources,
         else => &unix_tsan_sources,
     };
@@ -277,7 +278,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     const misc_task: Compilation.MiscTask = .libtsan;
 
     var sub_create_diag: Compilation.CreateDiagnostic = undefined;
-    const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
+    const sub_compilation = Compilation.create(comp.gpa, arena, io, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .thread_pool = comp.thread_pool,
         .self_exe_path = comp.self_exe_path,

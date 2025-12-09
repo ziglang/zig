@@ -31,54 +31,16 @@ test "zig fmt: tuple struct" {
 }
 
 test "zig fmt: preserves clobbers in inline asm with stray comma" {
-    try testTransform(
+    try testCanonical(
         \\fn foo() void {
         \\    asm volatile (""
         \\        : [_] "" (-> type),
         \\        :
-        \\        : "clobber"
-        \\    );
+        \\        : .{ .clobber = true });
         \\    asm volatile (""
         \\        :
         \\        : [_] "" (type),
-        \\        : "clobber"
-        \\    );
-        \\}
-        \\
-    ,
-        \\fn foo() void {
-        \\    asm volatile (""
-        \\        : [_] "" (-> type),
-        \\        :
-        \\        : .{ .clobber = true }
-        \\    );
-        \\    asm volatile (""
-        \\        :
-        \\        : [_] "" (type),
-        \\        : .{ .clobber = true }
-        \\    );
-        \\}
-        \\
-    );
-}
-
-test "zig fmt: remove trailing comma at the end of assembly clobber" {
-    try testTransform(
-        \\fn foo() void {
-        \\    asm volatile (""
-        \\        : [_] "" (-> type),
-        \\        :
-        \\        : "clobber1", "clobber2",
-        \\    );
-        \\}
-        \\
-    ,
-        \\fn foo() void {
-        \\    asm volatile (""
-        \\        : [_] "" (-> type),
-        \\        :
-        \\        : .{ .clobber1 = true, .clobber2 = true }
-        \\    );
+        \\        : .{ .clobber = true });
         \\}
         \\
     );
@@ -641,7 +603,7 @@ test "zig fmt: builtin call with trailing comma" {
 }
 
 test "zig fmt: asm expression with comptime content" {
-    try testTransform(
+    try testCanonical(
         \\comptime {
         \\    asm ("foo" ++ "bar");
         \\}
@@ -657,28 +619,7 @@ test "zig fmt: asm expression with comptime content" {
         \\    asm volatile ("foo" ++ "bar"
         \\        : [_] "" (x),
         \\        : [_] "" (y),
-        \\        : "h", "e", "l", "l", "o"
-        \\    );
-        \\}
-        \\
-    ,
-        \\comptime {
-        \\    asm ("foo" ++ "bar");
-        \\}
-        \\pub fn main() void {
-        \\    asm volatile ("foo" ++ "bar");
-        \\    asm volatile ("foo" ++ "bar"
-        \\        : [_] "" (x),
-        \\    );
-        \\    asm volatile ("foo" ++ "bar"
-        \\        : [_] "" (x),
-        \\        : [_] "" (y),
-        \\    );
-        \\    asm volatile ("foo" ++ "bar"
-        \\        : [_] "" (x),
-        \\        : [_] "" (y),
-        \\        : .{ .h = true, .e = true, .l = true, .l = true, .o = true }
-        \\    );
+        \\        : .{ .h = true, .e = true, .l = true, .l = true, .o = true });
         \\}
         \\
     );
@@ -2198,7 +2139,7 @@ test "zig fmt: simple asm" {
         \\    asm ("not real assembly"
         \\        :[a] "x" (->i32),:[a] "x" (1),);
         \\    asm ("still not real assembly"
-        \\        :::"a","b",);
+        \\        :::.{.a=true,.b=true});
         \\}
     ,
         \\comptime {
@@ -3956,24 +3897,13 @@ test "zig fmt: fn type" {
 }
 
 test "zig fmt: inline asm" {
-    try testTransform(
+    try testCanonical(
         \\pub fn syscall1(number: usize, arg1: usize) usize {
         \\    return asm volatile ("syscall"
         \\        : [ret] "={rax}" (-> usize),
         \\        : [number] "{rax}" (number),
         \\          [arg1] "{rdi}" (arg1),
-        \\        : "rcx", "r11"
-        \\    );
-        \\}
-        \\
-    ,
-        \\pub fn syscall1(number: usize, arg1: usize) usize {
-        \\    return asm volatile ("syscall"
-        \\        : [ret] "={rax}" (-> usize),
-        \\        : [number] "{rax}" (number),
-        \\          [arg1] "{rdi}" (arg1),
-        \\        : .{ .rcx = true, .r11 = true }
-        \\    );
+        \\        : .{ .rcx = true, .r11 = true });
         \\}
         \\
     );
@@ -5735,6 +5665,16 @@ test "zig fmt: no space before newline before multiline string" {
         \\        ,
         \\    };
         \\    _ = s2;
+        \\    const s3 = .{ .text =
+        \\        \\hello
+        \\        \\world
+        \\    , .comment = "test" };
+        \\    _ = s3;
+        \\    const s4 = .{ .comment = "test", .text =
+        \\        \\hello
+        \\        \\world
+        \\    };
+        \\    _ = s4;
         \\}
         \\
     );
@@ -5795,8 +5735,7 @@ test "zig fmt: canonicalize symbols (asm)" {
         \\          [@"arg1"] "{rdi}" (arg),
         \\          [arg2] "{rsi}" (arg),
         \\          [arg3] "{rdx}" (arg),
-        \\        : "rcx", "fn"
-        \\    );
+        \\        : .{ .rcx = true, .@"fn" = true });
         \\
         \\    const @"false": usize = 10;
         \\    const @"true" = "explode";
@@ -5817,8 +5756,7 @@ test "zig fmt: canonicalize symbols (asm)" {
         \\          [arg1] "{rdi}" (arg),
         \\          [arg2] "{rsi}" (arg),
         \\          [arg3] "{rdx}" (arg),
-        \\        : .{ .rcx = true, .@"fn" = true }
-        \\    );
+        \\        : .{ .rcx = true, .@"fn" = true });
         \\
         \\    const @"false": usize = 10;
         \\    const @"true" = "explode";
@@ -6086,6 +6024,16 @@ test "zig fmt: canonicalize cast builtins" {
 test "zig fmt: do not canonicalize invalid cast builtins" {
     try testCanonical(
         \\const foo = @alignCast(@volatileCast(@ptrCast(@alignCast(bar))));
+        \\
+    );
+}
+
+test "zig fmt: extern addrspace in struct" {
+    try testCanonical(
+        \\const namespace = struct {
+        \\    extern const num: u8 addrspace(.generic);
+        \\};
+        \\// comment
         \\
     );
 }
@@ -6402,7 +6350,7 @@ var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn testParse(source: [:0]const u8, allocator: mem.Allocator, anything_changed: *bool) ![]u8 {
     var buffer: [64]u8 = undefined;
-    const stderr = std.debug.lockStderrWriter(&buffer);
+    const stderr, _ = std.debug.lockStderrWriter(&buffer);
     defer std.debug.unlockStderrWriter();
 
     var tree = try std.zig.Ast.parse(allocator, source, .zig);

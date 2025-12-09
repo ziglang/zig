@@ -27,7 +27,7 @@ export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
 mkdir build-debug
 cd build-debug
 
-PATH="$HOME/local/bin:$PATH" cmake .. \
+cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-debug" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Debug \
@@ -39,9 +39,10 @@ PATH="$HOME/local/bin:$PATH" cmake .. \
   -DZIG_NO_LIB=ON \
   -GNinja
 
-$HOME/local/bin/ninja install
+ninja install
 
 stage3-debug/bin/zig build test docs \
+  --maxrss ${ZSF_MAX_RSS:-0} \
   --zig-lib-dir "$PWD/../lib" \
   -Denable-macos-sdk \
   -Dstatic-llvm \

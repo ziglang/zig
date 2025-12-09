@@ -33,16 +33,15 @@
 #define _CAM_CAM_XPT_H 1
 
 #ifdef _KERNEL
-#include <sys/cdefs.h>
 #include <cam/cam_ccb.h>
 #endif
+#include <sys/sbuf.h>
 
 /* Forward Declarations */
 union ccb;
 struct cam_periph;
 struct cam_ed;
 struct cam_sim;
-struct sbuf;
 
 /*
  * Definition of a CAM path.  Paths are created from bus, target, and lun ids
@@ -113,7 +112,6 @@ struct cam_sim		*xpt_path_sim(struct cam_path *path);
 struct cam_periph	*xpt_path_periph(struct cam_path *path);
 device_t		xpt_path_sim_device(const struct cam_path *path);
 void			xpt_print_path(struct cam_path *path);
-void			xpt_print_device(struct cam_ed *device);
 void			xpt_print(struct cam_path *path, const char *fmt, ...);
 void			xpt_async(uint32_t async_code, struct cam_path *path,
 				  void *async_arg);
@@ -147,17 +145,29 @@ uint32_t		xpt_poll_setup(union ccb *start_ccb);
 void			xpt_sim_poll(struct cam_sim *sim);
 
 /*
- * Perform a path inquiry at the request priority. The bzero may be
- * unnecessary.
+ * Perform a path inquiry. bzero may be redundant for allocated CCBs, but for
+ * the on-stack CCBs it's required.
  */
 static inline void
 xpt_path_inq(struct ccb_pathinq *cpi, struct cam_path *path)
 {
-
 	bzero(cpi, sizeof(*cpi));
-	xpt_setup_ccb(&cpi->ccb_h, path, CAM_PRIORITY_NORMAL);
+	xpt_setup_ccb(&cpi->ccb_h, path, CAM_PRIORITY_NONE);
 	cpi->ccb_h.func_code = XPT_PATH_INQ;
 	xpt_action((union ccb *)cpi);
+}
+
+/*
+ * Perform get device type. bzero may be redundant for allocated CCBs, but for
+ * the on-stack CCBs it's required.
+ */
+static inline void
+xpt_gdev_type(struct ccb_getdev *cgd, struct cam_path *path)
+{
+	bzero(cgd, sizeof(*cgd));
+	xpt_setup_ccb(&cgd->ccb_h, path, CAM_PRIORITY_NONE);
+	cgd->ccb_h.func_code = XPT_GDEV_TYPE;
+	xpt_action((union ccb *)cgd);
 }
 
 #endif /* _KERNEL */

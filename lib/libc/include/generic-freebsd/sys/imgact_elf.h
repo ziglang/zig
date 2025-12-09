@@ -45,6 +45,7 @@
     {(pos)->a_type = (id); (pos)->a_un.a_ptr = (ptr); (pos)++;}
 #endif
 
+struct coredump_writer;
 struct image_params;
 struct thread;
 struct vnode;
@@ -86,8 +87,8 @@ typedef struct {
 	const char *interp_newpath;
 	int flags;
 	Elf_Brandnote *brand_note;
-	bool		(*header_supported)(struct image_params *,
-	    int32_t *, uint32_t *);
+	bool		(*header_supported)(const struct image_params *,
+	    const int32_t *, const uint32_t *);
 		/* High 8 bits of flags is private to the ABI */
 #define	BI_CAN_EXEC_DYN		0x0001
 #define	BI_BRAND_NOTE		0x0002	/* May have note.ABI-tag section. */
@@ -114,7 +115,7 @@ bool	__elfN(brand_inuse)(Elf_Brandinfo *entry);
 int	__elfN(insert_brand_entry)(Elf_Brandinfo *entry);
 int	__elfN(remove_brand_entry)(Elf_Brandinfo *entry);
 int	__elfN(freebsd_fixup)(uintptr_t *, struct image_params *);
-int	__elfN(coredump)(struct thread *, struct vnode *, off_t, int);
+int	__elfN(coredump)(struct thread *, struct coredump_writer *, off_t, int);
 size_t	__elfN(populate_note)(int, void *, void *, size_t, void **);
 int	__elfN(freebsd_copyout_auxargs)(struct image_params *, uintptr_t);
 void	__elfN(puthdr)(struct thread *, void *, size_t, int, size_t, int);
@@ -123,9 +124,9 @@ void	__elfN(prepare_notes)(struct thread *, struct note_info_list *,
 void	__elfN(size_segments)(struct thread *, struct sseg_closure *, int);
 size_t	__elfN(register_note)(struct thread *, struct note_info_list *,
 	    int, outfunc_t, void *);
-bool	__elfN(parse_notes)(struct image_params *, Elf_Note *, const char *,
-	    const Elf_Phdr *, bool (*)(const Elf_Note *, void *, bool *),
-	    void *);
+bool	__elfN(parse_notes)(const struct image_params *, const Elf_Note *,
+	    const char *, const Elf_Phdr *,
+	    bool (*)(const Elf_Note *, void *, bool *), void *);
 
 /* Machine specific function to dump per-thread information. */
 void	__elfN(dump_thread)(struct thread *, void *, size_t *);

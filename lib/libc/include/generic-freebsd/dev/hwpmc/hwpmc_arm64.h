@@ -42,7 +42,7 @@
 #ifdef _KERNEL
 /* MD extension for 'struct pmc' */
 struct pmc_md_arm64_pmc {
-	uint32_t	pm_arm64_evsel;
+	uint64_t	pm_arm64_evsel;
 };
 #endif /* _KERNEL */
 #endif /* _DEV_HWPMC_ARMV8_H_ */

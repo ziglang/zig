@@ -73,6 +73,8 @@ typedef struct {
 	mtx_assert(IEEE80211_LOCK_OBJ(_ic), MA_OWNED)
 #define	IEEE80211_UNLOCK_ASSERT(_ic) \
 	mtx_assert(IEEE80211_LOCK_OBJ(_ic), MA_NOTOWNED)
+#define	IEEE80211_IS_LOCKED(_ic) \
+	mtx_owned(IEEE80211_LOCK_OBJ(_ic))
 
 /*
  * Transmit lock.
@@ -91,12 +93,22 @@ typedef struct {
 } while (0)
 #define	IEEE80211_TX_LOCK_OBJ(_ic)	(&(_ic)->ic_txlock.mtx)
 #define	IEEE80211_TX_LOCK_DESTROY(_ic) mtx_destroy(IEEE80211_TX_LOCK_OBJ(_ic))
-#define	IEEE80211_TX_LOCK(_ic)	   mtx_lock(IEEE80211_TX_LOCK_OBJ(_ic))
-#define	IEEE80211_TX_UNLOCK(_ic)	   mtx_unlock(IEEE80211_TX_LOCK_OBJ(_ic))
-#define	IEEE80211_TX_LOCK_ASSERT(_ic) \
-	mtx_assert(IEEE80211_TX_LOCK_OBJ(_ic), MA_OWNED)
-#define	IEEE80211_TX_UNLOCK_ASSERT(_ic) \
-	mtx_assert(IEEE80211_TX_LOCK_OBJ(_ic), MA_NOTOWNED)
+#define	IEEE80211_TX_LOCK(_ic) do { \
+	if (!IEEE80211_CONF_SEQNO_OFFLOAD(_ic)) \
+		mtx_lock(IEEE80211_TX_LOCK_OBJ(_ic)); \
+	} while (0);
+#define	IEEE80211_TX_UNLOCK(_ic) do { \
+	if (!IEEE80211_CONF_SEQNO_OFFLOAD(_ic)) \
+		mtx_unlock(IEEE80211_TX_LOCK_OBJ(_ic)); \
+	} while (0);
+#define	IEEE80211_TX_LOCK_ASSERT(_ic) do { \
+	if (!IEEE80211_CONF_SEQNO_OFFLOAD(_ic)) \
+		mtx_assert(IEEE80211_TX_LOCK_OBJ(_ic), MA_OWNED); \
+	} while (0)
+#define	IEEE80211_TX_UNLOCK_ASSERT(_ic) { \
+	if (!IEEE80211_CONF_SEQNO_OFFLOAD(_ic)) \
+		mtx_assert(IEEE80211_TX_LOCK_OBJ(_ic), MA_NOTOWNED); \
+	} while (0)
 
 /*
  * Stageq / ni_tx_superg lock
@@ -260,9 +272,9 @@ void	ieee80211_flush_ifq(struct ifqueue *, struct ieee80211vap *);
 void	ieee80211_vap_destroy(struct ieee80211vap *);
 const char *	ieee80211_get_vap_ifname(struct ieee80211vap *);
 
-#define	IFNET_IS_UP_RUNNING(_ifp) \
-	(((_ifp)->if_flags & IFF_UP) && \
-	 ((_ifp)->if_drv_flags & IFF_DRV_RUNNING))
+#define	IFNET_IS_UP_RUNNING(_ifp)				\
+	(((if_getflags(_ifp) & IFF_UP) != 0) &&			\
+	 ((if_getdrvflags(_ifp) & IFF_DRV_RUNNING) != 0))
 
 #define	msecs_to_ticks(ms)	MSEC_2_TICKS(ms)
 #define	ticks_to_msecs(t)	TICKS_2_MSEC(t)
@@ -329,11 +341,16 @@ struct mbuf *ieee80211_getmgtframe(uint8_t **frm, int headroom, int pktlen);
 #define	M_AGE_SUB(m,adj)	(m->m_pkthdr.csum_data -= adj)
 
 /*
- * Store the sequence number.
+ * Store / retrieve the sequence number in an mbuf.
+ *
+ * The sequence number being stored/retreived is the 12 bit
+ * base sequence number, not the 16 bit sequence number field.
+ * I.e., it's from 0..4095 inclusive, with no 4 bit padding for
+ * fragment numbers.
  */
 #define	M_SEQNO_SET(m, seqno) \
-	((m)->m_pkthdr.tso_segsz = (seqno))
-#define	M_SEQNO_GET(m)	((m)->m_pkthdr.tso_segsz)
+	((m)->m_pkthdr.tso_segsz = ((seqno) % IEEE80211_SEQ_RANGE))
+#define	M_SEQNO_GET(m)	(((m)->m_pkthdr.tso_segsz) % IEEE80211_SEQ_RANGE)
 
 #define	MTAG_ABI_NET80211	1132948340	/* net80211 ABI */
 
@@ -417,8 +434,7 @@ MODULE_DEPEND(wlan_##name, wlan, 1, 1, 1)
 /*
  * Crypto modules implement cipher support.
  */
-#define	IEEE80211_CRYPTO_MODULE(name, version)				\
-_IEEE80211_POLICY_MODULE(crypto, name, version);			\
+#define	IEEE80211_CRYPTO_MODULE_ADD(name)				\
 static void								\
 name##_modevent(int type)						\
 {									\
@@ -428,6 +444,10 @@ name##_modevent(int type)						\
 		ieee80211_crypto_unregister(&name);			\
 }									\
 TEXT_SET(crypto##_set, name##_modevent)
+
+#define	IEEE80211_CRYPTO_MODULE(name, version)				\
+	_IEEE80211_POLICY_MODULE(crypto, name, version);		\
+	IEEE80211_CRYPTO_MODULE_ADD(name)
 
 /*
  * Scanner modules provide scanning policy.
@@ -534,6 +554,21 @@ struct debugnet80211_methods {
 #define DEBUGNET80211_DEFINE(driver)
 #define DEBUGNET80211_SET(ic, driver)
 #endif /* DEBUGNET */
+
+void ieee80211_vap_sync_mac_address(struct ieee80211vap *);
+void ieee80211_vap_copy_mac_address(struct ieee80211vap *);
+void ieee80211_vap_deliver_data(struct ieee80211vap *, struct mbuf *);
+bool ieee80211_vap_ifp_check_is_monitor(struct ieee80211vap *);
+bool ieee80211_vap_ifp_check_is_simplex(struct ieee80211vap *);
+bool ieee80211_vap_ifp_check_is_running(struct ieee80211vap *);
+void ieee80211_vap_ifp_set_running_state(struct ieee80211vap *, bool);
+const uint8_t * ieee80211_vap_get_broadcast_address(struct ieee80211vap *);
+
+void	net80211_printf(const char *fmt, ...) __printflike(1, 2);
+void	net80211_vap_printf(const struct ieee80211vap *, const char *fmt, ...)
+	    __printflike(2, 3);
+void	net80211_ic_printf(const struct ieee80211com *, const char *fmt, ...)
+	    __printflike(2, 3);
 
 #endif /* _KERNEL */
 

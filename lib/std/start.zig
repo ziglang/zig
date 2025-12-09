@@ -61,6 +61,10 @@ comptime {
                 } else if (!@typeInfo(@TypeOf(root.main)).@"fn".calling_convention.eql(.c)) {
                     @export(&main, .{ .name = "main" });
                 }
+            } else if (native_os == .windows and builtin.link_libc and @hasDecl(root, "wWinMain")) {
+                if (!@typeInfo(@TypeOf(root.wWinMain)).@"fn".calling_convention.eql(.c)) {
+                    @export(&wWinMain, .{ .name = "wWinMain" });
+                }
             } else if (native_os == .windows) {
                 if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
                     !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
@@ -201,6 +205,7 @@ fn _start() callconv(.naked) noreturn {
             .arm, .armeb, .thumb, .thumbeb => "", // https://github.com/llvm/llvm-project/issues/115891
             .csky => ".cfi_undefined lr",
             .hexagon => ".cfi_undefined r31",
+            .kvx => ".cfi_undefined r14",
             .loongarch32, .loongarch64 => ".cfi_undefined 1",
             .m68k => ".cfi_undefined %%pc",
             .microblaze, .microblazeel => ".cfi_undefined r15",
@@ -313,6 +318,15 @@ fn _start() callconv(.naked) noreturn {
             \\ memw(r29 + #-8) = r29
             \\ r29 = add(r29, #-8)
             \\ call %[posixCallMainAndExit]
+            ,
+            .kvx =>
+            \\ make $fp = 0
+            \\ ;;
+            \\ set $ra = $fp
+            \\ copyd $r0 = $sp
+            \\ andd $sp = $sp, -32
+            \\ ;;
+            \\ goto %[posixCallMainAndExit]
             ,
             .loongarch32, .loongarch64 =>
             \\ move $fp, $zero
@@ -527,6 +541,10 @@ fn wWinMainCRTStartup() callconv(.withStackAlign(.c, 1)) noreturn {
     std.os.windows.ntdll.RtlExitUserProcess(@as(std.os.windows.UINT, @bitCast(result)));
 }
 
+fn wWinMain(hInstance: *anyopaque, hPrevInstance: ?*anyopaque, pCmdLine: [*:0]u16, nCmdShow: c_int) callconv(.c) c_int {
+    return root.wWinMain(@ptrCast(hInstance), @ptrCast(hPrevInstance), pCmdLine, @intCast(nCmdShow));
+}
+
 fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
     // We're not ready to panic until thread local storage is initialized.
     @setRuntimeSafety(false);
@@ -562,7 +580,7 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
     // Apply the initial relocations as early as possible in the startup process. We cannot
     // make calls yet on some architectures (e.g. MIPS) *because* they haven't been applied yet,
     // so this must be fully inlined.
-    if (builtin.position_independent_executable) {
+    if (builtin.link_mode == .static and builtin.position_independent_executable) {
         @call(.always_inline, std.pie.relocate, .{phdrs});
     }
 
@@ -652,7 +670,6 @@ inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     std.os.environ = envp;
 
     std.debug.maybeEnableSegfaultHandler();
-    maybeIgnoreSigpipe();
 
     return callMain();
 }
@@ -735,60 +752,21 @@ pub fn call_wWinMain() std.os.windows.INT {
     // - u32 in PEB.ProcessParameters.dwShowWindow
     // Since STARTUPINFO is the bottleneck for the allowed values, we use `u16` as the
     // type which can coerce into i32/c_int/u32 depending on how the user defines their wWinMain
-    // (the Win32 docs show wWinMain with `int` as the type for nCmdShow).
-    const nCmdShow: u16 = nCmdShow: {
-        // This makes Zig match the nCmdShow behavior of a C program with a WinMain symbol:
+    // (the Win32 docs show wWinMain with `int` as the type for nShowCmd).
+    const nShowCmd: u16 = nShowCmd: {
+        // This makes Zig match the nShowCmd behavior of a C program with a WinMain symbol:
         // - With STARTF_USESHOWWINDOW set in STARTUPINFO.dwFlags of the CreateProcess call:
-        //   - Compiled with subsystem:console -> nCmdShow is always SW_SHOWDEFAULT
-        //   - Compiled with subsystem:windows -> nCmdShow is STARTUPINFO.wShowWindow from
-        //     the parent CreateProcess call
+        //   - nShowCmd is STARTUPINFO.wShowWindow from the parent CreateProcess call
         // - With STARTF_USESHOWWINDOW unset:
-        //   - nCmdShow is always SW_SHOWDEFAULT
+        //   - nShowCmd is always SW_SHOWDEFAULT
         const SW_SHOWDEFAULT = 10;
         const STARTF_USESHOWWINDOW = 1;
-        // root having a wWinMain means that std.builtin.subsystem will always have a non-null value.
-        if (std.builtin.subsystem.? == .Windows and peb.ProcessParameters.dwFlags & STARTF_USESHOWWINDOW != 0) {
-            break :nCmdShow @truncate(peb.ProcessParameters.dwShowWindow);
+        if (peb.ProcessParameters.dwFlags & STARTF_USESHOWWINDOW != 0) {
+            break :nShowCmd @truncate(peb.ProcessParameters.dwShowWindow);
         }
-        break :nCmdShow SW_SHOWDEFAULT;
+        break :nShowCmd SW_SHOWDEFAULT;
     };
 
     // second parameter hPrevInstance, MSDN: "This parameter is always NULL"
-    return root.wWinMain(hInstance, null, lpCmdLine, nCmdShow);
+    return root.wWinMain(hInstance, null, lpCmdLine, nShowCmd);
 }
-
-fn maybeIgnoreSigpipe() void {
-    const have_sigpipe_support = switch (builtin.os.tag) {
-        .linux,
-        .plan9,
-        .illumos,
-        .netbsd,
-        .openbsd,
-        .haiku,
-        .macos,
-        .ios,
-        .watchos,
-        .tvos,
-        .visionos,
-        .dragonfly,
-        .freebsd,
-        .serenity,
-        => true,
-
-        else => false,
-    };
-
-    if (have_sigpipe_support and !std.options.keep_sigpipe) {
-        const posix = std.posix;
-        const act: posix.Sigaction = .{
-            // Set handler to a noop function instead of `SIG.IGN` to prevent
-            // leaking signal disposition to a child process.
-            .handler = .{ .handler = noopSigHandler },
-            .mask = posix.sigemptyset(),
-            .flags = 0,
-        };
-        posix.sigaction(posix.SIG.PIPE, &act, null);
-    }
-}
-
-fn noopSigHandler(_: i32) callconv(.c) void {}

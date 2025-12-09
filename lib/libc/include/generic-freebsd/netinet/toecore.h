@@ -36,6 +36,7 @@
 #include <netinet/tcp.h>
 #include <sys/_eventhandler.h>
 
+struct tcpcb;
 struct tcpopt;
 struct tcphdr;
 struct in_conninfo;
@@ -65,7 +66,7 @@ struct toedev {
 	void (*tod_input)(struct toedev *, struct tcpcb *, struct mbuf *);
 
 	/*
-	 * This is called by the kernel during pru_rcvd for an offloaded TCP
+	 * This is called by the kernel during pr_rcvd() for an offloaded TCP
 	 * connection and provides an opportunity for the TOE driver to manage
 	 * its rx window and credits.
 	 */

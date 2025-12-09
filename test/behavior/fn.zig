@@ -407,8 +407,8 @@ test "import passed byref to function in return type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
-        fn get() @import("std").ArrayListUnmanaged(i32) {
-            const x: @import("std").ArrayListUnmanaged(i32) = .empty;
+        fn get() @import("std").ArrayList(i32) {
+            const x: @import("std").ArrayList(i32) = .empty;
             return x;
         }
     };
@@ -556,10 +556,10 @@ test "lazy values passed to anytype parameter" {
 
 test "pass and return comptime-only types" {
     const S = struct {
-        fn returnNull(comptime x: @Type(.null)) @Type(.null) {
+        fn returnNull(comptime x: @TypeOf(null)) @TypeOf(null) {
             return x;
         }
-        fn returnUndefined(comptime x: @Type(.undefined)) @Type(.undefined) {
+        fn returnUndefined(comptime x: @TypeOf(undefined)) @TypeOf(undefined) {
             return x;
         }
     };

@@ -73,6 +73,17 @@
 #define	lr		x30
 
 /*
+ * Check whether a given cpu feature is present, in the case it is not we jump
+ * to the given label. The tmp register should be a register able to hold the
+ * temporary data.
+ */
+#define CHECK_CPU_FEAT(tmp, feat_reg, feat, min_val, label)	\
+	mrs tmp, ##feat_reg##_el1;				\
+	ubfx tmp, tmp, ##feat_reg##_##feat##_SHIFT, ##feat_reg##_##feat##_WIDTH; \
+	cmp tmp, #(##feat_reg##_##feat##_##min_val## >> ##feat_reg##_##feat##_SHIFT); \
+	b.lt label
+
+/*
  * Sets the trap fault handler. The exception handler will return to the
  * address in the handler register on a data abort or the xzr register to
  * clear the handler. The tmp parameter should be a register able to hold
@@ -87,19 +98,25 @@
 	ldr	tmp, =has_pan;			/* Get the addr of has_pan */ \
 	ldr	reg, [tmp];			/* Read it */		\
 	cbz	reg, 997f;			/* If no PAN skip */	\
-	.inst	0xd500409f | (0 << 8);		/* Clear PAN */		\
+	.arch_extension pan;						\
+	msr pan, #0;				/* Disable PAN checks */ \
+	.arch_extension nopan;						\
 	997:
 
 #define	EXIT_USER_ACCESS(reg)						\
 	cbz	reg, 998f;			/* If no PAN skip */	\
-	.inst	0xd500409f | (1 << 8);		/* Set PAN */		\
+	.arch_extension pan;						\
+	msr pan, #1;				/* Enable PAN checks */ \
+	.arch_extension nopan;						\
 	998:
 
 #define	EXIT_USER_ACCESS_CHECK(reg, tmp)				\
 	ldr	tmp, =has_pan;			/* Get the addr of has_pan */ \
 	ldr	reg, [tmp];			/* Read it */		\
 	cbz	reg, 999f;			/* If no PAN skip */	\
-	.inst	0xd500409f | (1 << 8);		/* Set PAN */		\
+	.arch_extension pan;						\
+	msr pan, #1;				/* Enable PAN checks */ \
+	.arch_extension nopan;						\
 	999:
 
 /*

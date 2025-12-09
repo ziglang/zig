@@ -64,7 +64,6 @@
 #ifndef _SCSI_SCSI_CH_H
 #define _SCSI_SCSI_CH_H 1
 
-#include <sys/cdefs.h>
 
 /*
  * SCSI command format

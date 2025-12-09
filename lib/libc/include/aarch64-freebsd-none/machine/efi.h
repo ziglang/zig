@@ -35,6 +35,8 @@
 #ifndef __ARM64_INCLUDE_EFI_H_
 #define __ARM64_INCLUDE_EFI_H_
 
+#include <sys/types.h>
+
 #define	EFIABI_ATTR
 
 #ifdef _KERNEL
@@ -44,7 +46,7 @@
 #define	EFI_TIME_UNLOCK()
 #define	EFI_TIME_OWNED()
 
-#define	EFI_RT_HANDLE_FAULTS_DEFAULT	0
+#define	EFI_RT_HANDLE_FAULTS_DEFAULT	1
 #endif
 
 struct efirt_callinfo {

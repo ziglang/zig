@@ -31,6 +31,12 @@
 #ifndef _MACHINE_UCODE_H_
 #define	_MACHINE_UCODE_H_
 
+#ifdef _KERNEL
+#include <sys/types.h>
+#else
+#include <stdbool.h>
+#endif
+
 struct ucode_intel_header {
 	uint32_t	header_version;
 	int32_t		update_revision;
@@ -56,7 +62,14 @@ struct ucode_intel_extsig_table {
 	} entries[0];
 };
 
-int	ucode_intel_load(void *data, bool unsafe,
+typedef enum { SAFE, UNSAFE, EARLY } ucode_load_how;
+
+const void *ucode_amd_find(const char *path, uint32_t signature,
+	    uint32_t *revision, const uint8_t *fw_data, size_t fw_size,
+	    size_t *selected_sizep);
+int	ucode_intel_load(const void *data, ucode_load_how unsafe,
+	    uint64_t *nrevp, uint64_t *orevp);
+int	ucode_amd_load(const void *data, ucode_load_how how,
 	    uint64_t *nrevp, uint64_t *orevp);
 size_t	ucode_load_bsp(uintptr_t free);
 void	ucode_load_ap(int cpu);

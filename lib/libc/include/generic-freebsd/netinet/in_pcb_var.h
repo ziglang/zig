@@ -32,8 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)in_pcb.h	8.1 (Berkeley) 6/10/93
  */
 
 #ifndef _NETINET_IN_PCB_VAR_H_
@@ -52,16 +50,37 @@ int	inp_trylock(struct inpcb *inp, const inp_lookup_t lock);
 bool	inp_smr_lock(struct inpcb *, const inp_lookup_t);
 int	in_pcb_lport(struct inpcb *, struct in_addr *, u_short *,
 	    struct ucred *, int);
-int	in_pcb_lport_dest(struct inpcb *inp, struct sockaddr *lsa,
+int	in_pcb_lport_dest(const struct inpcb *inp, struct sockaddr *lsa,
             u_short *lportp, struct sockaddr *fsa, u_short fport,
             struct ucred *cred, int lookupflags);
-struct inpcb *	in_pcblookup_local(struct inpcbinfo *, struct in_addr, u_short,
-	    int, struct ucred *);
+struct inpcb *in_pcblookup_local(struct inpcbinfo *, struct in_addr, u_short,
+	    int, int, struct ucred *);
+int     in_pcbinshash(struct inpcb *);
+void    in_pcbrehash(struct inpcb *);
+void    in_pcbremhash_locked(struct inpcb *);
 
-struct inpcbport {
-	struct inpcbhead phd_pcblist;
-	CK_LIST_ENTRY(inpcbport) phd_hash;
-	u_short phd_port;
+/*
+ * Load balance groups used for the SO_REUSEPORT_LB socket option. Each group
+ * (or unique address:port combination) can be re-used at most
+ * INPCBLBGROUP_SIZMAX (256) times. The inpcbs are stored in il_inp which
+ * is dynamically resized as processes bind/unbind to that specific group.
+ */
+struct inpcblbgroup {
+	CK_LIST_ENTRY(inpcblbgroup) il_list;
+	LIST_HEAD(, inpcb) il_pending;	/* PCBs waiting for listen() */
+	struct epoch_context il_epoch_ctx;
+	struct ucred	*il_cred;
+	uint16_t	il_lport;			/* (c) */
+	u_char		il_vflag;			/* (c) */
+	uint8_t		il_numa_domain;
+	int		il_fibnum;
+	union in_dependaddr il_dependladdr;		/* (c) */
+#define	il_laddr	il_dependladdr.id46_addr.ia46_addr4
+#define	il6_laddr	il_dependladdr.id6_addr
+	uint32_t	il_inpsiz; /* max count in il_inp[] (h) */
+	uint32_t	il_inpcnt; /* cur count in il_inp[] (h) */
+	uint32_t	il_pendcnt; /* cur count in il_pending (h) */
+	struct inpcb	*il_inp[];			/* (h) */
 };
 
 #endif /* !_NETINET_IN_PCB_VAR_H_ */

@@ -1028,7 +1028,7 @@ fn testParse(machine_type: std.coff.IMAGE.FILE.MACHINE, source: [:0]const u8, ex
     const module = parse(std.testing.allocator, source, machine_type, .mingw, &diagnostics) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
         error.ParseError => {
-            const stderr = std.debug.lockStderrWriter(&.{});
+            const stderr, _ = std.debug.lockStderrWriter(&.{});
             defer std.debug.unlockStderrWriter();
             try diagnostics.writeMsg(stderr, source);
             try stderr.writeByte('\n');

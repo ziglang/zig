@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)namei.h	8.5 (Berkeley) 1/9/95
  */
 
 #ifndef _SYS_NAMEI_H_
@@ -39,6 +37,8 @@
 #include <sys/queue.h>
 #include <sys/_seqc.h>
 #include <sys/_uio.h>
+
+#include <vm/uma.h>
 
 enum nameiop { LOOKUP, CREATE, DELETE, RENAME };
 
@@ -70,7 +70,7 @@ struct nameidata {
 	 */
 	const	char *ni_dirp;		/* pathname pointer */
 	enum	uio_seg ni_segflg;	/* location of pathname */
-	cap_rights_t *ni_rightsneeded;	/* rights required to look up vnode */
+	const cap_rights_t *ni_rightsneeded; /* rights needed to look up vnode */
 	/*
 	 * Arguments to lookup.
 	 */
@@ -108,7 +108,12 @@ struct nameidata {
 	 * through the VOP interface.
 	 */
 	struct componentname ni_cnd;
+
+	/* Serving RBENEATH. */
 	struct nameicap_tracker_head ni_cap_tracker;
+	struct vnode *ni_rbeneath_dpp;
+	struct mount *ni_nctrack_mnt;
+
 	/*
 	 * Private helper data for UFS, must be at the end.  See
 	 * NDINIT_PREFILL().
@@ -152,6 +157,7 @@ int	cache_fplookup(struct nameidata *ndp, enum cache_fpl_status *status,
 #define	LOCKSHARED	0x0100	/* Shared lock leaf */
 #define	NOFOLLOW	0x0000	/* do not follow symbolic links (pseudo) */
 #define	RBENEATH	0x100000000ULL /* No escape, even tmp, from start dir */
+#define	NAMEILOOKUP	0x200000000ULL /* cnp is embedded in nameidata */
 #define	MODMASK		0xf000001ffULL	/* mask of operational modifiers */
 
 /*
@@ -159,7 +165,7 @@ int	cache_fplookup(struct nameidata *ndp, enum cache_fpl_status *status,
  */
 #define	RDONLY		0x00000200 /* lookup with read-only semantics */
 #define	ISRESTARTED	0x00000400 /* restarted namei */
-/* UNUSED		0x00000800 */
+#define	IGNOREWHITEOUT	0x00000800 /* ignore whiteouts, e.g. when checking if a dir is empty */
 #define	ISWHITEOUT	0x00001000 /* found whiteout */
 #define	DOWHITEOUT	0x00002000 /* do whiteouts */
 #define	WILLBEDIR	0x00004000 /* new files will be dirs; allow trailing / */
@@ -172,14 +178,15 @@ int	cache_fplookup(struct nameidata *ndp, enum cache_fpl_status *status,
 #define	OPENREAD	0x00200000 /* open for reading */
 #define	OPENWRITE	0x00400000 /* open for writing */
 #define	WANTIOCTLCAPS	0x00800000 /* leave ioctl caps for the caller */
-/* UNUSED		0x01000000 */
+#define	OPENNAMED	0x01000000 /* opening a named attribute (dir) */
 #define	NOEXECCHECK	0x02000000 /* do not perform exec check on dir */
 #define	MAKEENTRY	0x04000000 /* entry is to be added to name cache */
 #define	ISSYMLINK	0x08000000 /* symlink needs interpretation */
 #define	ISLASTCN	0x10000000 /* this is last component of pathname */
 #define	ISDOTDOT	0x20000000 /* current component name is .. */
 #define	TRAILINGSLASH	0x40000000 /* path ended in a slash */
-#define	PARAMASK	0x7ffffe00 /* mask of parameter descriptors */
+#define	CREATENAMED	0x80000000 /* create a named attribute dir */
+#define	PARAMASK	0xfffffe00 /* mask of parameter descriptors */
 
 /*
  * Flags which must not be passed in by callers.
@@ -194,6 +201,7 @@ int	cache_fplookup(struct nameidata *ndp, enum cache_fpl_status *status,
 #define	NIRES_ABS	0x00000001 /* Path was absolute */
 #define	NIRES_STRICTREL	0x00000002 /* Restricted lookup result */
 #define	NIRES_EMPTYPATH	0x00000004 /* EMPTYPATH used */
+#define	NIRES_BENEATH	0x00000008 /* O_RESOLVE_BENEATH is to be inherited */
 
 /*
  * Flags in ni_lcf, valid for the duration of the namei call.
@@ -232,6 +240,10 @@ int	cache_fplookup(struct nameidata *ndp, enum cache_fpl_status *status,
 		panic("namei data not inited");					\
 	if (((arg)->ni_debugflags & NAMEI_DBG_HADSTARTDIR) != 0)		\
 		panic("NDREINIT on namei data with NAMEI_DBG_HADSTARTDIR");	\
+	if ((arg)->ni_nctrack_mnt != NULL)			\
+		panic("NDREINIT on namei data with leaked ni_nctrack_mnt");	\
+	if (!TAILQ_EMPTY(&(arg)->ni_cap_tracker))				\
+		panic("NDREINIT on namei data with leaked ni_cap_tracker");	\
 	(arg)->ni_debugflags = NAMEI_DBG_INITED;				\
 }
 #else
@@ -243,12 +255,12 @@ int	cache_fplookup(struct nameidata *ndp, enum cache_fpl_status *status,
 #define NDINIT_ALL(ndp, op, flags, segflg, namep, dirfd, startdir, rightsp)	\
 do {										\
 	struct nameidata *_ndp = (ndp);						\
-	cap_rights_t *_rightsp = (rightsp);					\
+	const cap_rights_t *_rightsp = (rightsp);					\
 	MPASS(_rightsp != NULL);						\
 	NDINIT_PREFILL(_ndp);							\
 	NDINIT_DBG(_ndp);							\
 	_ndp->ni_cnd.cn_nameiop = op;						\
-	_ndp->ni_cnd.cn_flags = flags;						\
+	_ndp->ni_cnd.cn_flags = (flags) | NAMEILOOKUP;				\
 	_ndp->ni_segflg = segflg;						\
 	_ndp->ni_dirp = namep;							\
 	_ndp->ni_dirfd = dirfd;							\
@@ -256,6 +268,9 @@ do {										\
 	_ndp->ni_resflags = 0;							\
 	filecaps_init(&_ndp->ni_filecaps);					\
 	_ndp->ni_rightsneeded = _rightsp;					\
+	_ndp->ni_rbeneath_dpp = NULL;						\
+	_ndp->ni_nctrack_mnt = NULL;						\
+	TAILQ_INIT(&_ndp->ni_cap_tracker);					\
 } while (0)
 
 #define NDREINIT(ndp)	do {							\
@@ -264,6 +279,7 @@ do {										\
 	filecaps_free(&_ndp->ni_filecaps);					\
 	_ndp->ni_resflags = 0;							\
 	_ndp->ni_startdir = NULL;						\
+	_ndp->ni_cnd.cn_flags &= ~NAMEI_INTERNAL_FLAGS;				\
 } while (0)
 
 #define	NDPREINIT(ndp) do {							\
@@ -285,6 +301,8 @@ do {										\
 
 int	namei(struct nameidata *ndp);
 int	vfs_lookup(struct nameidata *ndp);
+bool	vfs_lookup_isroot(struct nameidata *ndp, struct vnode *dvp);
+struct nameidata *vfs_lookup_nameidata(struct componentname *cnp);
 int	vfs_relookup(struct vnode *dvp, struct vnode **vpp,
 	    struct componentname *cnp, bool refstart);
 

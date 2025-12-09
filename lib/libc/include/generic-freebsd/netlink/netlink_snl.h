@@ -31,6 +31,12 @@
  * Simple Netlink Library
  */
 
+#include <sys/param.h>
+#include <sys/socket.h>
+
+#include <netlink/netlink.h>
+#include <netlink/netlink_bitset.h>
+
 #include <assert.h>
 #include <errno.h>
 #include <stdalign.h>
@@ -40,11 +46,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netlink/netlink.h>
-#include <netlink/netlink_bitset.h>
 
 #define _roundup2(x, y)         (((x)+((y)-1))&(~((y)-1)))
 
@@ -67,8 +68,6 @@
 		((char *)_attr < _NLA_END(_start, _len)) && \
 		((char *)NLA_NEXT(_attr) <= _NLA_END(_start, _len));	\
 		_attr =  NLA_NEXT(_attr))
-
-#define	NL_ARRAY_LEN(_a)	(sizeof(_a) / sizeof((_a)[0]))
 
 struct linear_buffer {
 	char			*base;	/* Base allocated memory pointer */
@@ -133,6 +132,7 @@ struct snl_field_parser {
 	uint16_t		off_out;
 	snl_parse_field_f	*cb;
 };
+static const struct snl_field_parser snl_f_p_empty[] = {};
 
 typedef bool snl_parse_attr_f(struct snl_state *ss, struct nlattr *attr,
     const void *arg, void *target);
@@ -166,8 +166,8 @@ static const struct snl_hdr_parser _name = {				\
 	.out_size = _sz_out,						\
 	.fp = &((_fp)[0]),						\
 	.np = &((_np)[0]),						\
-	.fp_size = NL_ARRAY_LEN(_fp),					\
-	.np_size = NL_ARRAY_LEN(_np),					\
+	.fp_size = nitems(_fp),						\
+	.np_size = nitems(_np),						\
 	.cb_post = _cb,							\
 }
 
@@ -179,7 +179,7 @@ static const struct snl_hdr_parser _name = {				\
 	.in_hdr_size = _sz_h_in,					\
 	.out_size = _sz_out,						\
 	.fp = &((_fp)[0]),						\
-	.fp_size = NL_ARRAY_LEN(_fp),					\
+	.fp_size = nitems(_fp),						\
 	.cb_post = _cb,							\
 }
 
@@ -190,7 +190,7 @@ static const struct snl_hdr_parser _name = {				\
 static const struct snl_hdr_parser _name = {				\
 	.out_size = _sz_out,						\
 	.np = &((_np)[0]),						\
-	.np_size = NL_ARRAY_LEN(_np),					\
+	.np_size = nitems(_np),						\
 	.cb_post = _cb,							\
 }
 
@@ -240,14 +240,13 @@ snl_clear_lb(struct snl_state *ss)
 static void
 snl_free(struct snl_state *ss)
 {
-	if (ss->init_done) {
+	if (ss->init_done)
 		close(ss->fd);
-		if (ss->buf != NULL)
-			free(ss->buf);
-		if (ss->lb != NULL) {
-			snl_clear_lb(ss);
-			lb_free(ss->lb);
-		}
+	if (ss->buf != NULL)
+		free(ss->buf);
+	if (ss->lb != NULL) {
+		snl_clear_lb(ss);
+		lb_free(ss->lb);
 	}
 }
 
@@ -288,6 +287,16 @@ snl_init(struct snl_state *ss, int netlink_family)
 	}
 
 	return (true);
+}
+
+static inline bool
+snl_clone(struct snl_state *ss, const struct snl_state *orig)
+{
+	*ss = (struct snl_state){
+		.fd = orig->fd,
+		.init_done = false,
+	};
+	return ((ss->lb = lb_init(SCRATCH_BUFFER_SIZE)) != NULL);
 }
 
 static inline bool
@@ -418,7 +427,7 @@ snl_verify_parsers(const struct snl_hdr_parser **parser, int count)
 		}
 	}
 }
-#define	SNL_VERIFY_PARSERS(_p)	snl_verify_parsers((_p), NL_ARRAY_LEN(_p))
+#define	SNL_VERIFY_PARSERS(_p)	snl_verify_parsers((_p), nitems(_p))
 
 static const struct snl_attr_parser *
 find_parser(const struct snl_attr_parser *ps, int pslen, int key)
@@ -521,6 +530,29 @@ snl_attr_get_flag(struct snl_state *ss __unused, struct nlattr *nla, const void 
 {
 	if (NLA_DATA_LEN(nla) == 0) {
 		*((uint8_t *)target) = 1;
+		return (true);
+	}
+	return (false);
+}
+
+static inline bool
+snl_attr_get_bytes(struct snl_state *ss __unused, struct nlattr *nla, const void *arg,
+    void *target)
+{
+	if ((size_t)NLA_DATA_LEN(nla) != (size_t)arg)
+		return (false);
+
+	memcpy(target, NLA_DATA_CONST(nla), (size_t)arg);
+
+	return (true);
+}
+
+static inline bool
+snl_attr_get_bool(struct snl_state *ss __unused, struct nlattr *nla,
+    const void *arg __unused, void *target)
+{
+	if (NLA_DATA_LEN(nla) == sizeof(bool)) {
+		*((bool *)target) = *((const bool *)NLA_DATA_CONST(nla));
 		return (true);
 	}
 	return (false);
@@ -1086,20 +1118,22 @@ snl_reserve_msg_data_raw(struct snl_writer *nw, size_t sz)
 #define snl_reserve_msg_object(_ns, _t)	((_t *)snl_reserve_msg_data_raw(_ns, sizeof(_t)))
 #define snl_reserve_msg_data(_ns, _sz, _t)	((_t *)snl_reserve_msg_data_raw(_ns, _sz))
 
-static inline void *
-_snl_reserve_msg_attr(struct snl_writer *nw, uint16_t nla_type, uint16_t sz)
+static inline struct nlattr *
+snl_reserve_msg_attr_raw(struct snl_writer *nw, uint16_t nla_type, uint16_t sz)
 {
-	sz += sizeof(struct nlattr);
+	struct nlattr *nla;
 
-	struct nlattr *nla = snl_reserve_msg_data(nw, sz, struct nlattr);
+	sz += sizeof(struct nlattr);
+	nla = snl_reserve_msg_data(nw, sz, struct nlattr);
 	if (__predict_false(nla == NULL))
 		return (NULL);
 	nla->nla_type = nla_type;
 	nla->nla_len = sz;
 
-	return ((void *)(nla + 1));
+	return (nla);
 }
-#define	snl_reserve_msg_attr(_ns, _at, _t)	((_t *)_snl_reserve_msg_attr(_ns, _at, sizeof(_t)))
+#define	snl_reserve_msg_attr(_ns, _at, _t)	\
+	((_t *)(snl_reserve_msg_attr_raw(_ns, _at, sizeof(_t)) + 1))
 
 static inline bool
 snl_add_msg_attr(struct snl_writer *nw, int attr_type, int attr_len, const void *data)
@@ -1134,6 +1168,12 @@ snl_add_msg_attr_raw(struct snl_writer *nw, const struct nlattr *nla_src)
 	assert(attr_len >= 0);
 
 	return (snl_add_msg_attr(nw, nla_src->nla_type, attr_len, (const void *)(nla_src + 1)));
+}
+
+static inline bool
+snl_add_msg_attr_bool(struct snl_writer *nw, int attrtype, bool value)
+{
+	return (snl_add_msg_attr(nw, attrtype, sizeof(bool), &value));
 }
 
 static inline bool
@@ -1233,9 +1273,13 @@ snl_end_attr_nested(const struct snl_writer *nw, int off)
 static inline struct nlmsghdr *
 snl_create_msg_request(struct snl_writer *nw, int nlmsg_type)
 {
+	struct nlmsghdr *hdr;
+
 	assert(nw->hdr == NULL);
 
-	struct nlmsghdr *hdr = snl_reserve_msg_object(nw, struct nlmsghdr);
+	if (__predict_false((hdr =
+	    snl_reserve_msg_object(nw, struct nlmsghdr)) == NULL))
+		return (NULL);
 	hdr->nlmsg_type = nlmsg_type;
 	hdr->nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
 	nw->hdr = hdr;
@@ -1282,10 +1326,5 @@ snl_send_msgs(struct snl_writer *nw)
 
 	return (snl_send(nw->ss, nw->base, offset));
 }
-
-static const struct snl_hdr_parser *snl_all_core_parsers[] = {
-	&snl_errmsg_parser, &snl_donemsg_parser,
-	&_nla_bit_parser, &_nla_bitset_parser,
-};
 
 #endif

@@ -239,7 +239,7 @@ struct usb_gen_quirk {
 #define	USB_DEVICESTATS		_IOR ('U', 5, struct usb_device_stats)
 #define	USB_DEVICEENUMERATE	_IOW ('U', 6, int)
 
-/* Generic HID device. Numbers 26 and 30-39 are occupied by hidraw. */
+/* Generic HID device. Numbers 26 and 30-49 are occupied by hidraw. */
 #define	USB_GET_REPORT_DESC	_IOWR('U', 21, struct usb_gen_descriptor)
 #define	USB_SET_IMMED		_IOW ('U', 22, int)
 #define	USB_GET_REPORT		_IOWR('U', 23, struct usb_gen_descriptor)

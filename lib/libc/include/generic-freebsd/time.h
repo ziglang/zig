@@ -32,8 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)time.h	8.3 (Berkeley) 1/21/94
  */
 
 /*
@@ -157,6 +155,8 @@ int clock_nanosleep(clockid_t, int, const struct timespec *, struct timespec *);
 #if __POSIX_VISIBLE >= 199506
 char *asctime_r(const struct tm *, char *);
 char *ctime_r(const time_t *, char *);
+#endif
+#if __POSIX_VISIBLE >= 199506 || __ISO_C_VISIBLE >= 2023
 struct tm *gmtime_r(const time_t *, struct tm *);
 struct tm *localtime_r(const time_t *, struct tm *);
 #endif
@@ -164,15 +164,18 @@ struct tm *localtime_r(const time_t *, struct tm *);
 #if __XSI_VISIBLE
 char *strptime(const char * __restrict, const char * __restrict,
     struct tm * __restrict);
+extern long timezone;
+extern int daylight;
 #endif
 
 #if __BSD_VISIBLE
-char *timezone(int, int);	/* XXX XSI conflict */
 time_t timelocal(struct tm * const);
 time_t timegm(struct tm * const);
 int timer_oshandle_np(timer_t timerid);
 time_t time2posix(time_t t);
 time_t posix2time(time_t t);
+struct tm *offtime(const time_t *, long);
+struct tm *offtime_r(const time_t *__restrict, long, struct tm *__restrict);
 #endif /* __BSD_VISIBLE */
 
 #if __POSIX_VISIBLE >= 200809 || defined(_XLOCALE_H_)

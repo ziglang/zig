@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)in_var.h	8.2 (Berkeley) 1/9/95
  */
 
 #ifndef _NETINET_IN_VAR_H_
@@ -98,6 +96,11 @@ struct in_ifaddr {
 
 #define IN_LNAOF(in, ifa) \
 	((ntohl((in).s_addr) & ~((struct in_ifaddr *)(ifa)->ia_subnetmask))
+
+#ifdef _KERNEL
+#define IN_ARE_MASKED_ADDR_EQUAL(d, a, m)	(		\
+	((((d).s_addr ^ (a).s_addr) & (m).s_addr)) == 0 )
+#endif
 
 #define LLTABLE(ifp)	\
 	((struct in_ifinfo *)(ifp)->if_afdata[AF_INET])->ii_llt
@@ -456,6 +459,7 @@ int	in_joingroup_locked(struct ifnet *, const struct in_addr *,
 int	in_leavegroup(struct in_multi *, /*const*/ struct in_mfilter *);
 int	in_leavegroup_locked(struct in_multi *,
 	    /*const*/ struct in_mfilter *);
+int	in_mask2len(struct in_addr *);
 int	in_control(struct socket *, u_long, void *, struct ifnet *,
 	    struct thread *);
 int	in_control_ioctl(u_long, void *, struct ifnet *,

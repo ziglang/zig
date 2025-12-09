@@ -49,6 +49,12 @@ typedef	__fd_mask	fd_mask;
 typedef	__sigset_t	sigset_t;
 #endif
 
+#if !defined(_KERNEL) && defined(_FORTIFY_SOURCE) && _FORTIFY_SOURCE > 0
+#include <ssp/ssp.h>
+#else
+#define	__SSP_FORTIFY_LEVEL	0
+#endif
+
 /*
  * Select uses bit masks of file descriptors in longs.  These macros
  * manipulate such bit fields (the filesystem macros use chars).
@@ -75,13 +81,33 @@ typedef	struct fd_set {
 #define	fds_bits	__fds_bits
 #endif
 
+#define	__fdset_idx_(p, n)	((n) / _NFDBITS)
+#if __SSP_FORTIFY_LEVEL == 0
+#define	__fdset_idx(p, n)	__fdset_idx_(p, n)
+#else
+__ssp_inline unsigned long
+__fdset_idx(const fd_set *p, unsigned long idx)
+{
+	__size_t psz = __ssp_bos0(p);
+	unsigned long sidx = __fdset_idx_(p, idx);
+
+	if (idx >= FD_SETSIZE)
+		__chk_fail();
+	if (psz / sizeof(__fd_mask) < (sidx + 1))
+		__chk_fail();
+
+	return (sidx);
+}
+#endif
+
 #define	__fdset_mask(n)	((__fd_mask)1 << ((n) % _NFDBITS))
-#define	FD_CLR(n, p)	((p)->__fds_bits[(n)/_NFDBITS] &= ~__fdset_mask(n))
+#define	FD_CLR(n, p)	((p)->__fds_bits[__fdset_idx(p, n)] &= ~__fdset_mask(n))
 #if __BSD_VISIBLE
 #define	FD_COPY(f, t)	(void)(*(t) = *(f))
 #endif
-#define	FD_ISSET(n, p)	(((p)->__fds_bits[(n)/_NFDBITS] & __fdset_mask(n)) != 0)
-#define	FD_SET(n, p)	((p)->__fds_bits[(n)/_NFDBITS] |= __fdset_mask(n))
+#define	FD_ISSET(n, p)	\
+    (((p)->__fds_bits[__fdset_idx(p, n)] & __fdset_mask(n)) != 0)
+#define	FD_SET(n, p)	((p)->__fds_bits[__fdset_idx(p, n)] |= __fdset_mask(n))
 #define	FD_ZERO(p) do {					\
 	fd_set *_p;					\
 	__size_t _n;					\

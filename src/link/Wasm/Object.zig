@@ -169,14 +169,14 @@ pub const Symbol = struct {
 };
 
 pub const ScratchSpace = struct {
-    func_types: std.ArrayListUnmanaged(Wasm.FunctionType.Index) = .empty,
-    func_type_indexes: std.ArrayListUnmanaged(FuncTypeIndex) = .empty,
-    func_imports: std.ArrayListUnmanaged(FunctionImport) = .empty,
-    global_imports: std.ArrayListUnmanaged(GlobalImport) = .empty,
-    table_imports: std.ArrayListUnmanaged(TableImport) = .empty,
-    symbol_table: std.ArrayListUnmanaged(Symbol) = .empty,
-    segment_info: std.ArrayListUnmanaged(SegmentInfo) = .empty,
-    exports: std.ArrayListUnmanaged(Export) = .empty,
+    func_types: std.ArrayList(Wasm.FunctionType.Index) = .empty,
+    func_type_indexes: std.ArrayList(FuncTypeIndex) = .empty,
+    func_imports: std.ArrayList(FunctionImport) = .empty,
+    global_imports: std.ArrayList(GlobalImport) = .empty,
+    table_imports: std.ArrayList(TableImport) = .empty,
+    symbol_table: std.ArrayList(Symbol) = .empty,
+    segment_info: std.ArrayList(SegmentInfo) = .empty,
+    exports: std.ArrayList(Export) = .empty,
 
     const Export = struct {
         name: Wasm.String,

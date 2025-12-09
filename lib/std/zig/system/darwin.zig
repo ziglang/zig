@@ -37,13 +37,9 @@ pub fn isSdkInstalled(allocator: Allocator) bool {
 pub fn getSdk(allocator: Allocator, target: *const Target) ?[]const u8 {
     const is_simulator_abi = target.abi == .simulator;
     const sdk = switch (target.os.tag) {
-        .ios => switch (target.abi) {
-            .macabi => "macosx",
-            .simulator => "iphonesimulator",
-            else => "iphoneos",
-        },
         .driverkit => "driverkit",
-        .macos => "macosx",
+        .ios => if (is_simulator_abi) "iphonesimulator" else "iphoneos",
+        .maccatalyst, .macos => "macosx",
         .tvos => if (is_simulator_abi) "appletvsimulator" else "appletvos",
         .visionos => if (is_simulator_abi) "xrsimulator" else "xros",
         .watchos => if (is_simulator_abi) "watchsimulator" else "watchos",

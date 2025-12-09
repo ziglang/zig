@@ -2,8 +2,6 @@
  * Copyright (C) 2012 by Darren Reed.
  *
  * See the IPFILTER.LICENCE file for details on licencing.
- *
- * @(#)ip_state.h	1.3 1/12/96 (C) 1995 Darren Reed
  * Id: ip_state.h,v 2.68.2.10 2007/10/16 09:33:24 darrenr Exp $
  */
 #ifndef	__IP_STATE_H__

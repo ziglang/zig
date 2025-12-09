@@ -66,6 +66,7 @@ struct lock_class {
 	int		(*lc_owner)(const struct lock_object *lock,
 			    struct thread **owner);
 	uintptr_t	(*lc_unlock)(struct lock_object *lock);
+	int		(*lc_trylock)(struct lock_object *lock, uintptr_t how);
 };
 
 #define	LC_SLEEPLOCK	0x00000001	/* Sleep lock. */

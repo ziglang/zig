@@ -297,7 +297,7 @@ pub const Mnemonic = enum {
     jnc, jne, jng, jnge, jnl, jnle, jno, jnp, jns, jnz, jo, jp, jpe, jpo, jrcxz, js, jz,
     lahf, lar, lea, leave, lfence, lgdt, lidt, lldt, lmsw, loop, loope, loopne,
     lods, lodsb, lodsd, lodsq, lodsw,
-    lsl, ltr,
+    lret, lsl, ltr,
     mfence, mov, movbe,
     movs, movsb, movsd, movsq, movsw,
     movsx, movsxd, movzx, mul,

@@ -58,8 +58,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)ip_var.h	8.1 (Berkeley) 6/10/93
  */
 
 #ifndef _NETINET6_IP6_VAR_H_
@@ -132,27 +130,26 @@ struct	ip6po_nhinfo {
 #define ip6po_nexthop	ip6po_nhinfo.ip6po_nhi_nexthop
 #define ip6po_nextroute	ip6po_nhinfo.ip6po_nhi_route
 
+/*
+ * Note that fields with valid data must be flagged in ip6po_valid.
+ * This is done to reduce cache misses in ip6_output().  Before
+ * ip6po_valid, ip6_output needed to check all the individual fields
+ * of ip6_pktopts needed to be checked themselves, and they are spread
+ * across 4 cachelines. ip6_output() is currently the only consumer of
+ * these flags, as it is in the critical path of every packet sent.
+ */
 struct	ip6_pktopts {
-	struct	mbuf *ip6po_m;	/* Pointer to mbuf storing the data */
+	uint32_t ip6po_valid;
+#define IP6PO_VALID_HLIM	0x0001
+#define IP6PO_VALID_PKTINFO	0x0002
+#define IP6PO_VALID_NHINFO	0x0004
+#define IP6PO_VALID_HBH		0x0008
+#define IP6PO_VALID_DEST1	0x0010
+#define IP6PO_VALID_RHINFO	0x0020
+#define IP6PO_VALID_DEST2	0x0040
+#define IP6PO_VALID_TC		0x0080
+
 	int	ip6po_hlim;	/* Hoplimit for outgoing packets */
-
-	/* Outgoing IF/address information */
-	struct	in6_pktinfo *ip6po_pktinfo;
-
-	/* Next-hop address information */
-	struct	ip6po_nhinfo ip6po_nhinfo;
-
-	struct	ip6_hbh *ip6po_hbh; /* Hop-by-Hop options header */
-
-	/* Destination options header (before a routing header) */
-	struct	ip6_dest *ip6po_dest1;
-
-	/* Routing header related info. */
-	struct	ip6po_rhinfo ip6po_rhinfo;
-
-	/* Destination options header (after a routing header) */
-	struct	ip6_dest *ip6po_dest2;
-
 	int	ip6po_tclass;	/* traffic class */
 
 	int	ip6po_minmtu;  /* fragment vs PMTU discovery policy */
@@ -173,6 +170,25 @@ struct	ip6_pktopts {
 #endif
 #define IP6PO_DONTFRAG	0x04	/* disable fragmentation (IPV6_DONTFRAG) */
 #define IP6PO_USECOA	0x08	/* use care of address */
+
+	struct	mbuf *ip6po_m;	/* Pointer to mbuf storing the data */
+
+	/* Outgoing IF/address information */
+	struct	in6_pktinfo *ip6po_pktinfo;
+
+	/* Next-hop address information */
+	struct	ip6po_nhinfo ip6po_nhinfo;
+
+	struct	ip6_hbh *ip6po_hbh; /* Hop-by-Hop options header */
+
+	/* Destination options header (before a routing header) */
+	struct	ip6_dest *ip6po_dest1;
+
+	/* Routing header related info. */
+	struct	ip6po_rhinfo ip6po_rhinfo;
+
+	/* Destination options header (after a routing header) */
+	struct	ip6_dest *ip6po_dest2;
 };
 
 /*
@@ -247,13 +263,22 @@ struct	ip6stat {
 
 #ifdef _KERNEL
 #include <sys/counter.h>
+#include <netinet/in_kdtrace.h>
 
 VNET_PCPUSTAT_DECLARE(struct ip6stat, ip6stat);
-#define	IP6STAT_ADD(name, val)	\
-    VNET_PCPUSTAT_ADD(struct ip6stat, ip6stat, name, (val))
-#define	IP6STAT_SUB(name, val)	IP6STAT_ADD(name, -(val))
+#define	IP6STAT_ADD(name, val)                                           \
+	do {                                                             \
+		MIB_SDT_PROBE1(ip6, count, name, (val));                 \
+		VNET_PCPUSTAT_ADD(struct ip6stat, ip6stat, name, (val)); \
+	} while (0)
+#define IP6STAT_SUB(name, val) IP6STAT_ADD(name, -(val))
 #define	IP6STAT_INC(name)	IP6STAT_ADD(name, 1)
-#define	IP6STAT_DEC(name)	IP6STAT_SUB(name, 1)
+#define IP6STAT_INC2(name, type)                                     \
+	do {                                                         \
+		MIB_SDT_PROBE2(ip6, count, name, 1, type);           \
+		VNET_PCPUSTAT_ADD(struct ip6stat, ip6stat, name, 1); \
+	} while (0)
+#define IP6STAT_DEC(name) IP6STAT_SUB(name, 1)
 #endif
 
 #ifdef _KERNEL
@@ -389,7 +414,7 @@ int	route6_input(struct mbuf **, int *, int);
 void	frag6_init(void);
 void	frag6_destroy(void);
 int	frag6_input(struct mbuf **, int *, int);
-void	frag6_drain(void);
+void	frag6_drain(void *, int);
 
 void	rip6_init(void);
 int	rip6_ctloutput(struct socket *, struct sockopt *);

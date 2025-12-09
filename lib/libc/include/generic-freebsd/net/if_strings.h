@@ -60,10 +60,13 @@
 #define	IFCAP_TXTLS_RTLMT_NAME		"TXTLS_RTLMT"
 #define	IFCAP_RXTLS4_NAME		"RXTLS4"
 #define	IFCAP_RXTLS6_NAME		"RXTLS6"
+#define	IFCAP_IPSEC_OFFLOAD_NAME	"IPSEC"
 
 #define	IFCAP2_RXTLS4_NAME	IFCAP_RXTLS4_NAME
 #define	IFCAP2_RXTLS6_NAME	IFCAP_RXTLS6_NAME
+#define	IFCAP2_IPSEC_OFFLOAD_NAME IFCAP_IPSEC_OFFLOAD_NAME
 
+#ifdef _WANT_IFCAP_BIT_NAMES
 static const char *ifcap_bit_names[] = {
 	IFCAP_RXCSUM_NAME,
 	IFCAP_TXCSUM_NAME,
@@ -99,11 +102,13 @@ static const char *ifcap_bit_names[] = {
 	IFCAP_TXTLS_RTLMT_NAME,
 	IFCAP_RXTLS4_NAME,
 	IFCAP_RXTLS6_NAME,
+	IFCAP_IPSEC_OFFLOAD_NAME,
 };
 
 #ifdef IFCAP_B_SIZE
 _Static_assert(sizeof(ifcap_bit_names) >= IFCAP_B_SIZE * sizeof(char *),
     "ifcap bit names missing from ifcap_bit_names");
+#endif
 #endif
 
 #endif

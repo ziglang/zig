@@ -10,6 +10,7 @@ pub const Options = struct {
     optimize_modes: []const std.builtin.OptimizeMode,
     test_filters: []const []const u8,
     test_target_filters: []const []const u8,
+    skip_wasm: bool,
     max_rss: usize,
 };
 
@@ -41,6 +42,8 @@ pub fn addLibcTestCase(
 }
 
 pub fn addTarget(libc: *const Libc, target: std.Build.ResolvedTarget) void {
+    if (libc.options.skip_wasm and target.query.cpu_arch != null and target.query.cpu_arch.?.isWasm()) return;
+
     if (libc.options.test_target_filters.len > 0) {
         const triple_txt = target.query.zigTriple(libc.b.allocator) catch @panic("OOM");
         for (libc.options.test_target_filters) |filter| {

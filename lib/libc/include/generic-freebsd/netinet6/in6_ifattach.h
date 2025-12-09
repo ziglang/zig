@@ -39,7 +39,6 @@ void in6_ifattach(struct ifnet *, struct ifnet *);
 void in6_ifattach_destroy(void);
 void in6_ifdetach(struct ifnet *);
 void in6_ifdetach_destroy(struct ifnet *);
-int in6_get_tmpifid(struct ifnet *, u_int8_t *, const u_int8_t *, int);
 void in6_tmpaddrtimer(void *);
 int in6_get_hw_ifid(struct ifnet *, struct in6_addr *);
 int in6_nigroup(struct ifnet *, const char *, int, struct in6_addr *);

@@ -41,15 +41,9 @@
 
 #include <sys/atomic_common.h>
 
-#if __ARM_ARCH >= 7
 #define isb()  __asm __volatile("isb" : : : "memory")
 #define dsb()  __asm __volatile("dsb" : : : "memory")
 #define dmb()  __asm __volatile("dmb" : : : "memory")
-#else
-#define isb()  __asm __volatile("mcr p15, 0, %0, c7, c5, 4" : : "r" (0) : "memory")
-#define dsb()  __asm __volatile("mcr p15, 0, %0, c7, c10, 4" : : "r" (0) : "memory")
-#define dmb()  __asm __volatile("mcr p15, 0, %0, c7, c10, 5" : : "r" (0) : "memory")
-#endif
 
 #define mb()   dmb()
 #define wmb()  dmb()
@@ -614,7 +608,7 @@ atomic_fetchadd_long(volatile u_long *p, u_long val)
 }
 
 static __inline uint32_t
-atomic_load_acq_32(volatile uint32_t *p)
+atomic_load_acq_32(const volatile uint32_t *p)
 {
 	uint32_t v;
 
@@ -624,7 +618,7 @@ atomic_load_acq_32(volatile uint32_t *p)
 }
 
 static __inline uint64_t
-atomic_load_64(volatile uint64_t *p)
+atomic_load_64(const volatile uint64_t *p)
 {
 	uint64_t ret;
 
@@ -643,7 +637,7 @@ atomic_load_64(volatile uint64_t *p)
 }
 
 static __inline uint64_t
-atomic_load_acq_64(volatile uint64_t *p)
+atomic_load_acq_64(const volatile uint64_t *p)
 {
 	uint64_t ret;
 
@@ -653,7 +647,7 @@ atomic_load_acq_64(volatile uint64_t *p)
 }
 
 static __inline u_long
-atomic_load_acq_long(volatile u_long *p)
+atomic_load_acq_long(const volatile u_long *p)
 {
 	u_long v;
 
@@ -898,8 +892,6 @@ atomic_testandclear_long(volatile u_long *p, u_int v)
 
 	return (atomic_testandclear_32((volatile uint32_t *)p, v));
 }
-#define	atomic_testandclear_long	atomic_testandclear_long
-
 
 static __inline int
 atomic_testandclear_64(volatile uint64_t *p, u_int v)
@@ -958,7 +950,16 @@ atomic_testandset_long(volatile u_long *p, u_int v)
 
 	return (atomic_testandset_32((volatile uint32_t *)p, v));
 }
-#define	atomic_testandset_long	atomic_testandset_long
+
+static __inline int
+atomic_testandset_acq_long(volatile u_long *p, u_int v)
+{
+	int ret;
+
+	ret = atomic_testandset_32((volatile uint32_t *)p, v);
+	dmb();
+	return (ret);
+}
 
 static __inline int
 atomic_testandset_64(volatile uint64_t *p, u_int v)
@@ -1052,6 +1053,12 @@ atomic_thread_fence_seq_cst(void)
 	dmb();
 }
 
+#define atomic_add_ptr			atomic_add_32
+#define atomic_add_acq_ptr		atomic_add_acq_32
+#define atomic_add_rel_ptr		atomic_add_rel_32
+#define atomic_subtract_ptr		atomic_subtract_32
+#define atomic_subtract_acq_ptr		atomic_subtract_acq_32
+#define atomic_subtract_rel_ptr		atomic_subtract_rel_32
 #define atomic_clear_ptr		atomic_clear_32
 #define atomic_clear_acq_ptr		atomic_clear_acq_32
 #define atomic_clear_rel_ptr		atomic_clear_rel_32
@@ -1059,15 +1066,18 @@ atomic_thread_fence_seq_cst(void)
 #define atomic_set_acq_ptr		atomic_set_acq_32
 #define atomic_set_rel_ptr		atomic_set_rel_32
 #define atomic_fcmpset_ptr		atomic_fcmpset_32
-#define atomic_fcmpset_rel_ptr		atomic_fcmpset_rel_32
 #define atomic_fcmpset_acq_ptr		atomic_fcmpset_acq_32
+#define atomic_fcmpset_rel_ptr		atomic_fcmpset_rel_32
 #define atomic_cmpset_ptr		atomic_cmpset_32
 #define atomic_cmpset_acq_ptr		atomic_cmpset_acq_32
 #define atomic_cmpset_rel_ptr		atomic_cmpset_rel_32
+#define atomic_fetchadd_ptr		atomic_fetchadd_32
+#define atomic_readandclear_ptr		atomic_readandclear_32
 #define atomic_load_acq_ptr		atomic_load_acq_32
 #define atomic_store_rel_ptr		atomic_store_rel_32
 #define atomic_swap_ptr			atomic_swap_32
-#define atomic_readandclear_ptr		atomic_readandclear_32
+#define	atomic_testandset_ptr		atomic_testandset_32
+#define	atomic_testandclear_ptr		atomic_testandclear_32
 
 #define atomic_add_int			atomic_add_32
 #define atomic_add_acq_int		atomic_add_acq_32
@@ -1093,12 +1103,9 @@ atomic_thread_fence_seq_cst(void)
 #define atomic_store_rel_int		atomic_store_rel_32
 #define atomic_swap_int			atomic_swap_32
 
-/*
- * For:
- *  - atomic_load_acq_8
- *  - atomic_load_acq_16
- *  - atomic_testandset_acq_long
- */
 #include <sys/_atomic_subword.h>
+
+#define	atomic_set_short		atomic_set_16
+#define	atomic_clear_short		atomic_clear_16
 
 #endif /* _MACHINE_ATOMIC_H_ */

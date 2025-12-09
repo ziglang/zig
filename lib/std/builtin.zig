@@ -6,50 +6,11 @@ const root = @import("root");
 
 pub const assembly = @import("builtin/assembly.zig");
 
-/// `explicit_subsystem` is missing when the subsystem is automatically detected,
-/// so Zig standard library has the subsystem detection logic here. This should generally be
-/// used rather than `explicit_subsystem`.
-/// On non-Windows targets, this is `null`.
-pub const subsystem: ?std.Target.SubSystem = blk: {
-    if (@hasDecl(builtin, "explicit_subsystem")) break :blk builtin.explicit_subsystem;
-    switch (builtin.os.tag) {
-        .windows => {
-            if (builtin.is_test) {
-                break :blk std.Target.SubSystem.Console;
-            }
-            if (@hasDecl(root, "main") or
-                @hasDecl(root, "WinMain") or
-                @hasDecl(root, "wWinMain") or
-                @hasDecl(root, "WinMainCRTStartup") or
-                @hasDecl(root, "wWinMainCRTStartup"))
-            {
-                break :blk std.Target.SubSystem.Windows;
-            } else {
-                break :blk std.Target.SubSystem.Console;
-            }
-        },
-        else => break :blk null,
-    }
-};
-
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const StackTrace = struct {
     index: usize,
     instruction_addresses: []usize,
-
-    pub fn format(st: *const StackTrace, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        // TODO: re-evaluate whether to use format() methods at all.
-        // Until then, avoid an error when using GeneralPurposeAllocator with WebAssembly
-        // where it tries to call detectTTYConfig here.
-        if (builtin.os.tag == .freestanding) return;
-
-        // TODO: why on earth are we using stderr's ttyconfig?
-        // If we want colored output, we should just make a formatter out of `writeStackTrace`.
-        const tty_config = std.Io.tty.detectConfig(.stderr());
-        try writer.writeAll("\n");
-        try std.debug.writeStackTrace(st, writer, tty_config);
-    }
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -312,6 +273,9 @@ pub const CallingConvention = union(enum(u8)) {
 
     /// The standard `hppa64` calling convention.
     hppa64_elf: CommonOptions,
+
+    kvx_lp64: CommonOptions,
+    kvx_ilp32: CommonOptions,
 
     /// The standard `lanai` calling convention.
     lanai_sysv: CommonOptions,
@@ -584,19 +548,19 @@ pub const TypeId = std.meta.Tag(Type);
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const Type = union(enum) {
-    type: void,
-    void: void,
-    bool: void,
-    noreturn: void,
+    type,
+    void,
+    bool,
+    noreturn,
     int: Int,
     float: Float,
     pointer: Pointer,
     array: Array,
     @"struct": Struct,
-    comptime_float: void,
-    comptime_int: void,
-    undefined: void,
-    null: void,
+    comptime_float,
+    comptime_int,
+    undefined,
+    null,
     optional: Optional,
     error_union: ErrorUnion,
     error_set: ErrorSet,
@@ -607,7 +571,7 @@ pub const Type = union(enum) {
     frame: Frame,
     @"anyframe": AnyFrame,
     vector: Vector,
-    enum_literal: void,
+    enum_literal,
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
@@ -654,6 +618,16 @@ pub const Type = union(enum) {
             many,
             slice,
             c,
+        };
+
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Attributes = struct {
+            @"const": bool = false,
+            @"volatile": bool = false,
+            @"allowzero": bool = false,
+            @"addrspace": ?AddressSpace = null,
+            @"align": ?usize = null,
         };
     };
 
@@ -704,6 +678,14 @@ pub const Type = union(enum) {
             const dp: *const sf.type = @ptrCast(@alignCast(sf.default_value_ptr orelse return null));
             return dp.*;
         }
+
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Attributes = struct {
+            @"comptime": bool = false,
+            @"align": ?usize = null,
+            default_value_ptr: ?*const anyopaque = null,
+        };
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -754,6 +736,10 @@ pub const Type = union(enum) {
         fields: []const EnumField,
         decls: []const Declaration,
         is_exhaustive: bool,
+
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Mode = enum { exhaustive, nonexhaustive };
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -762,6 +748,12 @@ pub const Type = union(enum) {
         name: [:0]const u8,
         type: type,
         alignment: comptime_int,
+
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Attributes = struct {
+            @"align": ?usize = null,
+        };
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -789,6 +781,19 @@ pub const Type = union(enum) {
             is_generic: bool,
             is_noalias: bool,
             type: ?type,
+
+            /// This data structure is used by the Zig language code generation and
+            /// therefore must be kept in sync with the compiler implementation.
+            pub const Attributes = struct {
+                @"noalias": bool = false,
+            };
+        };
+
+        /// This data structure is used by the Zig language code generation and
+        /// therefore must be kept in sync with the compiler implementation.
+        pub const Attributes = struct {
+            @"callconv": CallingConvention = .auto,
+            varargs: bool = false,
         };
     };
 
@@ -998,6 +1003,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .csky,
     .hppa,
     .hppa64,
+    .kvx,
     .lanai,
     .loongarch32,
     .loongarch64,
@@ -1022,7 +1028,7 @@ pub const VaList = switch (builtin.cpu.arch) {
     .xcore,
     => *anyopaque,
     .aarch64, .aarch64_be => switch (builtin.os.tag) {
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos, .windows => *u8,
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .windows => *u8,
         else => switch (builtin.zig_backend) {
             else => VaListAarch64,
             .stage2_llvm => @compileError("disabled due to miscompilations"),

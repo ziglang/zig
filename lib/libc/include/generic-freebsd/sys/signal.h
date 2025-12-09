@@ -32,8 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)signal.h	8.4 (Berkeley) 5/4/95
  */
 
 #ifndef _SYS_SIGNAL_H_
@@ -42,6 +40,7 @@
 #include <sys/cdefs.h>
 #include <sys/_types.h>
 #include <sys/_sigset.h>
+#include <sys/_sigaltstack.h>
 #include <sys/_sigval.h>
 
 #include <machine/_limits.h>	/* __MINSIGSTKSZ */
@@ -255,7 +254,7 @@ typedef	struct __siginfo {
 #define si_syscall	_reason._capsicum._syscall
 
 #if defined(_WANT_LWPINFO32) || (defined(_KERNEL) && defined(__LP64__))
-struct siginfo32 {
+struct __siginfo32 {
 	int	si_signo;		/* signal number */
 	int	si_errno;		/* errno association */
 	int	si_code;		/* signal code */
@@ -373,7 +372,7 @@ struct sigaction {
 #define	SA_NOCLDSTOP	0x0008	/* do not generate SIGCHLD on child stop */
 #endif /* __POSIX_VISIBLE || __XSI_VISIBLE */
 
-#if __XSI_VISIBLE
+#if __XSI_VISIBLE || __POSIX_VISIBLE >= 200809
 #define	SA_ONSTACK	0x0001	/* take signal on signal stack */
 #define	SA_RESTART	0x0002	/* restart system call on signal return */
 #define	SA_RESETHAND	0x0004	/* reset to SIG_DFL when taking signal */
@@ -407,29 +406,6 @@ struct sigaction {
 typedef	__sighandler_t	*sig_t;	/* type of pointer to a signal function */
 typedef	void __siginfohandler_t(int, struct __siginfo *, void *);
 #endif
-
-#if __XSI_VISIBLE
-#if __BSD_VISIBLE
-#define	__stack_t sigaltstack
-#endif
-typedef	struct __stack_t stack_t;
-
-#define	SS_ONSTACK	0x0001	/* take signal on alternate stack */
-#define	SS_DISABLE	0x0004	/* disable taking signals on alternate stack */
-#define	MINSIGSTKSZ	__MINSIGSTKSZ		/* minimum stack size */
-#define	SIGSTKSZ	(MINSIGSTKSZ + 32768)	/* recommended stack size */
-#endif
-
-/*
- * Structure used in sigaltstack call.  Its definition is always
- * needed for __ucontext.  If __BSD_VISIBLE is defined, the structure
- * tag is actually sigaltstack.
- */
-struct __stack_t {
-	void	*ss_sp;			/* signal stack base */
-	__size_t ss_size;		/* signal stack length */
-	int	ss_flags;		/* SS_DISABLE and/or SS_ONSTACK */
-};
 
 #if __BSD_VISIBLE
 /*

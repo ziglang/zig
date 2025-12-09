@@ -263,15 +263,7 @@ test "generic function instantiation turns into comptime call" {
 
         pub fn FieldEnum(comptime T: type) type {
             _ = T;
-            var enumFields: [1]std.builtin.Type.EnumField = .{.{ .name = "A", .value = 0 }};
-            return @Type(.{
-                .@"enum" = .{
-                    .tag_type = u0,
-                    .fields = &enumFields,
-                    .decls = &.{},
-                    .is_exhaustive = true,
-                },
-            });
+            return @Enum(u0, .exhaustive, &.{"A"}, &.{0});
         }
     };
     try S.doTheTest();

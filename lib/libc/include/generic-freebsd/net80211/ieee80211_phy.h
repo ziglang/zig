@@ -221,5 +221,14 @@ uint32_t	ieee80211_compute_duration_ht(uint32_t frameLen,
 			uint16_t rate, int streams, int isht40,
 			int isShortGI);
 
+enum net80211_sta_rx_bw;
+
+uint16_t	ieee80211_phy_vht_get_mcs_mask(enum net80211_sta_rx_bw,
+		    uint8_t);
+bool		ieee80211_phy_vht_validate_mcs(enum net80211_sta_rx_bw,
+		    uint8_t, uint8_t);
+uint32_t	ieee80211_phy_vht_get_mcs_kbit(enum net80211_sta_rx_bw,
+		    uint8_t, uint8_t, bool);
+
 #endif	/* _KERNEL */
 #endif	/* !_NET80211_IEEE80211_PHY_H_ */

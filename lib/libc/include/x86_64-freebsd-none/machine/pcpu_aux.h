@@ -54,8 +54,8 @@ __curthread(void)
 {
 	struct thread *td;
 
-	__asm("movq %%gs:%P1,%0" : "=r" (td) : "n" (offsetof(struct pcpu,
-	    pc_curthread)));
+	__asm("movq %%gs:%c1,%0" : "=r" (td)
+	    : "i" (offsetof(struct pcpu, pc_curthread)));
 	return (td);
 }
 #define	curthread		(__curthread())

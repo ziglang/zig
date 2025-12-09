@@ -40,6 +40,9 @@
 #define	T_SINGLESTEP	(EXCP_SOFTSTP_EL1)
 #define	T_WATCHPOINT	(EXCP_WATCHPT_EL1)
 
+#define	HAS_HW_BREAKPOINT
+#define	NHBREAKPOINTS		16
+
 typedef vm_offset_t	db_addr_t;
 typedef long		db_expr_t;
 

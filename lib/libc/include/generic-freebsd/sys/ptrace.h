@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)ptrace.h	8.2 (Berkeley) 1/4/94
  */
 
 #ifndef	_SYS_PTRACE_H_
@@ -89,7 +87,15 @@
 #define	PT_SC_REMOTE	44	/* Execute a syscall */
 
 #define PT_FIRSTMACH    64	/* for machine-specific requests */
+#define	PT_LASTMACH     127
 #include <machine/ptrace.h>	/* machine-specific requests, if any */
+
+#ifdef _KERNEL
+/* Space for ptrace commands not exposed directly to userspace. */
+#define	PTINTERNAL_FIRST	128
+#define	PTINTERNAL_LAST		191
+#define	PTLINUX_GET_SC_ARGS	(PTINTERNAL_FIRST + 0)
+#endif
 
 /* Events used with PT_GET_EVENT_MASK and PT_SET_EVENT_MASK */
 #define	PTRACE_EXEC	0x0001
@@ -152,7 +158,7 @@ struct ptrace_lwpinfo32 {
 	int	pl_flags;	/* LWP flags. */
 	sigset_t	pl_sigmask;	/* LWP signal mask */
 	sigset_t	pl_siglist;	/* LWP pending signal */
-	struct siginfo32 pl_siginfo;	/* siginfo for signal */
+	struct __siginfo32 pl_siginfo;	/* siginfo for signal */
 	char		pl_tdname[MAXCOMLEN + 1]; /* LWP name. */
 	pid_t		pl_child_pid;	/* New child pid */
 	u_int		pl_syscall_code;

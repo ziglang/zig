@@ -537,6 +537,27 @@ struct ieee80211_mimo_info {
 	"\34TXAMSDUAMPDU"
 
 /*
+ * AKM (key management) suite capability list.
+ *
+ * These represent what's in 802.11-2016 - Table 9-133 - AKM Suite Selectors.
+ * Note that they do not match what the table values are, in case other key
+ * management suites want to be added with different OUIs.
+ */
+#define	IEEE80211_KEYMGMT_RSN_UNSPEC_802_1X		0x00000001 /* RSN suite 1 */
+#define	IEEE80211_KEYMGMT_RSN_PSK_OVER_802_1X		0x00000002 /* RSN suite 2 */
+#define	IEEE80211_KEYMGMT_RSN_FT_OVER_802_1X		0x00000004 /* RSN suite 3 */
+#define	IEEE80211_KEYMGMT_RSN_FT_PSK			0x00000008 /* RSN suite 4 */
+#define	IEEE80211_KEYMGMT_RSN_802_1X_SHA256		0x00000010 /* RSN suite 5 */
+#define	IEEE80211_KEYMGMT_RSN_PSK_SHA256		0x00000020 /* RSN suite 6 */
+#define	IEEE80211_KEYMGMT_RSN_TPK_HANDSHAKE		0x00000040 /* RSN suite 7 */
+#define	IEEE80211_KEYMGMT_RSN_SAE			0x00000080 /* RSN suite 8 */
+#define	IEEE80211_KEYMGMT_RSN_FT_SAE			0x00000100 /* RSN suite 9 */
+#define	IEEE80211_KEYMGMT_RSN_APPEERKEY_SHA256		0x00000200 /* RSN suite 10 */
+#define	IEEE80211_KEYMGMT_RSN_802_1X_SUITE_B		0x00000400 /* RSN suite 11 */
+#define	IEEE80211_KEYMGMT_RSN_802_1X_SUITE_B_192	0x00000800 /* RSN suite 12 */
+#define	IEEE80211_KEYMGMT_RSN_FT_802_1X_SHA384		0x00001000 /* RSN suite 13 */
+
+/*
  * RX status notification - which fields are valid.
  */
 #define	IEEE80211_R_NF		0x00000001	/* global NF value valid */
@@ -564,15 +585,18 @@ struct ieee80211_mimo_info {
 #define	IEEE80211_RX_F_AMPDU		0x00000010 /* This is the start of an decap AMPDU list */
 #define	IEEE80211_RX_F_AMPDU_MORE	0x00000020 /* This is another decap AMPDU frame in the batch */
 #define	IEEE80211_RX_F_FAIL_FCSCRC	0x00000040 /* Failed CRC/FCS */
-#define	IEEE80211_RX_F_FAIL_MIC		0x00000080 /* Failed MIC check */
+#define	IEEE80211_RX_F_FAIL_MMIC	0x00000080 /* Failed Michael MIC (MMIC) check */
 #define	IEEE80211_RX_F_DECRYPTED	0x00000100 /* Hardware decrypted */
 #define	IEEE80211_RX_F_IV_STRIP		0x00000200 /* Decrypted; IV stripped */
-#define	IEEE80211_RX_F_MMIC_STRIP	0x00000400 /* Decrypted; MMIC stripped */
+#define	IEEE80211_RX_F_MMIC_STRIP	0x00000400 /* Decrypted; Michael MIC (MMIC) stripped */
 #define	IEEE80211_RX_F_SHORTGI		0x00000800 /* This is a short-GI frame */
 #define	IEEE80211_RX_F_CCK		0x00001000
 #define	IEEE80211_RX_F_OFDM		0x00002000
 #define	IEEE80211_RX_F_HT		0x00004000
 #define	IEEE80211_RX_F_VHT		0x00008000
+#define	IEEE80211_RX_F_PN_VALIDATED	0x00010000 /* Decrypted; PN validated */
+#define	IEEE80211_RX_F_MIC_STRIP	0x00020000 /* Decrypted; MIC stripped */
+#define	IEEE80211_RX_F_ICV_STRIP	0x00040000 /* Decrypted: ICV (ic_trailer) stripped */
 
 /* Channel width */
 #define	IEEE80211_RX_FW_20MHZ		1

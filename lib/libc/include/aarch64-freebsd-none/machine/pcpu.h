@@ -48,7 +48,6 @@ struct debug_monitor_state;
 	pcpu_ssbd pc_ssbd;						\
 	struct pmap *pc_curpmap;					\
 	struct pmap *pc_curvmpmap;					\
-	/* Store as two u_int values to preserve KBI */			\
 	uint64_t pc_mpidr;						\
 	u_int	pc_bcast_tlbi_workaround;				\
 	char __pad[197]

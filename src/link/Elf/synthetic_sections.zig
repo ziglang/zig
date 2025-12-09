@@ -1,6 +1,6 @@
 pub const DynamicSection = struct {
     soname: ?u32 = null,
-    needed: std.ArrayListUnmanaged(u32) = .empty,
+    needed: std.ArrayList(u32) = .empty,
     rpath: u32 = 0,
 
     pub fn deinit(dt: *DynamicSection, allocator: Allocator) void {
@@ -226,7 +226,7 @@ pub const DynamicSection = struct {
 };
 
 pub const GotSection = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .empty,
+    entries: std.ArrayList(Entry) = .empty,
     output_symtab_ctx: Elf.SymtabCtx = .{},
     tlsld_index: ?u32 = null,
     flags: Flags = .{},
@@ -628,7 +628,7 @@ pub const GotSection = struct {
 };
 
 pub const PltSection = struct {
-    symbols: std.ArrayListUnmanaged(Elf.Ref) = .empty,
+    symbols: std.ArrayList(Elf.Ref) = .empty,
     output_symtab_ctx: Elf.SymtabCtx = .{},
 
     pub fn deinit(plt: *PltSection, allocator: Allocator) void {
@@ -875,7 +875,7 @@ pub const GotPltSection = struct {
 };
 
 pub const PltGotSection = struct {
-    symbols: std.ArrayListUnmanaged(Elf.Ref) = .empty,
+    symbols: std.ArrayList(Elf.Ref) = .empty,
     output_symtab_ctx: Elf.SymtabCtx = .{},
 
     pub fn deinit(plt_got: *PltGotSection, allocator: Allocator) void {
@@ -981,7 +981,7 @@ pub const PltGotSection = struct {
 };
 
 pub const CopyRelSection = struct {
-    symbols: std.ArrayListUnmanaged(Elf.Ref) = .empty,
+    symbols: std.ArrayList(Elf.Ref) = .empty,
 
     pub fn deinit(copy_rel: *CopyRelSection, allocator: Allocator) void {
         copy_rel.symbols.deinit(allocator);
@@ -1062,7 +1062,7 @@ pub const CopyRelSection = struct {
 };
 
 pub const DynsymSection = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .empty,
+    entries: std.ArrayList(Entry) = .empty,
 
     pub const Entry = struct {
         /// Ref of the symbol which gets privilege of getting a dynamic treatment
@@ -1146,7 +1146,7 @@ pub const DynsymSection = struct {
 };
 
 pub const HashSection = struct {
-    buffer: std.ArrayListUnmanaged(u8) = .empty,
+    buffer: std.ArrayList(u8) = .empty,
 
     pub fn deinit(hs: *HashSection, allocator: Allocator) void {
         hs.buffer.deinit(allocator);
@@ -1307,8 +1307,8 @@ pub const GnuHashSection = struct {
 };
 
 pub const VerneedSection = struct {
-    verneed: std.ArrayListUnmanaged(elf.Elf64_Verneed) = .empty,
-    vernaux: std.ArrayListUnmanaged(elf.Vernaux) = .empty,
+    verneed: std.ArrayList(elf.Elf64_Verneed) = .empty,
+    vernaux: std.ArrayList(elf.Vernaux) = .empty,
     index: elf.Versym = .{ .VERSION = elf.Versym.GLOBAL.VERSION + 1, .HIDDEN = false },
 
     pub fn deinit(vern: *VerneedSection, allocator: Allocator) void {

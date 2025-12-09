@@ -31,8 +31,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	from: @(#)vm_pageout.h	8.2 (Berkeley) 1/12/94
- *
  *
  * Copyright (c) 1987, 1990 Carnegie-Mellon University.
  * All rights reserved.
@@ -102,11 +100,8 @@ void vm_wait_domain(int domain);
 void vm_wait_min(void);
 void vm_wait_severe(void);
 
-int vm_pageout_flush(vm_page_t *, int, int, int, int *, boolean_t *);
+int vm_pageout_flush(vm_page_t *mc, int count, int flags, bool *eio);
 void vm_pageout_oom(int shortage);
-
-void vm_swapout_run(void);
-void vm_swapout_run_idle(void);
 
 #endif /* _KERNEL */
 #endif	/* _VM_VM_PAGEOUT_H_ */

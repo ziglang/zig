@@ -63,15 +63,6 @@ bsfl(u_int mask)
 	return (result);
 }
 
-static __inline __pure2 u_int
-bsrl(u_int mask)
-{
-	u_int	result;
-
-	__asm("bsrl %1,%0" : "=r" (result) : "rm" (mask) : "cc");
-	return (result);
-}
-
 static __inline void
 clflush(u_long addr)
 {
@@ -83,7 +74,7 @@ static __inline void
 clflushopt(u_long addr)
 {
 
-	__asm __volatile(".byte 0x66;clflush %0" : : "m" (*(char *)addr));
+	__asm __volatile("clflushopt %0" : : "m" (*(char *)addr));
 }
 
 static __inline void

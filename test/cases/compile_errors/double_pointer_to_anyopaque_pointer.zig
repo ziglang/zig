@@ -15,12 +15,6 @@ pub export fn entry3() void {
     const ptr: *const anyopaque = x;
     _ = ptr;
 }
-export fn entry4() void {
-    var a: []*u32 = undefined;
-    _ = &a;
-    var b: []anyopaque = undefined;
-    b = a;
-}
 
 // error
 //
@@ -31,5 +25,3 @@ export fn entry4() void {
 // :11:12: note: parameter type declared here
 // :15:35: error: expected type '*const anyopaque', found '*?*usize'
 // :15:35: note: cannot implicitly cast double pointer '*?*usize' to anyopaque pointer '*const anyopaque'
-// :22:9: error: expected type '[]anyopaque', found '[]*u32'
-// :22:9: note: cannot implicitly cast double pointer '[]*u32' to anyopaque pointer '[]anyopaque'

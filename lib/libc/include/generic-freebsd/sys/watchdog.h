@@ -32,21 +32,24 @@
 #define	_SYS_WATCHDOG_H
 
 #include <sys/ioccom.h>
+#include <sys/_types.h>
 
 #define	_PATH_WATCHDOG	"fido"
 
-#define WDIOCPATPAT	_IOW('W', 42, u_int)	/* pat the watchdog */
-#define WDIOC_SETTIMEOUT    _IOW('W', 43, int)	/* set/reset the timer */
-#define WDIOC_GETTIMEOUT    _IOR('W', 44, int)	/* get total timeout */
-#define WDIOC_GETTIMELEFT   _IOR('W', 45, int)	/* get time left */
-#define WDIOC_GETPRETIMEOUT _IOR('W', 46, int)	/* get the pre-timeout */
-#define WDIOC_SETPRETIMEOUT _IOW('W', 47, int)	/* set the pre-timeout */
+#define WDIOC_PATPAT	    _IOW('W', 52, sbintime_t)	/* pat the watchdog */
+#define WDIOC_SETTIMEOUT    _IOW('W', 53, sbintime_t)	/* set/reset the timer */
+#define WDIOC_GETTIMEOUT    _IOR('W', 54, sbintime_t)	/* get total timeout */
+#define WDIOC_GETTIMELEFT   _IOR('W', 55, sbintime_t)	/* get time left */
+#define WDIOC_GETPRETIMEOUT _IOR('W', 56, sbintime_t)	/* get the pre-timeout */
+#define WDIOC_SETPRETIMEOUT _IOW('W', 57, sbintime_t)	/* set the pre-timeout */
 /* set the action when a pre-timeout occurs see: WD_SOFT_* */
 #define WDIOC_SETPRETIMEOUTACT _IOW('W', 48, int)
 
 /* use software watchdog instead of hardware */
 #define WDIOC_SETSOFT	_IOW('W', 49, int)
 #define WDIOC_SETSOFTTIMEOUTACT	_IOW('W', 50, int)
+
+#define	WDIOC_CONTROL		_IOW('W', 51, int)	/* configure watchdog */
 
 #define WD_ACTIVE	0x8000000
 	/* 
@@ -93,6 +96,11 @@
 #define WD_TO_64SEC	36
 #define WD_TO_128SEC	37
 
+/* Control options for WDIOC_CONTROL */
+#define	WD_CTRL_DISABLE	0x00000000
+#define	WD_CTRL_ENABLE	0x00000001
+#define	WD_CTRL_RESET	0x00000002
+
 /* action on pre-timeout trigger */
 #define	WD_SOFT_PANIC	0x01	/* panic */
 #define	WD_SOFT_DDB	0x02	/* enter debugger */
@@ -105,11 +113,16 @@
 #include <sys/_eventhandler.h>
 
 typedef void (*watchdog_fn)(void *, u_int, int *);
+typedef void (*watchdog_sbt_fn)(void *, sbintime_t, sbintime_t *, int *);
 
 EVENTHANDLER_DECLARE(watchdog_list, watchdog_fn);
+EVENTHANDLER_DECLARE(watchdog_sbt_list, watchdog_sbt_fn);
 
 u_int	wdog_kern_last_timeout(void);
 int	wdog_kern_pat(u_int utim);
+sbintime_t	wdog_kern_last_timeout_sbt(void);
+int		wdog_kern_pat_sbt(sbintime_t utim);
+int		wdog_control(int ctrl);
 
 /*
  * The following function pointer is used to attach a software watchdog

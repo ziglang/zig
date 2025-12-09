@@ -11,8 +11,6 @@
 #ifndef	_RPC_CLNT_STAT_H
 #define	_RPC_CLNT_STAT_H
 
-/* #pragma ident	"@(#)clnt_stat.h	1.2	97/04/28 SMI" */
-
 #ifdef __cplusplus
 extern "C" {
 #endif

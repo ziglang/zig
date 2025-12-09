@@ -440,10 +440,12 @@ pub const CaseTestOptions = struct {
     test_target_filters: []const []const u8,
     skip_compile_errors: bool,
     skip_non_native: bool,
+    skip_spirv: bool,
+    skip_wasm: bool,
     skip_freebsd: bool,
     skip_netbsd: bool,
     skip_windows: bool,
-    skip_macos: bool,
+    skip_darwin: bool,
     skip_linux: bool,
     skip_llvm: bool,
     skip_libc: bool,
@@ -455,8 +457,7 @@ pub fn lowerToBuildSteps(
     parent_step: *std.Build.Step,
     options: CaseTestOptions,
 ) void {
-    const host = std.zig.system.resolveTargetQuery(.{}) catch |err|
-        std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
+    const host = b.resolveTargetQuery(.{});
     const cases_dir_path = b.build_root.join(b.allocator, &.{ "test", "cases" }) catch @panic("OOM");
 
     for (self.cases.items) |case| {
@@ -469,10 +470,13 @@ pub fn lowerToBuildSteps(
         if (options.skip_non_native and !case.target.query.isNative())
             continue;
 
+        if (options.skip_spirv and case.target.query.cpu_arch != null and case.target.query.cpu_arch.?.isSpirV()) continue;
+        if (options.skip_wasm and case.target.query.cpu_arch != null and case.target.query.cpu_arch.?.isWasm()) continue;
+
         if (options.skip_freebsd and case.target.query.os_tag == .freebsd) continue;
         if (options.skip_netbsd and case.target.query.os_tag == .netbsd) continue;
         if (options.skip_windows and case.target.query.os_tag == .windows) continue;
-        if (options.skip_macos and case.target.query.os_tag == .macos) continue;
+        if (options.skip_darwin and case.target.query.os_tag != null and case.target.query.os_tag.?.isDarwin()) continue;
         if (options.skip_linux and case.target.query.os_tag == .linux) continue;
 
         const would_use_llvm = @import("../tests.zig").wouldUseLlvm(
@@ -587,7 +591,7 @@ pub fn lowerToBuildSteps(
             },
             .Execution => |expected_stdout| no_exec: {
                 const run = if (case.target.result.ofmt == .c) run_step: {
-                    if (getExternalExecutor(&host, &case.target.result, .{ .link_libc = true }) != .native) {
+                    if (getExternalExecutor(&host.result, &case.target.result, .{ .link_libc = true }) != .native) {
                         // We wouldn't be able to run the compiled C code.
                         break :no_exec;
                     }
@@ -971,14 +975,6 @@ const TestManifest = struct {
         }
     }
 };
-
-fn resolveTargetQuery(query: std.Target.Query) std.Build.ResolvedTarget {
-    return .{
-        .query = query,
-        .target = std.zig.system.resolveTargetQuery(query) catch
-            @panic("unable to resolve target query"),
-    };
-}
 
 fn knownFileExtension(filename: []const u8) bool {
     // List taken from `Compilation.classifyFileExt` in the compiler.

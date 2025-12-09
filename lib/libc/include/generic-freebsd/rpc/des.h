@@ -1,4 +1,3 @@
-/*  @(#)des.h	2.2 88/08/10 4.0 RPCSRC; from 2.7 88/02/08 SMI  */
 /*-
  * SPDX-License-Identifier: BSD-3-Clause
  *
@@ -56,26 +55,6 @@ struct desparams {
 #	define des_data UDES.UDES_data	/* direct data here if quick */
 #	define des_buf	UDES.UDES_buf	/* otherwise, pointer to data */
 };
-
-#ifdef notdef
-
-/*
- * These ioctls are only implemented in SunOS. Maybe someday
- * if somebody writes a driver for DES hardware that works
- * with FreeBSD, we can being that back.
- */
-
-/*
- * Encrypt an arbitrary sized buffer
- */
-#define	DESIOCBLOCK	_IOWR('d', 6, struct desparams)
-
-/* 
- * Encrypt of small amount of data, quickly
- */
-#define DESIOCQUICK	_IOWR('d', 7, struct desparams) 
-
-#endif
 
 /*
  * Software DES.

@@ -84,9 +84,9 @@ struct ipfw_nat64lsn_stats {
 	uint64_t	spgcreated;	/* Number of portgroups created */
 	uint64_t	spgdeleted;	/* Number of portgroups deleted */
 	uint64_t	hostcount;	/* Number of hosts  */
-	uint64_t	tcpchunks;	/* Number of TCP chunks */
-	uint64_t	udpchunks;	/* Number of UDP chunks */
-	uint64_t	icmpchunks;	/* Number of ICMP chunks */
+	uint64_t	tcpchunks;	/* Number of TCP portgroups */
+	uint64_t	udpchunks;	/* Number of UDP portgroups */
+	uint64_t	icmpchunks;	/* Number of ICMP portgroups */
 
 	uint64_t	_reserved[4];
 };
@@ -94,6 +94,10 @@ struct ipfw_nat64lsn_stats {
 #define	NAT64_LOG		0x0001	/* Enable logging via BPF */
 #define	NAT64_ALLOW_PRIVATE	0x0002	/* Allow private IPv4 address
 					 * translation
+					 */
+#define	NAT64LSN_ALLOW_SWAPCONF	0x0004	/* Allow configuration exchange
+					 * between NAT64LSN instances
+					 * during the sets swapping.
 					 */
 typedef struct _ipfw_nat64stl_cfg {
 	char		name[64];	/* NAT name			*/

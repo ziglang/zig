@@ -14,16 +14,16 @@ const StorageClass = spec.StorageClass;
 const Assembler = @This();
 
 cg: *CodeGen,
-errors: std.ArrayListUnmanaged(ErrorMsg) = .empty,
+errors: std.ArrayList(ErrorMsg) = .empty,
 src: []const u8 = undefined,
 /// `ass.src` tokenized.
-tokens: std.ArrayListUnmanaged(Token) = .empty,
+tokens: std.ArrayList(Token) = .empty,
 current_token: u32 = 0,
 /// The instruction that is currently being parsed or has just been parsed.
 inst: struct {
     opcode: Opcode = undefined,
-    operands: std.ArrayListUnmanaged(Operand) = .empty,
-    string_bytes: std.ArrayListUnmanaged(u8) = .empty,
+    operands: std.ArrayList(Operand) = .empty,
+    string_bytes: std.ArrayList(u8) = .empty,
 
     fn result(ass: @This()) ?AsmValue.Ref {
         for (ass.operands.items[0..@min(ass.operands.items.len, 2)]) |op| {

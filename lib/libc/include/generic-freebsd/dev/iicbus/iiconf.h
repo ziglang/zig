@@ -32,7 +32,7 @@
 #include <dev/iicbus/iic.h>
 
 
-#define IICPRI (PZERO+8)		/* XXX sleep/wakeup queue priority */
+#define IICPRI (PWAIT)		/* XXX sleep/wakeup queue priority */
 
 #define LSB 0x1
 

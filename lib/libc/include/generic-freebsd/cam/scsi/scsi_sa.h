@@ -33,7 +33,6 @@
 #ifndef	_SCSI_SCSI_SA_H
 #define _SCSI_SCSI_SA_H 1
 
-#include <sys/cdefs.h>
 
 struct scsi_read_block_limits
 {

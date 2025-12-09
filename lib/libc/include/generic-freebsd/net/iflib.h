@@ -121,13 +121,13 @@ typedef struct if_pkt_info {
 	uint16_t		ipi_tso_segsz;	/* tso segment size */
 	uint16_t		ipi_vtag;	/* VLAN tag */
 	uint16_t		ipi_etype;	/* ether header type */
-	uint8_t			ipi_tcp_hflags;	/* tcp header flags */
-	uint8_t			ipi_mflags;	/* packet mbuf flags */
+	uint16_t		ipi_tcp_hflags;	/* tcp header flags */
 
 	uint32_t		ipi_tcp_seq;	/* tcp seqno */
 	uint8_t			ipi_ip_tos;	/* IP ToS field data */
+	uint8_t			ipi_mflags;	/* packet mbuf flags */
 	uint8_t			__spare0__;
-	uint16_t		__spare1__;
+	uint8_t		__spare1__;
 } *if_pkt_info_t;
 
 typedef struct if_irq {
@@ -470,9 +470,9 @@ void iflib_irq_free(if_ctx_t ctx, if_irq_t irq);
 void iflib_io_tqg_attach(struct grouptask *gt, void *uniq, int cpu,
     const char *name);
 
-void iflib_config_gtask_init(void *ctx, struct grouptask *gtask,
-			     gtask_fn_t *fn, const char *name);
-void iflib_config_gtask_deinit(struct grouptask *gtask);
+void iflib_config_task_init(if_ctx_t ctx, struct task *config_task,
+    task_fn_t *fn);
+void iflib_config_task_enqueue(if_ctx_t ctx, struct task *config_task);
 
 void iflib_tx_intr_deferred(if_ctx_t ctx, int txqid);
 void iflib_rx_intr_deferred(if_ctx_t ctx, int rxqid);

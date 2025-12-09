@@ -62,8 +62,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)dinode.h	8.3 (Berkeley) 1/21/94
  */
 
 #ifndef _UFS_UFS_DINODE_H_
@@ -113,12 +111,13 @@ typedef int64_t ufs_time_t;
 #define	IFWHT		0160000		/* Whiteout. */
 
 /*
- * A dinode contains all the meta-data associated with a UFS2 file.
- * This structure defines the on-disk format of a dinode. Since
+ * Each UFS filesystem version defines the on-disk format of its dinode.
+ *
+ * A UFS2 dinode contains all the meta-data associated with a UFS2 file.
+ * This structure defines the on-disk format of a UFS2 dinode. Since
  * this structure describes an on-disk structure, all its fields
  * are defined by types with precise widths.
  */
-
 #define	UFS_NXADDR	2		/* External addresses in inode. */
 #define	UFS_NDADDR	12		/* Direct addresses in inode. */
 #define	UFS_NIADDR	3		/* Indirect addresses in inode. */
@@ -186,11 +185,11 @@ struct ufs1_dinode {
 		uint32_t di_dirdepth;	/*   4: IFDIR: depth from root dir */
 	};
 	uint64_t	di_size;	/*   8: File byte count. */
-	int32_t		di_atime;	/*  16: Last access time. */
+	uint32_t	di_atime;	/*  16: Last access time. */
 	int32_t		di_atimensec;	/*  20: Last access time. */
-	int32_t		di_mtime;	/*  24: Last modified time. */
+	uint32_t	di_mtime;	/*  24: Last modified time. */
 	int32_t		di_mtimensec;	/*  28: Last modified time. */
-	int32_t		di_ctime;	/*  32: Last inode change time. */
+	uint32_t	di_ctime;	/*  32: Last inode change time. */
 	int32_t		di_ctimensec;	/*  36: Last inode change time. */
 	union {
 		struct {
@@ -211,5 +210,18 @@ struct ufs1_dinode {
 };
 
 #define	UFS_LINK_MAX	65500	/* leave a few spare for special values */
+
+/*
+ * These structures hold or reference an on-disk dinode.
+ */
+union dinode {
+	struct ufs1_dinode dp1;
+	struct ufs2_dinode dp2;
+};
+
+union dinodep {
+	struct ufs1_dinode *dp1;
+	struct ufs2_dinode *dp2;
+};
 
 #endif /* _UFS_UFS_DINODE_H_ */

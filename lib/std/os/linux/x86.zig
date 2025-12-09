@@ -159,12 +159,14 @@ pub fn clone() callconv(.naked) u32 {
 pub fn restore() callconv(.naked) noreturn {
     switch (builtin.zig_backend) {
         .stage2_c => asm volatile (
+            \\ addl $4, %%esp
             \\ movl %[number], %%eax
             \\ int $0x80
             :
             : [number] "i" (@intFromEnum(SYS.sigreturn)),
         ),
         else => asm volatile (
+            \\ addl $4, %%esp
             \\ int $0x80
             :
             : [number] "{eax}" (@intFromEnum(SYS.sigreturn)),

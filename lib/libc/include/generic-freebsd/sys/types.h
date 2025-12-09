@@ -32,8 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)types.h	8.6 (Berkeley) 2/19/95
  */
 
 #ifndef _SYS_TYPES_H_
@@ -299,9 +297,11 @@ typedef	struct vm_page	*vm_page_t;
 #if	defined(_KERNEL) || defined(_STANDALONE)
 #if !defined(__bool_true_false_are_defined) && !defined(__cplusplus)
 #define	__bool_true_false_are_defined	1
+#if __STDC_VERSION__ < 202311L
 #define	false	0
 #define	true	1
 typedef	_Bool	bool;
+#endif /* __STDC_VERSION__ < 202311L */
 #endif /* !__bool_true_false_are_defined && !__cplusplus */
 #endif /* KERNEL || _STANDALONE */
 
@@ -313,7 +313,9 @@ typedef	_Bool	bool;
 
 #if __BSD_VISIBLE
 
+#ifndef _STANDALONE
 #include <sys/select.h>
+#endif
 
 /*
  * The major and minor numbers are encoded in dev_t as MMMmmmMm (where

@@ -400,7 +400,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libcorecrypto.dylib'
-current-version: 1922.0.25
+current-version: 1922.40.14
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -417,21 +417,21 @@ exports:
                        _ccsha256_vng_intel_SupplementalSSE3_di ]
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
-    symbols:         [ _CCEC_FAULT_CANARY, _CCRSA_PKCS1_FAULT_CANARY, _CCRSA_PSS_FAULT_CANARY, 
-                       _CCSS_PRIME_P192, _CCSS_PRIME_P224, _CCSS_PRIME_P256, _CCSS_PRIME_P384, 
-                       _CCSS_PRIME_P521, _cc_abort, _cc_atfork_child, _cc_atfork_parent, 
-                       _cc_atfork_prepare, _cc_clear, _cc_cmp_safe, _cc_impl_name, 
-                       _cc_try_abort, _cc_try_abort_if, _ccaes_cbc_decrypt_mode, 
-                       _ccaes_cbc_encrypt_mode, _ccaes_ccm_decrypt_mode, _ccaes_ccm_encrypt_mode, 
-                       _ccaes_cfb8_decrypt_mode, _ccaes_cfb8_encrypt_mode, _ccaes_cfb_decrypt_mode, 
-                       _ccaes_cfb_encrypt_mode, _ccaes_ctr_crypt_mode, _ccaes_ecb_decrypt_mode, 
-                       _ccaes_ecb_encrypt_mode, _ccaes_gcm_decrypt_mode, _ccaes_gcm_encrypt_mode, 
-                       _ccaes_gladman_cbc_decrypt_mode, _ccaes_gladman_cbc_encrypt_mode, 
-                       _ccaes_ltc_ecb_decrypt_mode, _ccaes_ltc_ecb_encrypt_mode, 
-                       _ccaes_ofb_crypt_mode, _ccaes_siv_decrypt_mode, _ccaes_siv_encrypt_mode, 
-                       _ccaes_siv_hmac_sha256_decrypt_mode, _ccaes_siv_hmac_sha256_encrypt_mode, 
-                       _ccaes_unwind, _ccaes_xts_decrypt_mode, _ccaes_xts_encrypt_mode, 
-                       _ccansikdf_x963, _ccapsic_client_check_intersect_response, 
+    symbols:         [ _CCEC_FAULT_CANARY, _CCMLDSA_FAULT_CANARY, _CCRSA_PKCS1_FAULT_CANARY, 
+                       _CCRSA_PSS_FAULT_CANARY, _CCSS_PRIME_P192, _CCSS_PRIME_P224, 
+                       _CCSS_PRIME_P256, _CCSS_PRIME_P384, _CCSS_PRIME_P521, _cc_abort, 
+                       _cc_atfork_child, _cc_atfork_parent, _cc_atfork_prepare, _cc_clear, 
+                       _cc_cmp_safe, _cc_impl_name, _cc_try_abort, _cc_try_abort_if, 
+                       _ccaes_cbc_decrypt_mode, _ccaes_cbc_encrypt_mode, _ccaes_ccm_decrypt_mode, 
+                       _ccaes_ccm_encrypt_mode, _ccaes_cfb8_decrypt_mode, _ccaes_cfb8_encrypt_mode, 
+                       _ccaes_cfb_decrypt_mode, _ccaes_cfb_encrypt_mode, _ccaes_ctr_crypt_mode, 
+                       _ccaes_ecb_decrypt_mode, _ccaes_ecb_encrypt_mode, _ccaes_gcm_decrypt_mode, 
+                       _ccaes_gcm_encrypt_mode, _ccaes_gladman_cbc_decrypt_mode, 
+                       _ccaes_gladman_cbc_encrypt_mode, _ccaes_ltc_ecb_decrypt_mode, 
+                       _ccaes_ltc_ecb_encrypt_mode, _ccaes_ofb_crypt_mode, _ccaes_siv_decrypt_mode, 
+                       _ccaes_siv_encrypt_mode, _ccaes_siv_hmac_sha256_decrypt_mode, 
+                       _ccaes_siv_hmac_sha256_encrypt_mode, _ccaes_unwind, _ccaes_xts_decrypt_mode, 
+                       _ccaes_xts_encrypt_mode, _ccansikdf_x963, _ccapsic_client_check_intersect_response, 
                        _ccapsic_client_generate_match_response, _ccapsic_client_init, 
                        _ccapsic_client_state_sizeof, _ccapsic_server_determine_intersection, 
                        _ccapsic_server_encode_element, _ccapsic_server_init, _ccapsic_server_state_sizeof, 
@@ -650,19 +650,20 @@ exports:
                        _ccmldsa_sign_with_context, _ccmldsa_signature_nbytes_ctx, 
                        _ccmldsa_signature_nbytes_params, _ccmldsa_sizeof_full_ctx, 
                        _ccmldsa_sizeof_pub_ctx, _ccmldsa_verify, _ccmldsa_verify_prehashed, 
-                       _ccmldsa_verify_with_context, _ccmode_factory_cbc_decrypt, 
-                       _ccmode_factory_cbc_encrypt, _ccmode_factory_ccm_decrypt, 
-                       _ccmode_factory_ccm_encrypt, _ccmode_factory_cfb8_decrypt, 
-                       _ccmode_factory_cfb8_encrypt, _ccmode_factory_cfb_decrypt, 
-                       _ccmode_factory_cfb_encrypt, _ccmode_factory_ctr_crypt, _ccmode_factory_gcm_decrypt, 
-                       _ccmode_factory_gcm_encrypt, _ccmode_factory_ofb_crypt, _ccmode_factory_siv_decrypt, 
-                       _ccmode_factory_siv_encrypt, _ccmode_factory_xts_decrypt, 
-                       _ccmode_factory_xts_encrypt, _ccn_add, _ccn_add1, _ccn_bitlen, 
-                       _ccn_cmp, _ccn_cmpn, _ccn_lprint, _ccn_print, _ccn_read_uint, 
-                       _ccn_set_bit, _ccn_seti, _ccn_sub, _ccn_swap, _ccn_write_int, 
-                       _ccn_write_int_size, _ccn_write_uint, _ccn_write_uint_padded, 
-                       _ccn_write_uint_padded_ct, _ccn_write_uint_size, _ccn_xor, 
-                       _ccn_zero, _ccnistkdf_ctr_cmac, _ccnistkdf_ctr_cmac_fixed, 
+                       _ccmldsa_verify_prehashed_with_canary, _ccmldsa_verify_with_canary, 
+                       _ccmldsa_verify_with_context, _ccmldsa_verify_with_context_and_canary, 
+                       _ccmode_factory_cbc_decrypt, _ccmode_factory_cbc_encrypt, 
+                       _ccmode_factory_ccm_decrypt, _ccmode_factory_ccm_encrypt, 
+                       _ccmode_factory_cfb8_decrypt, _ccmode_factory_cfb8_encrypt, 
+                       _ccmode_factory_cfb_decrypt, _ccmode_factory_cfb_encrypt, 
+                       _ccmode_factory_ctr_crypt, _ccmode_factory_gcm_decrypt, _ccmode_factory_gcm_encrypt, 
+                       _ccmode_factory_ofb_crypt, _ccmode_factory_siv_decrypt, _ccmode_factory_siv_encrypt, 
+                       _ccmode_factory_xts_decrypt, _ccmode_factory_xts_encrypt, 
+                       _ccn_add, _ccn_add1, _ccn_bitlen, _ccn_cmp, _ccn_cmpn, _ccn_lprint, 
+                       _ccn_print, _ccn_read_uint, _ccn_set_bit, _ccn_seti, _ccn_sub, 
+                       _ccn_swap, _ccn_write_int, _ccn_write_int_size, _ccn_write_uint, 
+                       _ccn_write_uint_padded, _ccn_write_uint_padded_ct, _ccn_write_uint_size, 
+                       _ccn_xor, _ccn_zero, _ccnistkdf_ctr_cmac, _ccnistkdf_ctr_cmac_fixed, 
                        _ccnistkdf_ctr_hmac, _ccnistkdf_ctr_hmac_fixed, _ccofb_block_size, 
                        _ccofb_context_size, _ccofb_init, _ccofb_one_shot, _ccofb_update, 
                        _ccoid_equal, _ccoid_payload, _ccoid_size, _ccpad_cts1_decrypt, 
@@ -1116,7 +1117,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libquarantine.dylib'
-current-version: 196.0.1
+current-version: 196.40.3
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -1281,7 +1282,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_c.dylib'
-current-version: 1725.0.11
+current-version: 1725.40.4
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -1578,7 +1579,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_collections.dylib'
-current-version: 1725.0.11
+current-version: 1725.40.4
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -1608,7 +1609,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_configuration.dylib'
-current-version: 1385.0.7
+current-version: 1385.40.9
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -1643,8 +1644,8 @@ exports:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
     symbols:         [ _CMCONTAINERSEAM_DEFAULT, _CMDISPATCHSEAM_DEFAULT, _CMFSSEAM_DEFAULT, 
-                       _CMNOTIFYSEAM_DEFAULT, _CMPWDSEAM_DEFAULT, _CMSANDBOXSEAM_DEFAULT, 
-                       _CONTAINER_CLASS_NAMES, _CONTAINER_NOTIFY_GENERATION_INITIAL, 
+                       _CMNOTIFYSEAM_DEFAULT, _CMPWDSEAM_DEFAULT, _CMQUARANTINESEAM_DEFAULT, 
+                       _CMSANDBOXSEAM_DEFAULT, _CONTAINER_CLASS_NAMES, _CONTAINER_NOTIFY_GENERATION_INITIAL, 
                        _CONTAINER_NOTIFY_GENERATION_INVALID, _CONTAINER_NOTIFY_USER_INVALIDATED, 
                        _CONTAINER_PERSONA_CURRENT, _CONTAINER_PERSONA_PRIMARY, __container_init, 
                        __container_notify_copy_notify_name, __container_query_get_next_result_sync, 
@@ -1658,17 +1659,17 @@ exports:
                        _container_acquire_sandbox_extension, _container_audit_token_copy_codesign_hash, 
                        _container_audit_token_copy_codesign_identifier, _container_audit_token_copy_codesign_team_identifier, 
                        _container_audit_token_copy_entitlement, _container_audit_token_copy_executable_name, 
-                       _container_audit_token_for_pid, _container_audit_token_get_codesign_status, 
-                       _container_audit_token_get_egid, _container_audit_token_get_euid, 
-                       _container_audit_token_get_pid, _container_audit_token_get_platform, 
-                       _container_audit_token_is_valid, _container_authorize, _container_authorize_container, 
-                       _container_authorize_container_for_self, _container_authorize_get_result_description, 
-                       _container_base64_decode, _container_base64_decode_string, 
-                       _container_base64_encode, _container_base64_encode_string, 
-                       _container_bundle_copy_data_container, _container_bundle_copy_data_container_path, 
-                       _container_class_for_each_normalized_class, _container_class_normalized, 
-                       _container_class_supports_data_subdirectory, _container_class_supports_randomized_path, 
-                       _container_class_supports_randomized_path_on_current_platform, 
+                       _container_audit_token_copy_executable_name_with_pid, _container_audit_token_for_pid, 
+                       _container_audit_token_get_codesign_status, _container_audit_token_get_egid, 
+                       _container_audit_token_get_euid, _container_audit_token_get_pid, 
+                       _container_audit_token_get_platform, _container_audit_token_is_valid, 
+                       _container_authorize, _container_authorize_container, _container_authorize_container_for_self, 
+                       _container_authorize_get_result_description, _container_base64_decode, 
+                       _container_base64_decode_string, _container_base64_encode, 
+                       _container_base64_encode_string, _container_bundle_copy_data_container, 
+                       _container_bundle_copy_data_container_path, _container_class_for_each_normalized_class, 
+                       _container_class_normalized, _container_class_supports_data_subdirectory, 
+                       _container_class_supports_randomized_path, _container_class_supports_randomized_path_on_current_platform, 
                        _container_client_copy_decoded_from_xpc_object, _container_client_copy_encoded_xpc_object, 
                        _container_client_copy_entitlement, _container_client_create_from_audit_token, 
                        _container_client_get_audit_token, _container_client_get_codesign_identifier, 
@@ -1680,7 +1681,7 @@ exports:
                        _container_client_is_signature_valid, _container_client_is_signed, 
                        _container_client_is_test_client, _container_codesign_copy_cdhash, 
                        _container_codesign_copy_cs_identity, _container_codesign_copy_cs_team_identifier, 
-                       _container_codesign_copy_current_identifier, _container_codesign_get_self_audit_token, 
+                       _container_codesign_get_current_identifier, _container_codesign_get_self_audit_token, 
                        _container_codesign_get_status, _container_copy_client, _container_copy_code_signing_info_for_identifier, 
                        _container_copy_from_path, _container_copy_info, _container_copy_info_value_for_key, 
                        _container_copy_object, _container_copy_path, _container_copy_persona_unique_strings, 
@@ -1794,7 +1795,8 @@ exports:
                        _container_seam_dispatch_set_common, _container_seam_fs_ensure_lazy_loaded, 
                        _container_seam_fs_reset, _container_seam_fs_set_common, _container_seam_notify_reset, 
                        _container_seam_notify_set_common, _container_seam_pwd_reset, 
-                       _container_seam_pwd_set_common, _container_seam_sandbox_reset, 
+                       _container_seam_pwd_set_common, _container_seam_quarantine_reset, 
+                       _container_seam_quarantine_set_common, _container_seam_sandbox_reset, 
                        _container_seam_sandbox_set_common, _container_serialize_copy_deserialized_reference, 
                        _container_serialize_copy_serialized_reference, _container_set_code_signing_info_for_identifier, 
                        _container_set_data_protection_for_current_user, _container_set_info_value, 
@@ -1831,7 +1833,7 @@ exports:
                        _container_xpc_set_outgoing_message_send_block, _container_xpc_set_use_shared_connection, 
                        _container_xpc_shared_copy_connection, _gCMContainerSeam, 
                        _gCMDispatchSeam, _gCMFSSeam, _gCMNotifySeam, _gCMPWDSeam, 
-                       _gCMSandboxSeam ]
+                       _gCMQuarantineSeam, _gCMSandboxSeam ]
   - targets:         [ x86_64-maccatalyst, arm64-maccatalyst, arm64e-maccatalyst ]
     symbols:         [ _CONTAINER_CURRENT_MOBILE_UID, _CONTAINER_INSTALLATION_UID, 
                        _CONTAINER_SYSTEM_UID, _container_create_or_lookup, _container_create_or_lookup_app_group_paths, 
@@ -1925,7 +1927,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_dnssd.dylib'
-current-version: 2881.0.25
+current-version: 2881.40.18
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -1962,7 +1964,7 @@ exports:
 tbd-version:     4
 targets:         [ x86_64-macos, arm64-macos, arm64e-macos ]
 install-name:    '/usr/lib/system/libsystem_eligibility.dylib'
-current-version: 286
+current-version: 286.40.9
 parent-umbrella:
   - targets:         [ x86_64-macos, arm64-macos, arm64e-macos ]
     umbrella:        System
@@ -2118,7 +2120,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_kernel.dylib'
-current-version: 12377.1.9
+current-version: 12377.41.6
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -2254,7 +2256,7 @@ exports:
                        _clock_alarm, _clock_alarm_reply, _clock_get_attributes, _clock_get_time, 
                        _clock_set_attributes, _clock_set_time, _clock_sleep, _clock_sleep_trap, 
                        _clonefile, _clonefileat, _close, '_close$NOCANCEL', _coalition_create, 
-                       _coalition_info_debug_info, _coalition_info_resource_usage, 
+                       _coalition_info_debug_info, _coalition_info_pid_list, _coalition_info_resource_usage, 
                        _coalition_info_set_efficiency, _coalition_info_set_name, 
                        _coalition_ledger_set_logical_writes_limit, _coalition_policy_get, 
                        _coalition_policy_set, _coalition_reap, _coalition_terminate, 
@@ -2636,7 +2638,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, x86_64h-macos, x86_64h-maccatalyst, 
                    arm64-macos, arm64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_m.dylib'
-current-version: 3307.0.1
+current-version: 3309
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, x86_64h-macos, x86_64h-maccatalyst, 
                        arm64-macos, arm64-maccatalyst, arm64e-macos, arm64e-maccatalyst ]
@@ -2858,7 +2860,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_malloc.dylib'
-current-version: 792.1.1
+current-version: 792.41.1
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -2983,11 +2985,12 @@ exports:
                        _ne_session_status_to_string, _ne_session_stop, _ne_session_stop_all_with_plugin_type, 
                        _ne_session_stop_reason_to_string, _ne_session_type_to_string, 
                        _ne_session_urlfilter_configs_present, _ne_session_use_as_system_vpn, 
-                       _ne_session_vod_evaluate_connection_present, _ne_session_vpn_include_all_networks_configs_present, 
-                       _ne_socket_set_attribution, _ne_socket_set_domains, _ne_socket_set_is_app_initiated, 
-                       _ne_socket_set_website_attribution, _ne_tracker_build_cache, 
-                       _ne_tracker_build_trie, _ne_tracker_check_info_changed, _ne_tracker_check_is_hostname_blocked, 
-                       _ne_tracker_check_tcc, _ne_tracker_clear_cache, _ne_tracker_context_can_block_request, 
+                       _ne_session_vod_evaluate_connection_present, _ne_session_vpn_configs_present, 
+                       _ne_session_vpn_include_all_networks_configs_present, _ne_socket_set_attribution, 
+                       _ne_socket_set_domains, _ne_socket_set_is_app_initiated, _ne_socket_set_website_attribution, 
+                       _ne_tracker_build_cache, _ne_tracker_build_trie, _ne_tracker_check_info_changed, 
+                       _ne_tracker_check_is_hostname_blocked, _ne_tracker_check_tcc, 
+                       _ne_tracker_clear_cache, _ne_tracker_context_can_block_request, 
                        _ne_tracker_context_get_domain, _ne_tracker_context_get_domain_owner, 
                        _ne_tracker_context_is_from_app_list, _ne_tracker_context_is_from_web_list, 
                        _ne_tracker_copy_current_stacktrace, _ne_tracker_create_xcode_issue, 
@@ -3024,7 +3027,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_platform.dylib'
-current-version: 359.1.2
+current-version: 359.40.3
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -3200,7 +3203,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_sandbox.dylib'
-current-version: 2680.0.50
+current-version: 2680.41.1
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -3321,7 +3324,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_secinit.dylib'
-current-version: 168.0.3
+current-version: 168.40.2
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -3354,7 +3357,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libsystem_trace.dylib'
-current-version: 1815.0.16
+current-version: 1815.40.20
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -3441,7 +3444,7 @@ exports:
 tbd-version:     4
 targets:         [ x86_64-macos, arm64-macos, arm64e-macos ]
 install-name:    '/usr/lib/system/libsystem_trial.dylib'
-current-version: 474
+current-version: 474.3
 parent-umbrella:
   - targets:         [ x86_64-macos, arm64-macos, arm64e-macos ]
     umbrella:        System
@@ -3484,7 +3487,7 @@ tbd-version:     4
 targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                    arm64e-macos, arm64e-maccatalyst ]
 install-name:    '/usr/lib/system/libxpc.dylib'
-current-version: 3089.0.11
+current-version: 3089.41.2
 parent-umbrella:
   - targets:         [ x86_64-macos, x86_64-maccatalyst, arm64-macos, arm64-maccatalyst, 
                        arm64e-macos, arm64e-maccatalyst ]
@@ -3670,10 +3673,10 @@ exports:
                        _xpc_binprefs_equal, _xpc_binprefs_init, _xpc_binprefs_is_noop, 
                        _xpc_binprefs_set_psattr, _xpc_bool_create, _xpc_bool_get_value, 
                        _xpc_bs_main, _xpc_bundle_copy_info_dictionary, _xpc_bundle_copy_normalized_cryptex_path, 
-                       _xpc_bundle_copy_resource_path, _xpc_bundle_copy_services, 
-                       _xpc_bundle_create, _xpc_bundle_create_from_origin, _xpc_bundle_create_from_origin_with_string_cache, 
-                       _xpc_bundle_create_main, _xpc_bundle_create_with_string_cache, 
-                       _xpc_bundle_get_error, _xpc_bundle_get_executable_path, _xpc_bundle_get_info_dictionary, 
+                       _xpc_bundle_copy_services, _xpc_bundle_create, _xpc_bundle_create_from_origin, 
+                       _xpc_bundle_create_from_origin_with_string_cache, _xpc_bundle_create_main, 
+                       _xpc_bundle_create_with_string_cache, _xpc_bundle_get_error, 
+                       _xpc_bundle_get_executable_path, _xpc_bundle_get_info_dictionary, 
                        _xpc_bundle_get_path, _xpc_bundle_get_property, _xpc_bundle_get_xpcservice_dictionary, 
                        _xpc_bundle_populate, _xpc_bundle_resolve, _xpc_bundle_resolve_on_queue, 
                        _xpc_bundle_resolve_sync, _xpc_coalition_copy_info, _xpc_coalition_history_pipe_async, 
@@ -3752,15 +3755,15 @@ exports:
                        _xpc_event_publisher_set_error_handler, _xpc_event_publisher_set_event, 
                        _xpc_event_publisher_set_handler, _xpc_event_publisher_set_initial_load_completed_handler_4remoted, 
                        _xpc_event_publisher_set_subscriber_keepalive, _xpc_event_publisher_set_throttling, 
-                       _xpc_event_stream_check_in, _xpc_event_stream_check_in2, _xpc_exit_reason_get_label, 
-                       _xpc_extension_type_init, _xpc_fd_create, _xpc_fd_dup, _xpc_file_transfer_cancel, 
-                       _xpc_file_transfer_copy_io, _xpc_file_transfer_create_with_fd, 
-                       _xpc_file_transfer_create_with_path, _xpc_file_transfer_get_size, 
-                       _xpc_file_transfer_get_transfer_id, _xpc_file_transfer_send_finished, 
-                       _xpc_file_transfer_set_transport_writing_callbacks, _xpc_file_transfer_write_finished, 
-                       _xpc_file_transfer_write_to_fd, _xpc_file_transfer_write_to_path, 
-                       _xpc_generate_audit_token, _xpc_get_attachment_endpoint, _xpc_get_class4NSXPC, 
-                       _xpc_get_event_name, _xpc_get_instance, _xpc_get_service_identifier_for_token, 
+                       _xpc_exit_reason_get_label, _xpc_extension_type_init, _xpc_fd_create, 
+                       _xpc_fd_dup, _xpc_file_transfer_cancel, _xpc_file_transfer_copy_io, 
+                       _xpc_file_transfer_create_with_fd, _xpc_file_transfer_create_with_path, 
+                       _xpc_file_transfer_get_size, _xpc_file_transfer_get_transfer_id, 
+                       _xpc_file_transfer_send_finished, _xpc_file_transfer_set_transport_writing_callbacks, 
+                       _xpc_file_transfer_write_finished, _xpc_file_transfer_write_to_fd, 
+                       _xpc_file_transfer_write_to_path, _xpc_generate_audit_token, 
+                       _xpc_get_attachment_endpoint, _xpc_get_class4NSXPC, _xpc_get_event_name, 
+                       _xpc_get_instance, _xpc_get_service_identifier_for_token, 
                        _xpc_get_service_name_from_pid, _xpc_get_service_uid_for_token, 
                        _xpc_get_type, _xpc_handle_service, _xpc_handle_subservice, 
                        _xpc_hash, _xpc_impersonate_user, _xpc_init_services, _xpc_inspect_copy_description, 

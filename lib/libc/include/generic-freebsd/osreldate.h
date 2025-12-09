@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 1992-2023 The FreeBSD Project.
+ * Copyright (c) 1992-2025 The FreeBSD Project.
  *
  */
 #ifdef _KERNEL

@@ -48,6 +48,8 @@
 #define RACK_MERGED	    0x080000/* The RSM was merged */
 #define RACK_PMTU_CHG	    0x100000/* The path mtu changed on this guy */
 #define RACK_STRADDLE	    0x200000/* The seq straddles the bucket line */
+#define RACK_WAS_LOST	    0x400000/* Is the rsm considered lost */
+#define RACK_IS_PCM         0x800000/* A PCM measurement is being taken */
 #define RACK_NUM_OF_RETRANS 3
 
 #define RACK_INITIAL_RTO 1000000 /* 1 second in microseconds */
@@ -63,6 +65,7 @@ struct rack_sendmap {
 	uint32_t r_rtr_bytes;	/* How many bytes have been retransmitted */
 	uint32_t r_flags : 24,	/* Flags as defined above */
 		 r_rtr_cnt : 8;	/* Retran count, index this -1 to get time */
+	uint32_t r_act_rxt_cnt; /* The actual total count of transmits */
 	struct mbuf *m;
 	uint32_t soff;
 	uint32_t orig_m_len;	/* The original mbuf len when we sent (can update) */
@@ -174,6 +177,8 @@ struct rack_rtt_sample {
 #define RACK_TO_FRM_PERSIST 5
 #define RACK_TO_FRM_DELACK 6
 
+#define RCV_PATH_RTT_MS 10	/* How many ms between recv path RTT's */
+
 struct rack_opts_stats {
 	uint64_t tcp_rack_tlp_reduce;
 	uint64_t tcp_rack_pace_always;
@@ -194,7 +199,6 @@ struct rack_opts_stats {
 	uint64_t tcp_rack_min_pace_seg;
 	uint64_t tcp_rack_pace_rate_ca;
 	uint64_t tcp_rack_rr;
-	uint64_t tcp_rack_do_detection;
 	uint64_t tcp_rack_rrr_no_conf_rate;
 	uint64_t tcp_initial_rate;
 	uint64_t tcp_initial_win;
@@ -232,7 +236,7 @@ struct rack_opts_stats {
 	uint64_t tcp_rack_rtt_use;
 	uint64_t tcp_data_after_close;
 	uint64_t tcp_defer_opt;
-	uint64_t tcp_rxt_clamp;
+	uint64_t tcp_pol_detect;
 	uint64_t tcp_rack_beta;
 	uint64_t tcp_rack_beta_ecn;
 	uint64_t tcp_rack_timer_slop;
@@ -242,6 +246,11 @@ struct rack_opts_stats {
 	uint64_t tcp_rack_pacing_divisor;
 	uint64_t tcp_rack_min_seg;
 	uint64_t tcp_dgp_in_rec;
+	uint64_t tcp_notimely;
+	uint64_t tcp_honor_hpts;
+	uint64_t tcp_dyn_rec;
+	uint64_t tcp_fillcw_rate_cap;
+	uint64_t tcp_pol_mss;
 };
 
 /* RTT shrink reasons */
@@ -262,6 +271,9 @@ struct rack_opts_stats {
 #define TLP_USE_TWO_ONE 2	/* Use 2.1 behavior */
 #define TLP_USE_TWO_TWO 3	/* Use 2.2 behavior */
 #define RACK_MIN_BW 8000	/* 64kbps in Bps */
+
+#define CCSP_DIS_MASK	0x0001
+#define HYBRID_DIS_MASK	0x0002
 
 /* Rack quality indicators for GPUT measurements */
 #define RACK_QUALITY_NONE	0	/* No quality stated */
@@ -315,10 +327,9 @@ extern counter_u64_t rack_opts_arry[RACK_OPTS_SIZE];
 /*
  * Locking for the rack control block.
  * a) Locked by INP_WLOCK
- * b) Locked by the hpts-mutex
- *
  */
 #define RACK_GP_HIST 4	/* How much goodput history do we maintain? */
+#define RETRAN_CNT_SIZE 16
 
 #define RACK_NUM_FSB_DEBUG 16
 #ifdef _KERNEL
@@ -341,6 +352,26 @@ struct rack_fast_send_blk {
 };
 
 struct tailq_hash;
+
+struct rack_pcm_info {
+	/* Base send time and s/e filled in by rack_log_output */
+	uint64_t send_time;
+	uint32_t sseq;
+	uint32_t eseq;
+	/* Ack's fill in the rest of the data */
+	uint16_t cnt;
+	/* Maximum acks present */
+	uint16_t cnt_alloc;
+};
+
+#define RACK_DEFAULT_PCM_ARRAY 16
+
+struct rack_pcm_stats {
+	uint32_t sseq;
+	uint32_t eseq;
+	uint64_t ack_time;
+};
+
 
 struct rack_control {
 	/* Second cache line 0x40 from tcp_rack */
@@ -423,20 +454,14 @@ struct rack_control {
 	uint16_t rack_per_of_gp_rec; /* 100 = 100%, so from 65536 = 655 x bw, 0=off */
 	uint16_t rack_per_of_gp_probertt; /* 100 = 100%, so from 65536 = 655 x bw, 0=off */
 	uint32_t rc_high_rwnd;
-	uint32_t ack_count;
-	uint32_t sack_count;
-	uint32_t sack_noextra_move;
-	uint32_t sack_moved_extra;
 	struct rack_rtt_sample rack_rs;
 	const struct tcp_hwrate_limit_table *crte;
 	uint32_t rc_agg_early;
 	uint32_t rc_agg_delayed;
 	uint32_t rc_tlp_rxt_last_time;
-	uint32_t rc_saved_cwnd;
 	uint64_t rc_gp_output_ts; /* chg*/
 	uint64_t rc_gp_cumack_ts; /* chg*/
 	struct timeval act_rcv_time;
-	struct timeval rc_last_time_decay;	/* SAD time decay happened here */
 	uint64_t gp_bw;
 	uint64_t init_rate;
 #ifdef NETFLIX_SHARED_CWND
@@ -452,19 +477,29 @@ struct rack_control {
 	struct tcp_sendfile_track *rc_last_sft;
 	uint32_t lt_seq;	/* Seq at start of lt_bw gauge */
 	int32_t rc_rtt_diff;		/* Timely style rtt diff of our gp_srtt */
-	uint64_t last_sndbytes;
-	uint64_t last_snd_rxt_bytes;
-	uint64_t rxt_threshold;
 	uint64_t last_tmit_time_acked;	/* Holds the last cumack point's last send time */
-	uint32_t last_rnd_rxt_clamped;
-	uint32_t num_of_clamps_applied;
-	uint32_t clamp_options;
-	uint32_t max_clamps;
+	/* Recovery stats */
+	uint64_t last_sendtime;
+
+	uint64_t last_gpest;
+	uint64_t last_tm_mark;		/* Last tm mark used */
+	uint64_t fillcw_cap;		/* B/W cap on fill cw */
+	struct rack_pcm_info pcm_i;
+	struct rack_pcm_stats *pcm_s;
+	uint32_t gp_gain_req;		/* Percent off gp gain req */
+	uint32_t last_rnd_of_gp_rise;
+	uint32_t gp_rnd_thresh;
+	uint32_t ss_hi_fs;
+	uint32_t gate_to_fs;
+	uint32_t pcm_max_seg;
+	uint32_t last_pcm_round;
+	uint32_t pcm_idle_rounds;
 
 	uint32_t rc_gp_srtt;		/* Current GP srtt */
 	uint32_t rc_prev_gp_srtt;	/* Previous RTT */
 	uint32_t rc_entry_gp_rtt;	/* Entry to PRTT gp-rtt */
 	uint32_t rc_loss_at_start;	/* At measurement window where was our lost value */
+	uint32_t rc_considered_lost;	/* Count in recovery of non-retransmitted bytes considered lost */
 
 	uint32_t dsack_round_end;	/* In a round of seeing a DSACK */
 	uint32_t current_round;		/* Starting at zero */
@@ -491,22 +526,23 @@ struct rack_control {
 	uint32_t rc_snd_max_at_rto;	/* For non-sack when the RTO occurred what was snd-max */
 	uint32_t rc_out_at_rto;
 	int32_t rc_scw_index;
+	uint32_t max_reduction;
+	uint32_t side_chan_dis_mask; 	/* Bit mask of socket opt's disabled */
 	uint32_t rc_tlp_threshold;	/* Socket option value Lock(a) */
 	uint32_t rc_last_timeout_snduna;
 	uint32_t last_tlp_acked_start;
 	uint32_t last_tlp_acked_end;
-	uint32_t challenge_ack_ts;
-	uint32_t challenge_ack_cnt;
 	uint32_t rc_min_to;	/* Socket option value Lock(a) */
 	uint32_t rc_pkt_delay;	/* Socket option value Lock(a) */
 	uint32_t persist_lost_ends;
-	uint32_t ack_during_sd;
-	uint32_t input_pkt;
-	uint32_t saved_input_pkt;
-	uint32_t saved_rxt_clamp_val; 	/* The encoded value we used to setup clamping */
-	struct newreno rc_saved_beta;	/*
-					 * For newreno cc:
-					 * rc_saved_cc are the values we have had
+	uint32_t cleared_app_ack_seq;
+	uint32_t last_rcv_tstmp_for_rtt;
+	uint32_t last_time_of_arm_rcv;
+	uint32_t rto_ssthresh;
+	uint32_t rc_saved_beta;
+	uint32_t rc_saved_beta_ecn;	/*
+					 * For newreno cc: rc_saved_beta and
+					 * rc_saved_beta_ecn are the values we have had
 					 * set by the user, if pacing is not happening
 					 * (i.e. its early and we have not turned on yet
 					 *  or it was turned off). The minute pacing
@@ -516,10 +552,12 @@ struct rack_control {
 					 * we also set the flag (if ecn_beta is set) to make
 					 * new_reno do less of a backoff for ecn (think abe).
 					 */
+	uint16_t rc_cnt_of_retran[RETRAN_CNT_SIZE];
 	uint16_t rc_early_recovery_segs;	/* Socket option value Lock(a) */
 	uint16_t rc_reorder_shift;	/* Socket option value Lock(a) */
 	uint8_t rack_per_upper_bound_ss;
 	uint8_t rack_per_upper_bound_ca;
+	uint8_t cleared_app_ack;
 	uint8_t dsack_persist;
 	uint8_t rc_no_push_at_mrtt;	/* No push when we exceed max rtt */
 	uint8_t num_measurements;	/* Number of measurements (up to 0xff, we freeze at 0xff)  */
@@ -528,37 +566,15 @@ struct rack_control {
 	uint8_t rc_tlp_cwnd_reduce;	/* Socket option value Lock(a) */
 	uint8_t rc_prr_sendalot;/* Socket option value Lock(a) */
 	uint8_t rc_rate_sample_method;
-	uint8_t rc_dgp_bl_agg;		/* Buffer Level aggression during DGP */
-	uint8_t full_dgp_in_rec;	/* Flag to say if we do full DGP in recovery */
 	uint8_t client_suggested_maxseg;	/* Not sure what to do with this yet */
-	uint8_t pacing_discount_amm;	/*
-					 * This is a multipler to the base discount that
-					 * can be used to increase the discount.
-					 */
-	uint8_t already_had_a_excess;
+	uint8_t use_gp_not_last;
+	uint8_t pacing_method;	       /* If pace_always, what type of pacing */
 };
 #endif
 
-/* DGP with no buffer level mitigations */
-#define DGP_LEVEL0	0
-
-/*
- * DGP with buffer level mitigation where BL:4 caps fillcw and BL:5
- * turns off fillcw.
- */
-#define DGP_LEVEL1	1
-
-/*
- * DGP with buffer level mitigation where BL:3 caps fillcw and BL:4 turns off fillcw
- * and BL:5 reduces by 10%
- */
-#define DGP_LEVEL2	2
-
-/*
- * DGP with buffer level mitigation where BL:2 caps fillcw and BL:3 turns off
- * fillcw  BL:4 reduces by 10% and BL:5 reduces by 20%
- */
-#define DGP_LEVEL3	3
+#define RACK_PACING_NONE 0x00
+#define RACK_DGP_PACING  0x01
+#define RACK_REG_PACING  0x02
 
 /* Hybrid pacing log defines */
 #define HYBRID_LOG_NO_ROOM	0	/* No room for the clients request */
@@ -579,7 +595,6 @@ struct rack_control {
 #define HYBRID_LOG_SENT_LOST	15	/* A closing sent/lost report */
 
 #define RACK_TIMELY_CNT_BOOST 5	/* At 5th increase boost */
-#define RACK_MINRTT_FILTER_TIM 10 /* Seconds */
 
 #define RACK_HYSTART_OFF	0
 #define RACK_HYSTART_ON		1	/* hystart++ on */
@@ -590,19 +605,20 @@ struct rack_control {
 					 */
 
 #define MAX_USER_SET_SEG 0x3f	/* The max we can set is 63 which is probably too many */
+#define RACK_FREE_CNT_MAX 0x2f	/* Max our counter can do */
 
 #ifdef _KERNEL
 
 struct tcp_rack {
 	/* First cache line 0x00 */
-	TAILQ_ENTRY(tcp_rack) r_hpts;	/* hptsi queue next Lock(b) */
 	int32_t(*r_substate) (struct mbuf *, struct tcphdr *,
 	    struct socket *, struct tcpcb *, struct tcpopt *,
 	    int32_t, int32_t, uint32_t, int, int, uint8_t);	/* Lock(a) */
 	struct tcpcb *rc_tp;	/* The tcpcb Lock(a) */
 	struct inpcb *rc_inp;	/* The inpcb Lock(a) */
-	uint8_t rc_free_cnt;	/* Number of free entries on the rc_free list
-				 * Lock(a) */
+	uint8_t rc_free_cnt : 6,
+		rc_skip_timely : 1,
+		pcm_enabled : 1;	/* Is PCM enabled */
 	uint8_t client_bufferlvl : 3, /* Expected range [0,5]: 0=unset, 1=low/empty */
 		rack_deferred_inited : 1,
 	        /* ******************************************************************** */
@@ -612,11 +628,11 @@ struct tcp_rack {
 		shape_rxt_to_pacing_min : 1,
 	        /* ******************************************************************** */
 		rc_ack_required: 1,
-		r_pacing_discount : 1;
+		r_use_hpts_min : 1;
 	uint8_t no_prr_addback : 1,
 		gp_ready : 1,
 		defer_options: 1,
-		excess_rxt_on: 1,	/* Are actions on for excess retransmissions? */
+		dis_lt_bw : 1,
 		rc_ack_can_sendout_data: 1, /*
 					     * If set it will override pacing restrictions on not sending
 					     * data when the pacing timer is running. I.e. you set this
@@ -659,7 +675,7 @@ struct tcp_rack {
 		 r_rack_hw_rate_caps: 1,
 		 r_up_only: 1,
 		 r_via_fill_cw : 1,
-		 r_fill_less_agg : 1;
+		 r_rcvpath_rtt_up : 1;
 
 	uint8_t rc_user_set_max_segs : 7,	/* Socket option value Lock(a) */
 		rc_fillcw_apply_discount;
@@ -673,7 +689,7 @@ struct tcp_rack {
 		rc_highly_buffered: 1,		/* The path is highly buffered */
 		rc_dragged_bottom: 1,
 		rc_pace_dnd : 1,		/* The pace do not disturb bit */
-		rc_avali2 : 1,
+		rc_initial_ss_comp : 1,
 		rc_gp_filled : 1,
 		rc_hw_nobuf : 1;
 	uint8_t r_state : 4, 	/* Current rack state Lock(a) */
@@ -696,8 +712,8 @@ struct tcp_rack {
 	uint8_t app_limited_needs_set : 1,
 		use_fixed_rate : 1,
 		rc_has_collapsed : 1,
-		r_cwnd_was_clamped : 1,
-		r_clamped_gets_lower : 1,
+		use_lesser_lt_bw : 1,
+		cspr_is_fcc : 1,
 		rack_hdrw_pacing : 1,  /* We are doing Hardware pacing */
 		rack_hdw_pace_ena : 1, /* Is hardware pacing enabled? */
 		rack_attempt_hdwr_pace : 1; /* Did we attempt hdwr pacing (if allowed) */
@@ -712,8 +728,7 @@ struct tcp_rack {
 		set_pacing_done_a_iw : 1,
 		use_rack_rr : 1,
 		alloc_limit_reported : 1,
-		sack_attack_disable : 1,
-		do_detection : 1,
+		rack_avail : 2,
 		rc_force_max_seg : 1;
 	uint8_t r_early : 1,
 		r_late : 1,
@@ -722,7 +737,11 @@ struct tcp_rack {
 		r_persist_lt_bw_off : 1,
 		r_collapse_point_valid : 1,
 		dgp_on : 1;
-	uint16_t rc_init_win : 8,
+	uint16_t rto_from_rec: 1,
+		avail_bit: 4,
+		pcm_in_progress: 1,
+		pcm_needed: 1,
+		rc_sendvars_notset : 1,		/* Inside rack_init send variables (snd_max/una etc) were not set */
 		rc_gp_rtt_set : 1,
 		rc_gp_dyn_mul : 1,
 		rc_gp_saw_rec : 1,
@@ -734,6 +753,10 @@ struct tcp_rack {
 	/* Cache line 2 0x40 */
 	struct rack_control r_ctl;
 }        __aligned(CACHE_LINE_SIZE);
+
+
+void rack_update_pcm_ack(struct tcp_rack *rack, int was_cumack,
+	uint32_t ss, uint32_t es);
 
 #endif
 #endif

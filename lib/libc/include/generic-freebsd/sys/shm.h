@@ -51,7 +51,7 @@
 
 #define SHM_RDONLY  010000  /* Attach read-only (else read-write) */
 #define SHM_RND     020000  /* Round attach address to SHMLBA */
-#define	SHM_REMAP   030000  /* Unmap before mapping */
+#define	SHM_REMAP   040000  /* Unmap before mapping */
 #define SHMLBA      PAGE_SIZE /* Segment low boundary address multiple */
 
 /* "official" access mode definitions; somewhat braindead since you have
@@ -173,9 +173,6 @@ typedef __size_t        size_t;
 #endif
 
 __BEGIN_DECLS
-#if __BSD_VISIBLE
-int shmsys(int, ...);
-#endif
 void *shmat(int, const void *, int);
 int shmget(key_t, size_t, int);
 int shmctl(int, int, struct shmid_ds *);

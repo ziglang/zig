@@ -79,6 +79,7 @@ struct tcp_fastopen_ccache {
 	uint32_t 	secret;
 };
 
+struct tcpcb;
 #ifdef TCP_RFC7413
 void	tcp_fastopen_init(void);
 void	tcp_fastopen_destroy(void);

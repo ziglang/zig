@@ -339,7 +339,7 @@ struct rndis_diag_info {
 	uint32_t rm_erroffset;
 };
 
-/* Keepalive messsage.  May be sent by device. */
+/* Keepalive message.  May be sent by device. */
 #define	REMOTE_NDIS_KEEPALIVE_MSG	0x00000008
 #define	REMOTE_NDIS_KEEPALIVE_CMPLT	0x80000008
 

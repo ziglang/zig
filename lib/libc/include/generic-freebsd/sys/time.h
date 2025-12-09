@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)time.h	8.5 (Berkeley) 5/4/95
  */
 
 #ifndef _SYS_TIME_H_
@@ -613,7 +611,9 @@ int	tvtohz(struct timeval *tv);
 #include <time.h>
 
 #include <sys/cdefs.h>
+#ifndef _STANDALONE
 #include <sys/select.h>
+#endif
 
 __BEGIN_DECLS
 int	setitimer(int, const struct itimerval *, struct itimerval *);

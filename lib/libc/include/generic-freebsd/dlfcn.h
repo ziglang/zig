@@ -32,6 +32,7 @@
 #ifndef _DLFCN_H_
 #define	_DLFCN_H_
 
+#include <sys/cdefs.h>
 #include <sys/_types.h>
 
 /*

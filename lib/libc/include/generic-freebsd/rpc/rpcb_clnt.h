@@ -55,7 +55,6 @@
 #ifndef _RPC_RPCB_CLNT_H
 #define	_RPC_RPCB_CLNT_H
 
-/* #pragma ident	"@(#)rpcb_clnt.h	1.13	94/04/25 SMI" */
 /* rpcb_clnt.h 1.3 88/12/05 SMI */
 
 #include <rpc/types.h>

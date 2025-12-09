@@ -61,6 +61,9 @@
 #define	AMD64_GET_XFPUSTATE	132
 #define	AMD64_SET_PKRU		133
 #define	AMD64_CLEAR_PKRU	134
+#define	AMD64_GET_TLSBASE	135
+#define	AMD64_SET_TLSBASE	136
+#define	AMD64_DISABLE_TLSBASE	137
 
 /* Flags for AMD64_SET_PKRU */
 #define	AMD64_PKRU_EXCL		0x0001
@@ -140,6 +143,7 @@ int amd64_get_fsbase(void **);
 int amd64_get_gsbase(void **);
 int amd64_set_fsbase(void *);
 int amd64_set_gsbase(void *);
+int amd64_set_tlsbase(void *);
 int x86_pkru_get_perm(unsigned int keyidx, int *access, int *modify);
 int x86_pkru_set_perm(unsigned int keyidx, int access, int modify);
 int x86_pkru_protect_range(void *addr, unsigned long len, unsigned int keyidx,

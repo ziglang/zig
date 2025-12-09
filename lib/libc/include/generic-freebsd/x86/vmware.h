@@ -31,19 +31,23 @@
 #define	VMW_HVPORT		0x5658
 
 #define	VMW_HVCMD_GETVERSION	10
+#define	VMW_HVCMD_GUESTRPC	30
 #define	VMW_HVCMD_GETHZ		45
 #define	VMW_HVCMD_GETVCPU_INFO	68
+
+#define	VMW_HVCMD_DEFAULT_PARAM	UINT_MAX
 
 #define	VMW_VCPUINFO_LEGACY_X2APIC	(1 << 3)
 #define	VMW_VCPUINFO_VCPU_RESERVED	(1 << 31)
 
 static __inline void
-vmware_hvcall(u_int cmd, u_int *p)
+vmware_hvcall(int chan, u_int cmd, u_int param, u_int *p)
 {
 
 	__asm __volatile("inl %w3, %0"
 	: "=a" (p[0]), "=b" (p[1]), "=c" (p[2]), "=d" (p[3])
-	: "0" (VMW_HVMAGIC), "1" (UINT_MAX), "2" (cmd), "3" (VMW_HVPORT)
+	: "0" (VMW_HVMAGIC), "1" (param), "2" (cmd),
+	  "3" (VMW_HVPORT | (chan << 16))
 	: "memory");
 }
 

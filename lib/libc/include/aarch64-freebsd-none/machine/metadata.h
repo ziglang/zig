@@ -31,10 +31,15 @@
 #define	MODINFOMD_DTBP		0x1002
 #define	MODINFOMD_EFI_FB	0x1003
 
+/*
+ * This is not the same as the UEFI standard EFI_MEMORY_ATTRIBUTES_TABLE, though
+ * memory_size / descritpr_size entries of EFI_MEMORY_DESCRIPTORS follow this table
+ * starting at a 16-byte alignment.
+ */
 struct efi_map_header {
-	size_t		memory_size;
-	size_t		descriptor_size;
-	uint32_t	descriptor_version;
+	size_t		memory_size;		/* Numnber of bytes that follow */
+	size_t		descriptor_size;	/* Size of each EFI_MEMORY_DESCRIPTOR */
+	uint32_t	descriptor_version;	/* Currently '1' */
 };
 
 struct efi_fb {

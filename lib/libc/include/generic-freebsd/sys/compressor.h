@@ -42,6 +42,7 @@ struct compressor;
 bool		compressor_avail(int format);
 struct compressor *compressor_init(compressor_cb_t cb, int format,
 		    size_t maxiosize, int level, void *arg);
+int		compressor_format(const struct compressor *stream);
 void		compressor_reset(struct compressor *stream);
 int		compressor_write(struct compressor *stream, void *data,
 		    size_t len);

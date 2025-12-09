@@ -38,8 +38,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	from: @(#)vmparam.h	5.9 (Berkeley) 5/12/91
  */
 
 #ifdef __i386__
@@ -74,12 +72,12 @@
 #endif
 
 /*
- * We provide a machine specific single page allocator through the use
- * of the direct mapped segment.  This uses 2MB pages for reduced
+ * We provide a single page allocator through the use of the
+ * direct mapped segment.  This uses 2MB pages for reduced
  * TLB pressure.
  */
 #if !defined(KASAN) && !defined(KMSAN)
-#define	UMA_MD_SMALL_ALLOC
+#define UMA_USE_DMAP
 #endif
 
 /*
@@ -91,19 +89,21 @@
  * The number of PHYSSEG entries must be one greater than the number
  * of phys_avail entries because the phys_avail entry that spans the
  * largest physical address that is accessible by ISA DMA is split
- * into two PHYSSEG entries. 
+ * into two PHYSSEG entries.
  */
 #define	VM_PHYSSEG_MAX		63
 
 /*
- * Create two free page pools: VM_FREEPOOL_DEFAULT is the default pool
- * from which physical pages are allocated and VM_FREEPOOL_DIRECT is
- * the pool from which physical pages for page tables and small UMA
- * objects are allocated.
+ * Create three free page pools: VM_FREEPOOL_DEFAULT is the default pool from
+ * which physical pages are allocated and VM_FREEPOOL_DIRECT is the pool from
+ * which physical pages for page tables and small UMA objects are allocated.
+ * VM_FREEPOOL_LAZYINIT is a special-purpose pool that is populated only during
+ * boot and is used to implement deferred initialization of page structures.
  */
-#define	VM_NFREEPOOL		2
-#define	VM_FREEPOOL_DEFAULT	0
-#define	VM_FREEPOOL_DIRECT	1
+#define	VM_NFREEPOOL		3
+#define	VM_FREEPOOL_LAZYINIT	0
+#define	VM_FREEPOOL_DEFAULT	1
+#define	VM_FREEPOOL_DIRECT	2
 
 /*
  * Create up to three free page lists: VM_FREELIST_DMA32 is for physical pages
@@ -149,10 +149,6 @@
 #define	VM_LEVEL_0_ORDER	9
 #endif
 
-#ifdef	SMP
-#define	PA_LOCK_COUNT	256
-#endif
-
 /*
  * Kernel physical load address for non-UEFI boot and for legacy UEFI loader.
  * Newer UEFI loader loads kernel anywhere below 4G, with memory allocated
@@ -167,6 +163,7 @@
  * Virtual addresses of things.  Derived from the page directory and
  * page table indexes from pmap.h for precision.
  *
+ * LA48:
  * 0x0000000000000000 - 0x00007fffffffffff   user map
  * 0x0000800000000000 - 0xffff7fffffffffff   does not exist (hole)
  * 0xffff800000000000 - 0xffff804020100fff   recursive page table (512GB slot)
@@ -179,32 +176,38 @@
  * 0xfffffc0000000000 - 0xfffffdffffffffff   2TB KMSAN shadow map, optional
  * 0xfffffe0000000000 - 0xffffffffffffffff   2TB kernel map
  *
+ * LA57:
+ * 0x0000000000000000 - 0x00ffffffffffffff   user map
+ * 0x0100000000000000 - 0xf0ffffffffffffff   does not exist (hole)
+ * 0xff00000000000000 - 0xff00ffffffffffff   recursive page table (2048TB slot)
+ * 0xff01000000000000 - 0xff20ffffffffffff   direct map (32 x 2048TB slots)
+ * 0xff21000000000000 - 0xff40ffffffffffff   large map
+ * 0xff41000000000000 - 0xffff7fffffffffff   unused
+ * 0xffff800000000000 - 0xfffff5ffffffffff   unused (start of kernel pml4 entry)
+ * 0xfffff60000000000 - 0xfffff7ffffffffff   2TB KMSAN origin map, optional
+ * 0xfffff78000000000 - 0xfffff7bfffffffff   512GB KASAN shadow map, optional
+ * 0xfffff80000000000 - 0xfffffbffffffffff   4TB unused
+ * 0xfffffc0000000000 - 0xfffffdffffffffff   2TB KMSAN shadow map, optional
+ * 0xfffffe0000000000 - 0xffffffffffffffff   2TB kernel map
+ *
  * Within the kernel map:
  *
  * 0xfffffe0000000000                        vm_page_array
  * 0xffffffff80000000                        KERNBASE
  */
 
-#define	VM_MIN_KERNEL_ADDRESS	KV4ADDR(KPML4BASE, 0, 0, 0)
-#define	VM_MAX_KERNEL_ADDRESS	KV4ADDR(KPML4BASE + NKPML4E - 1, \
-					NPDPEPG-1, NPDEPG-1, NPTEPG-1)
+#define	VM_MIN_KERNEL_ADDRESS_LA48	KV4ADDR(KPML4BASE, 0, 0, 0)
+#define	VM_MIN_KERNEL_ADDRESS		kva_layout.km_low
+#define	VM_MAX_KERNEL_ADDRESS		kva_layout.km_high
 
-#define	DMAP_MIN_ADDRESS	KV4ADDR(DMPML4I, 0, 0, 0)
-#define	DMAP_MAX_ADDRESS	KV4ADDR(DMPML4I + NDMPML4E, 0, 0, 0)
+#define	KASAN_MIN_ADDRESS		(kva_layout.kasan_shadow_low)
+#define	KASAN_MAX_ADDRESS		(kva_layout.kasan_shadow_high)
 
-#define	KASAN_MIN_ADDRESS	KV4ADDR(KASANPML4I, 0, 0, 0)
-#define	KASAN_MAX_ADDRESS	KV4ADDR(KASANPML4I + NKASANPML4E, 0, 0, 0)
+#define	KMSAN_SHAD_MIN_ADDRESS		(kva_layout.kmsan_shadow_low)
+#define	KMSAN_SHAD_MAX_ADDRESS		(kva_layout.kmsan_shadow_high)
 
-#define	KMSAN_SHAD_MIN_ADDRESS	KV4ADDR(KMSANSHADPML4I, 0, 0, 0)
-#define	KMSAN_SHAD_MAX_ADDRESS	KV4ADDR(KMSANSHADPML4I + NKMSANSHADPML4E, \
-					0, 0, 0)
-
-#define	KMSAN_ORIG_MIN_ADDRESS	KV4ADDR(KMSANORIGPML4I, 0, 0, 0)
-#define	KMSAN_ORIG_MAX_ADDRESS	KV4ADDR(KMSANORIGPML4I + NKMSANORIGPML4E, \
-					0, 0, 0)
-
-#define	LARGEMAP_MIN_ADDRESS	KV4ADDR(LMSPML4I, 0, 0, 0)
-#define	LARGEMAP_MAX_ADDRESS	KV4ADDR(LMEPML4I + 1, 0, 0, 0)
+#define	KMSAN_ORIG_MIN_ADDRESS		(kva_layout.kmsan_origin_low)
+#define	KMSAN_ORIG_MAX_ADDRESS		(kva_layout.kmsan_origin_high)
 
 /*
  * Formally kernel mapping starts at KERNBASE, but kernel linker
@@ -243,21 +246,21 @@
  * vt fb startup needs to be reworked.
  */
 #define	PHYS_IN_DMAP(pa)	(dmaplimit == 0 || (pa) < dmaplimit)
-#define	VIRT_IN_DMAP(va)	((va) >= DMAP_MIN_ADDRESS &&		\
-    (va) < (DMAP_MIN_ADDRESS + dmaplimit))
+#define	VIRT_IN_DMAP(va)	\
+    ((va) >= kva_layout.dmap_low && (va) < kva_layout.dmap_low + dmaplimit)
 
 #define	PMAP_HAS_DMAP	1
-#define	PHYS_TO_DMAP(x)	({						\
+#define	PHYS_TO_DMAP(x)	__extension__ ({				\
 	KASSERT(PHYS_IN_DMAP(x),					\
 	    ("physical address %#jx not covered by the DMAP",		\
 	    (uintmax_t)x));						\
-	(x) | DMAP_MIN_ADDRESS; })
+	(x) + kva_layout.dmap_low; })
 
-#define	DMAP_TO_PHYS(x)	({						\
+#define	DMAP_TO_PHYS(x)	__extension__ ({				\
 	KASSERT(VIRT_IN_DMAP(x),					\
 	    ("virtual address %#jx not covered by the DMAP",		\
 	    (uintmax_t)x));						\
-	(x) & ~DMAP_MIN_ADDRESS; })
+	(x) - kva_layout.dmap_low; })
 
 /*
  * amd64 maps the page array into KVA so that it can be more easily
@@ -278,7 +281,7 @@
  */
 #ifndef VM_KMEM_SIZE_MAX
 #define	VM_KMEM_SIZE_MAX	((VM_MAX_KERNEL_ADDRESS - \
-    VM_MIN_KERNEL_ADDRESS + 1) * 3 / 5)
+    kva_layout.km_low + 1) * 3 / 5)
 #endif
 
 /* initial pagein size of beginning of executable file */
@@ -296,7 +299,8 @@
 /*
  * Need a page dump array for minidump.
  */
-#define MINIDUMP_PAGE_TRACKING	1
+#define MINIDUMP_PAGE_TRACKING	       1
+#define MINIDUMP_STARTUP_PAGE_TRACKING 1
 
 #endif /* _MACHINE_VMPARAM_H_ */
 

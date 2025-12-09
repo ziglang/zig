@@ -64,7 +64,7 @@ struct dccphdr {
                        uint8_t seq[6];
                } longseq;
        } d_seqno;
-};
+}  __packed;
 
 #define d_seqno_short d_seqno.shortseq;
 #define d_seqno_long d_seqno.longseq.seq;

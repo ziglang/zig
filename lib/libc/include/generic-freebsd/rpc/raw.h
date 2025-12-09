@@ -36,9 +36,6 @@
 #ifndef _RPC_RAW_H
 #define	_RPC_RAW_H
 
-/* 	from: @(#)raw.h	1.11	94/04/25 SMI */
-/*	from: @(#)raw.h 1.2 88/10/25 SMI	*/
-
 #ifdef	__cplusplus
 extern "C" {
 #endif

@@ -11,7 +11,7 @@ prev_di_column: u32,
 prev_di_pc: usize,
 
 code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .empty,
-relocs: std.ArrayListUnmanaged(Reloc) = .empty,
+relocs: std.ArrayList(Reloc) = .empty,
 
 pub const Error = Lower.Error || std.Io.Writer.Error || error{
     EmitFail,

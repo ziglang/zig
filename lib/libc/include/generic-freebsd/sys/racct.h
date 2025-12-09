@@ -35,7 +35,6 @@
 #ifndef _RACCT_H_
 #define	_RACCT_H_
 
-#include <sys/cdefs.h>
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/stdint.h>
@@ -142,13 +141,17 @@ extern bool racct_enable;
 
 /*
  * The 'racct' structure defines resource consumption for a particular
- * subject, such as process or jail.
+ * subject, such as process or jail. It also contains the total
+ * cpu time and real time of the subject, recorded at the most recent
+ * time that RACCT_PCPU was updated.
  *
  * This structure must be filled with zeroes initially.
  */
 struct racct {
 	int64_t				r_resources[RACCT_MAX + 1];
 	LIST_HEAD(, rctl_rule_link)	r_rule_links;
+	uint64_t			r_runtime;
+	struct timeval			r_time;
 };
 
 SYSCTL_DECL(_kern_racct);

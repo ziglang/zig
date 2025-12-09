@@ -108,16 +108,8 @@ _Static_assert(sizeof(struct monitorbuf) == 128, "2x cache line");
 /*
  * Evaluates to the address of the per-cpu variable name.
  */
-#define	__PCPU_PTR(name) __extension__ ({				\
-	__pcpu_type(name) *__p;						\
-									\
-	__asm __volatile("movl %%fs:%1,%0; addl %2,%0"			\
-	    : "=r" (__p)						\
-	    : "m" (*(struct pcpu *)(__pcpu_offset(pc_prvspace))),	\
-	      "i" (__pcpu_offset(name)));				\
-									\
-	__p;								\
-})
+#define	__PCPU_PTR(name)						\
+	(&get_pcpu()->name)
 
 /*
  * Evaluates to the value of the per-cpu variable name.
@@ -126,14 +118,13 @@ _Static_assert(sizeof(struct monitorbuf) == 128, "2x cache line");
 	__pcpu_type(name) __res;					\
 	struct __s {							\
 		u_char	__b[MIN(sizeof(__res), 4)];			\
-	} __s;								\
+	};								\
 									\
 	if (sizeof(__res) == 1 || sizeof(__res) == 2 ||			\
 	    sizeof(__res) == 4) {					\
-		__asm __volatile("mov %%fs:%1,%0"			\
-		    : "=r" (__s)					\
-		    : "m" (*(struct __s *)(__pcpu_offset(name))));	\
-		*(struct __s *)(void *)&__res = __s;			\
+		__asm __volatile("mov %%fs:%c1,%0"			\
+		    : "=r" (*(struct __s *)(void *)&__res)		\
+		    : "i" (__pcpu_offset(name)));			\
 	} else {							\
 		__res = *__PCPU_PTR(name);				\
 	}								\
@@ -148,15 +139,16 @@ _Static_assert(sizeof(struct monitorbuf) == 128, "2x cache line");
 	__pcpu_type(name) __val;					\
 	struct __s {							\
 		u_char	__b[MIN(sizeof(__val), 4)];			\
-	} __s;								\
+	};								\
 									\
 	__val = (val);							\
 	if (sizeof(__val) == 1 || sizeof(__val) == 2 ||			\
 	    sizeof(__val) == 4) {					\
-		__s = *(struct __s *)(void *)&__val;			\
-		__asm __volatile("add %1,%%fs:%0"			\
-		    : "=m" (*(struct __s *)(__pcpu_offset(name)))	\
-		    : "r" (__s));					\
+		__asm __volatile("add %1,%%fs:%c0"			\
+		    :							\
+		    : "i" (__pcpu_offset(name)),			\
+		      "r" (*(struct __s *)(void *)&__val)		\
+		    : "cc", "memory");					\
 	} else								\
 		*__PCPU_PTR(name) += __val;				\
 } while (0)
@@ -168,15 +160,16 @@ _Static_assert(sizeof(struct monitorbuf) == 128, "2x cache line");
 	__pcpu_type(name) __val;					\
 	struct __s {							\
 		u_char	__b[MIN(sizeof(__val), 4)];			\
-	} __s;								\
+	};								\
 									\
 	__val = (val);							\
 	if (sizeof(__val) == 1 || sizeof(__val) == 2 ||			\
 	    sizeof(__val) == 4) {					\
-		__s = *(struct __s *)(void *)&__val;			\
-		__asm __volatile("mov %1,%%fs:%0"			\
-		    : "=m" (*(struct __s *)(__pcpu_offset(name)))	\
-		    : "r" (__s));					\
+		__asm __volatile("mov %1,%%fs:%c0"			\
+		    :							\
+		    : "i" (__pcpu_offset(name)),			\
+		      "r" (*(struct __s *)(void *)&__val)		\
+		    : "memory");					\
 	} else {							\
 		*__PCPU_PTR(name) = __val;				\
 	}								\
@@ -185,9 +178,9 @@ _Static_assert(sizeof(struct monitorbuf) == 128, "2x cache line");
 #define	get_pcpu() __extension__ ({					\
 	struct pcpu *__pc;						\
 									\
-	__asm __volatile("movl %%fs:%1,%0"				\
+	__asm __volatile("movl %%fs:%c1,%0"				\
 	    : "=r" (__pc)						\
-	    : "m" (*(struct pcpu *)(__pcpu_offset(pc_prvspace))));	\
+	    : "i" (__pcpu_offset(pc_prvspace)));			\
 	__pc;								\
 })
 

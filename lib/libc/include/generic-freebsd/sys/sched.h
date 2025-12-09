@@ -63,6 +63,15 @@
 #define	_SCHED_H_
 
 #ifdef _KERNEL
+
+#include <sys/types.h>
+#ifdef SCHED_STATS
+#include <sys/pcpu.h>
+#endif
+
+struct proc;
+struct thread;
+
 /*
  * General scheduling info.
  *
@@ -74,7 +83,7 @@
  */
 int	sched_load(void);
 int	sched_rr_interval(void);
-int	sched_runnable(void);
+bool	sched_runnable(void);
 
 /* 
  * Proc related scheduling hooks.
@@ -214,7 +223,7 @@ SYSINIT(name, SI_SUB_LAST, SI_ORDER_MIDDLE, name ## _add_proc, NULL);
     SCHED_STAT_DEFINE_VAR(name, &DPCPU_NAME(name), descr)
 /*
  * Sched stats are always incremented in critical sections so no atomic
- * is necesssary to increment them.
+ * is necessary to increment them.
  */
 #define SCHED_STAT_INC(var)     DPCPU_GET(var)++;
 #else

@@ -37,9 +37,6 @@
  * map the page tables using the pagetables themselves. This is done to
  * reduce the impact on kernel virtual memory for lots of sparse address
  * space, and to reduce the cost of memory to each process.
- *
- *	from: hp300: @(#)pmap.h	7.2 (Berkeley) 12/16/90
- *	from: @(#)pmap.h	7.4 (Berkeley) 5/12/91
  */
 
 #ifndef _MACHINE_PMAP_H_
@@ -83,7 +80,7 @@
  * 4KB (PTE) page mappings have identical settings for the following fields:
  */
 #define PG_PTE_PROMOTE	(PG_MANAGED | PG_W | PG_G | PG_PTE_PAT | \
-	    PG_M | PG_A | PG_NC_PCD | PG_NC_PWT | PG_U | PG_RW | PG_V)
+	    PG_M | PG_NC_PCD | PG_NC_PWT | PG_U | PG_RW | PG_V)
 
 /*
  * Page Protection Exception bits
@@ -221,7 +218,7 @@ void	pmap_basemem_setup(u_int basemem);
 void	*pmap_bios16_enter(void);
 void	pmap_bios16_leave(void *handle);
 void	pmap_bootstrap(vm_paddr_t);
-int	pmap_cache_bits(pmap_t, int mode, boolean_t is_pde);
+int	pmap_cache_bits(pmap_t, int mode, bool is_pde);
 int	pmap_change_attr(vm_offset_t, vm_size_t, int);
 caddr_t	pmap_cmap3(vm_paddr_t pa, u_int pte_bits);
 void	pmap_cp_slow0_map(vm_offset_t kaddr, int plen, vm_page_t *ma);
@@ -239,7 +236,7 @@ void	pmap_ksetrw(vm_offset_t va);
 void	*pmap_mapbios(vm_paddr_t, vm_size_t);
 void	*pmap_mapdev(vm_paddr_t, vm_size_t);
 void	*pmap_mapdev_attr(vm_paddr_t, vm_size_t, int);
-boolean_t pmap_page_is_mapped(vm_page_t m);
+bool	pmap_page_is_mapped(vm_page_t m);
 void	pmap_page_set_memattr(vm_page_t m, vm_memattr_t ma);
 vm_paddr_t pmap_pg_frame(vm_paddr_t pa);
 bool	pmap_ps_enabled(pmap_t pmap);

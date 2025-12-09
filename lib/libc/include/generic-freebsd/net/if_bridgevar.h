@@ -74,7 +74,12 @@
  * Data structure and control definitions for bridge interfaces.
  */
 
+#ifndef	_NET_IF_BRIDGEVAR_H_
+#define	_NET_IF_BRIDGEVAR_H_
+
 #include <sys/types.h>
+#include <sys/_bitset.h>
+#include <sys/bitset.h>
 #include <sys/callout.h>
 #include <sys/queue.h>
 #include <sys/condvar.h>
@@ -119,6 +124,22 @@
 #define	BRDGSPROTO		28	/* set protocol (ifbrparam) */
 #define	BRDGSTXHC		29	/* set tx hold count (ifbrparam) */
 #define	BRDGSIFAMAX		30	/* set max interface addrs (ifbreq) */
+#define	BRDGSIFPVID		31	/* set if PVID */
+#define	BRDGSIFVLANSET		32	/* set if vlan set */
+#define	BRDGGIFVLANSET		33	/* get if vlan set */
+#define	BRDGGFLAGS		34	/* get bridge flags (ifbrparam) */
+#define	BRDGSFLAGS		35	/* set bridge flags (ifbrparam) */
+#define	BRDGGDEFPVID		36	/* get default pvid (ifbrparam) */
+#define	BRDGSDEFPVID		37	/* set default pvid (ifbrparam) */
+#define	BRDGSIFVLANPROTO	38	/* set if vlan protocol (ifbreq) */
+
+/* BRDGSFLAGS, Bridge flags (non-interface-specific) */
+typedef uint32_t ifbr_flags_t;
+
+#define	IFBRF_VLANFILTER	(1U<<0)	/* VLAN filtering enabled */
+#define	IFBRF_DEFQINQ		(1U<<1)	/* 802.1ad Q-in-Q allowed by default */
+
+#define	IFBRFBITS	"\020\01VLANFILTER\02DEFQINQ"
 
 /*
  * Generic bridge control request.
@@ -136,7 +157,9 @@ struct ifbreq {
 	uint32_t	ifbr_addrcnt;		/* member if addr number */
 	uint32_t	ifbr_addrmax;		/* member if addr max */
 	uint32_t	ifbr_addrexceeded;	/* member if addr violations */
-	uint8_t		pad[32];
+	ether_vlanid_t	ifbr_pvid;		/* member if PVID */
+	uint16_t	ifbr_vlanproto;		/* member if VLAN protocol */
+	uint8_t		pad[28];
 };
 
 /* BRDGGIFFLAGS, BRDGSIFFLAGS */
@@ -152,10 +175,11 @@ struct ifbreq {
 #define	IFBIF_BSTP_ADMEDGE	0x0200	/* member stp admin edge enabled */
 #define	IFBIF_BSTP_ADMCOST	0x0400	/* member stp admin path cost */
 #define	IFBIF_PRIVATE		0x0800	/* if is a private segment */
+#define	IFBIF_QINQ		0x1000	/* if allows 802.1ad Q-in-Q */
 
 #define	IFBIFBITS	"\020\001LEARNING\002DISCOVER\003STP\004SPAN" \
 			"\005STICKY\014PRIVATE\006EDGE\007AUTOEDGE\010PTP" \
-			"\011AUTOPTP"
+			"\011AUTOPTP\015QINQ"
 #define	IFBIFMASK	~(IFBIF_BSTP_EDGE|IFBIF_BSTP_AUTOEDGE|IFBIF_BSTP_PTP| \
 			IFBIF_BSTP_AUTOPTP|IFBIF_BSTP_ADMEDGE| \
 			IFBIF_BSTP_ADMCOST)	/* not saved */
@@ -185,7 +209,7 @@ struct ifbareq {
 	unsigned long	ifba_expire;		/* address expire time */
 	uint8_t		ifba_flags;		/* address flags */
 	uint8_t		ifba_dst[ETHER_ADDR_LEN];/* destination address */
-	uint16_t	ifba_vlan;		/* vlan id */
+	ether_vlanid_t	ifba_vlan;		/* vlan id */
 };
 
 #define	IFBAF_TYPEMASK	0x03	/* address type mask */
@@ -227,7 +251,11 @@ struct ifbrparam {
 #define	ifbrp_fwddelay	ifbrp_ifbrpu.ifbrpu_int8	/* fwd time (sec) */
 #define	ifbrp_maxage	ifbrp_ifbrpu.ifbrpu_int8	/* max age (sec) */
 #define	ifbrp_cexceeded ifbrp_ifbrpu.ifbrpu_int32	/* # of cache dropped
-							 * adresses */
+							 * addresses */
+#define	ifbrp_flags	ifbrp_ifbrpu.ifbrpu_int32	/* bridge flags */
+#define	ifbrp_defpvid	ifbrp_ifbrpu.ifbrpu_int16	/* default pvid */
+#define	ifbrp_vlanproto	ifbrp_ifbrpu.ifbrpu_int8	/* vlan protocol */
+
 /*
  * Bridge current operational parameters structure.
  */
@@ -301,6 +329,26 @@ struct ifbpstpconf {
 	eaddr[5] = pv >> 0;          \
 } while (0)
 
+/*
+ * Bridge VLAN access request.
+ */
+#define	BRVLAN_SETSIZE	4096
+typedef __BITSET_DEFINE(ifbvlan_set, BRVLAN_SETSIZE) ifbvlan_set_t;
+
+#define	BRVLAN_SET(set, bit)	__BIT_SET(BRVLAN_SETSIZE, (bit), set)
+#define	BRVLAN_CLR(set, bit)	__BIT_CLR(BRVLAN_SETSIZE, (bit), set)
+#define	BRVLAN_TEST(set, bit)	__BIT_ISSET(BRVLAN_SETSIZE, (bit), set)
+
+#define	BRDG_VLAN_OP_SET	1	/* replace current vlan set */
+#define	BRDG_VLAN_OP_ADD	2	/* add vlans to current set */
+#define	BRDG_VLAN_OP_DEL	3	/* remove vlans from current set */
+
+struct ifbif_vlan_req {
+	char		bv_ifname[IFNAMSIZ];
+	uint8_t		bv_op;
+	ifbvlan_set_t	bv_set;
+};
+
 #ifdef _KERNEL
 
 #define BRIDGE_INPUT(_ifp, _m)	do {			\
@@ -320,5 +368,10 @@ struct ifbpstpconf {
 } while (0)
 
 extern	void (*bridge_dn_p)(struct mbuf *, struct ifnet *);
+extern	bool (*bridge_same_p)(const void *, const void *);
+extern	void *(*bridge_get_softc_p)(struct ifnet *);
+extern	bool (*bridge_member_ifaddrs_p)(void);
 
 #endif /* _KERNEL */
+
+#endif /* _NET_IF_BRIDGEVAR_H_ */

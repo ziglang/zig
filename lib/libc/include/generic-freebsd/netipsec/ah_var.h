@@ -71,13 +71,22 @@ struct ahstat {
 
 #ifdef _KERNEL
 #include <sys/counter.h>
+#include <netinet/in_kdtrace.h>
 
 VNET_DECLARE(int, ah_enable);
 VNET_DECLARE(int, ah_cleartos);
 VNET_PCPUSTAT_DECLARE(struct ahstat, ahstat);
 
-#define	AHSTAT_ADD(name, val)	\
-    VNET_PCPUSTAT_ADD(struct ahstat, ahstat, name , (val))
+#define AHSTAT_ADD(name, val)                                          \
+	do {                                                           \
+		MIB_SDT_PROBE1(ah, count, name, (val));                \
+		VNET_PCPUSTAT_ADD(struct ahstat, ahstat, name, (val)); \
+	} while (0)
+#define AHSTAT_INC2(name, type)                                          \
+	do {                                                             \
+		MIB_SDT_PROBE2(ah, count, name, 1, (type));              \
+		VNET_PCPUSTAT_ADD(struct ahstat, ahstat, name[type], 1); \
+	} while (0)
 #define	AHSTAT_INC(name)	AHSTAT_ADD(name, 1)
 #define	V_ah_enable		VNET(ah_enable)
 #define	V_ah_cleartos		VNET(ah_cleartos)

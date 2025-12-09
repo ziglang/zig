@@ -184,6 +184,8 @@ struct snd_size {
 #define AFMT_S24_BE	0x00020000	/* Big endian signed 24-bit */
 #define AFMT_U24_LE	0x00040000	/* Little endian unsigned 24-bit */
 #define AFMT_U24_BE	0x00080000	/* Big endian unsigned 24-bit */
+#define AFMT_F32_LE	0x10000000	/* Little endian 32-bit floating point */
+#define AFMT_F32_BE	0x20000000	/* Big endian 32-bit floating point */
 
 /* Machine dependent AFMT_* definitions. */
 #if BYTE_ORDER == LITTLE_ENDIAN
@@ -199,6 +201,8 @@ struct snd_size {
 #define AFMT_U16_OE	AFMT_U16_BE
 #define AFMT_U24_OE	AFMT_U24_BE
 #define AFMT_U32_OE	AFMT_U32_BE
+#define AFMT_F32_NE	AFMT_F32_LE
+#define AFMT_F32_OE	AFMT_F32_BE
 #else
 #define AFMT_S16_OE	AFMT_S16_LE
 #define AFMT_S24_OE	AFMT_S24_LE
@@ -212,7 +216,11 @@ struct snd_size {
 #define AFMT_U16_NE	AFMT_U16_BE
 #define AFMT_U24_NE	AFMT_U24_BE
 #define AFMT_U32_NE	AFMT_U32_BE
+#define AFMT_F32_NE	AFMT_F32_BE
+#define AFMT_F32_OE	AFMT_F32_LE
 #endif
+
+#define AFMT_FLOAT	AFMT_F32_NE	/* compatibility alias */
 
 #define AFMT_STEREO	0x10000000	/* can do/want stereo	*/
 
@@ -1400,8 +1408,9 @@ void seqbuf_dump(void);	/* This function must be provided by programs */
 	int i, l=(len); if (l>6)l=6;\
 	_SEQ_NEEDBUF(8);\
 	_seqbuf[_seqbufptr] = EV_SYSEX;\
-	for(i=0;i<l;i++)_seqbuf[_seqbufptr+i+1] = (buf)[i];\
-	for(i=l;i<6;i++)_seqbuf[_seqbufptr+i+1] = 0xff;\
+	_seqbuf[_seqbufptr+1] = (dev);\
+	for(i=0;i<l;i++)_seqbuf[_seqbufptr+i+2] = (buf)[i];\
+	for(i=l;i<6;i++)_seqbuf[_seqbufptr+i+2] = 0xff;\
 	_SEQ_ADVBUF(8);}
 
 #define SEQ_CHN_PRESSURE(dev, chn, pressure) \

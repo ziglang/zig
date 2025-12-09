@@ -30,8 +30,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	from: @(#)vmparam.h     5.9 (Berkeley) 5/12/91
  *	from: FreeBSD: src/sys/i386/include/vmparam.h,v 1.33 2000/03/30
  */
 
@@ -75,14 +73,16 @@
 #define	VM_PHYSSEG_MAX		64
 
 /*
- * Create two free page pools: VM_FREEPOOL_DEFAULT is the default pool
- * from which physical pages are allocated and VM_FREEPOOL_DIRECT is
- * the pool from which physical pages for small UMA objects are
- * allocated.
+ * Create three free page pools: VM_FREEPOOL_DEFAULT is the default pool from
+ * which physical pages are allocated and VM_FREEPOOL_DIRECT is the pool from
+ * which physical pages for page tables and small UMA objects are allocated.
+ * VM_FREEPOOL_LAZYINIT is a special-purpose pool that is populated only during
+ * boot and is used to implement deferred initialization of page structures.
  */
-#define	VM_NFREEPOOL		2
-#define	VM_FREEPOOL_DEFAULT	0
-#define	VM_FREEPOOL_DIRECT	1
+#define	VM_NFREEPOOL		3
+#define	VM_FREEPOOL_LAZYINIT	0
+#define	VM_FREEPOOL_DEFAULT	1
+#define	VM_FREEPOOL_DIRECT	2
 
 /*
  * Create two free page lists: VM_FREELIST_DMA32 is for physical pages that have
@@ -101,21 +101,46 @@
  * are used by UMA, the physical memory allocator reduces the likelihood of
  * both 2MB page TLB misses and cache misses during the page table walk when
  * a 2MB page TLB miss does occur.
+ *
+ * When PAGE_SIZE is 16KB, an allocation size of 32MB is supported.  This
+ * size is used by level 0 reservations and L2 BLOCK mappings.
  */
+#if PAGE_SIZE == PAGE_SIZE_4K
 #define	VM_NFREEORDER		13
-
-/*
- * Enable superpage reservations: 1 level.
- */
-#ifndef	VM_NRESERVLEVEL
-#define	VM_NRESERVLEVEL		1
+#elif PAGE_SIZE == PAGE_SIZE_16K
+#define	VM_NFREEORDER		12
+#else
+#error Unsupported page size
 #endif
 
 /*
- * Level 0 reservations consist of 512 pages.
+ * Enable superpage reservations: 2 levels.
  */
+#ifndef	VM_NRESERVLEVEL
+#define	VM_NRESERVLEVEL		2
+#endif
+
+/*
+ * Level 0 reservations consist of 16 pages when PAGE_SIZE is 4KB, and 128
+ * pages when PAGE_SIZE is 16KB.  Level 1 reservations consist of 32 64KB
+ * pages when PAGE_SIZE is 4KB, and 16 2M pages when PAGE_SIZE is 16KB.
+ */
+#if PAGE_SIZE == PAGE_SIZE_4K
 #ifndef	VM_LEVEL_0_ORDER
-#define	VM_LEVEL_0_ORDER	9
+#define	VM_LEVEL_0_ORDER	4
+#endif
+#ifndef	VM_LEVEL_1_ORDER
+#define	VM_LEVEL_1_ORDER	5
+#endif
+#elif PAGE_SIZE == PAGE_SIZE_16K
+#ifndef	VM_LEVEL_0_ORDER
+#define	VM_LEVEL_0_ORDER	7
+#endif
+#ifndef	VM_LEVEL_1_ORDER
+#define	VM_LEVEL_1_ORDER	4
+#endif
+#else
+#error Unsupported page size
 #endif
 
 /**
@@ -132,6 +157,12 @@
  *
  *                  0xfffffeffffffffff  End of DMAP
  *                  0xffffa00000000000  Start of DMAP
+ *
+ *                  0xffff027fffffffff  End of KMSAN origin map
+ *                  0xffff020000000000  Start of KMSAN origin map
+ *
+ *                  0xffff017fffffffff  End of KMSAN shadow map
+ *                  0xffff010000000000  Start of KMSAN shadow map
  *
  *                  0xffff009fffffffff  End of KASAN shadow map
  *                  0xffff008000000000  Start of KASAN shadow map
@@ -169,11 +200,25 @@
 #define	KASAN_MIN_ADDRESS	(0xffff008000000000UL)
 #define	KASAN_MAX_ADDRESS	(0xffff00a000000000UL)
 
+/* 512GiB KMSAN shadow map */
+#define	KMSAN_SHAD_MIN_ADDRESS	(0xffff010000000000UL)
+#define	KMSAN_SHAD_MAX_ADDRESS	(0xffff018000000000UL)
+
+/* 512GiB KMSAN origin map */
+#define	KMSAN_ORIG_MIN_ADDRESS	(0xffff020000000000UL)
+#define	KMSAN_ORIG_MAX_ADDRESS	(0xffff028000000000UL)
+
 /* The address bits that hold a pointer authentication code */
-#define	PAC_ADDR_MASK		(0xff7f000000000000UL)
+#define	PAC_ADDR_MASK		(0x007f000000000000UL)
+#define	PAC_ADDR_MASK_14	(0xff7f000000000000UL)
+
+/* The top-byte ignore address bits */
+#define	TBI_ADDR_MASK		0xff00000000000000UL
 
 /* If true addr is in the kernel address space */
 #define	ADDR_IS_KERNEL(addr)	(((addr) & (1ul << 55)) == (1ul << 55))
+/* If true addr is in the user address space */
+#define	ADDR_IS_USER(addr)	(((addr) & (1ul << 55)) == 0)
 /* If true addr is in its canonical form (i.e. no TBI, PAC, etc.) */
 #define	ADDR_IS_CANONICAL(addr)	\
     (((addr) & 0xffff000000000000UL) == 0 || \
@@ -265,7 +310,7 @@
 #endif
 
 #if !defined(KASAN) && !defined(KMSAN)
-#define	UMA_MD_SMALL_ALLOC
+#define UMA_USE_DMAP
 #endif
 
 #ifndef LOCORE
@@ -289,6 +334,7 @@ extern vm_offset_t dmap_max_addr;
  * Need a page dump array for minidump.
  */
 #define MINIDUMP_PAGE_TRACKING	1
+#define MINIDUMP_STARTUP_PAGE_TRACKING 1
 
 #endif /* !_MACHINE_VMPARAM_H_ */
 

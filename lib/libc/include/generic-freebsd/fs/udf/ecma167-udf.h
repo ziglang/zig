@@ -243,7 +243,7 @@ struct part_map_spare {
 	uint8_t			n_st;	/* Number of Sparing Tables */
 	uint8_t			reserved1;
 	uint32_t		st_size;
-	uint32_t		st_loc[1];
+	uint32_t		st_loc[];
 } __packed;
 
 union udf_pmap {
@@ -266,7 +266,7 @@ struct udf_sparing_table {
 	uint16_t		rt_l;	/* Relocation Table len */
 	uint8_t			reserved[2];
 	uint32_t		seq_num;
-	struct spare_map_entry	entries[1];
+	struct spare_map_entry	entries[];
 } __packed;
 
 /* Partition Descriptor [3/10.5] */

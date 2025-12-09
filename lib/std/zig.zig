@@ -6,6 +6,7 @@ const std = @import("std.zig");
 const tokenizer = @import("zig/tokenizer.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 const Writer = std.Io.Writer;
 
 pub const ErrorBundle = @import("zig/ErrorBundle.zig");
@@ -52,17 +53,18 @@ pub const Color = enum {
     /// Assume stderr is a terminal.
     on,
 
-    pub fn get_tty_conf(color: Color) std.Io.tty.Config {
+    pub fn getTtyConf(color: Color, detected: Io.tty.Config) Io.tty.Config {
         return switch (color) {
-            .auto => std.Io.tty.detectConfig(std.fs.File.stderr()),
+            .auto => detected,
             .on => .escape_codes,
             .off => .no_color,
         };
     }
-
-    pub fn renderOptions(color: Color) std.zig.ErrorBundle.RenderOptions {
-        return .{
-            .ttyconf = get_tty_conf(color),
+    pub fn detectTtyConf(color: Color) Io.tty.Config {
+        return switch (color) {
+            .auto => .detect(.stderr()),
+            .on => .escape_codes,
+            .off => .no_color,
         };
     }
 };
@@ -323,7 +325,7 @@ pub const BuildId = union(enum) {
         try std.testing.expectError(error.InvalidBuildIdStyle, parse("yaddaxxx"));
     }
 
-    pub fn format(id: BuildId, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    pub fn format(id: BuildId, writer: *Writer) Writer.Error!void {
         switch (id) {
             .none, .fast, .uuid, .sha1, .md5 => {
                 try writer.writeAll(@tagName(id));
@@ -346,6 +348,47 @@ pub const BuildId = union(enum) {
 };
 
 pub const LtoMode = enum { none, full, thin };
+
+pub const Subsystem = enum {
+    console,
+    windows,
+    posix,
+    native,
+    efi_application,
+    efi_boot_service_driver,
+    efi_rom,
+    efi_runtime_driver,
+
+    /// Deprecated; use '.console' instead. To be removed after 0.16.0 is tagged.
+    pub const Console: Subsystem = .console;
+    /// Deprecated; use '.windows' instead. To be removed after 0.16.0 is tagged.
+    pub const Windows: Subsystem = .windows;
+    /// Deprecated; use '.posix' instead. To be removed after 0.16.0 is tagged.
+    pub const Posix: Subsystem = .posix;
+    /// Deprecated; use '.native' instead. To be removed after 0.16.0 is tagged.
+    pub const Native: Subsystem = .native;
+    /// Deprecated; use '.efi_application' instead. To be removed after 0.16.0 is tagged.
+    pub const EfiApplication: Subsystem = .efi_application;
+    /// Deprecated; use '.efi_boot_service_driver' instead. To be removed after 0.16.0 is tagged.
+    pub const EfiBootServiceDriver: Subsystem = .efi_boot_service_driver;
+    /// Deprecated; use '.efi_rom' instead. To be removed after 0.16.0 is tagged.
+    pub const EfiRom: Subsystem = .efi_rom;
+    /// Deprecated; use '.efi_runtime_driver' instead. To be removed after 0.16.0 is tagged.
+    pub const EfiRuntimeDriver: Subsystem = .efi_runtime_driver;
+};
+
+pub const CompressDebugSections = enum { none, zlib, zstd };
+
+pub const RcIncludes = enum {
+    /// Use MSVC if available, fall back to MinGW.
+    any,
+    /// Use MSVC include paths (MSVC install + Windows SDK, must be present on the system).
+    msvc,
+    /// Use MinGW include paths (distributed with Zig).
+    gnu,
+    /// Do not use any autodetected include paths.
+    none,
+};
 
 /// Renders a `std.Target.Cpu` value into a textual representation that can be parsed
 /// via the `-mcpu` flag passed to the Zig compiler.
@@ -558,7 +601,7 @@ test isUnderscore {
 /// If the source can be UTF-16LE encoded, this function asserts that `gpa`
 /// will align a byte-sized allocation to at least 2. Allocators that don't do
 /// this are rare.
-pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *std.fs.File.Reader) ![:0]u8 {
+pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *Io.File.Reader) ![:0]u8 {
     var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit(gpa);
 
@@ -605,7 +648,7 @@ pub fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color
 
     var error_bundle = try wip_errors.toOwnedBundle("");
     defer error_bundle.deinit(gpa);
-    error_bundle.renderToStdErr(color.renderOptions());
+    error_bundle.renderToStdErr(.{}, color);
 }
 
 pub fn putAstErrorsIntoBundle(
@@ -620,8 +663,8 @@ pub fn putAstErrorsIntoBundle(
     try wip_errors.addZirErrorMessages(zir, tree, tree.source, path);
 }
 
-pub fn resolveTargetQueryOrFatal(target_query: std.Target.Query) std.Target {
-    return std.zig.system.resolveTargetQuery(target_query) catch |err|
+pub fn resolveTargetQueryOrFatal(io: Io, target_query: std.Target.Query) std.Target {
+    return std.zig.system.resolveTargetQuery(io, target_query) catch |err|
         std.process.fatal("unable to resolve target: {s}", .{@errorName(err)});
 }
 
@@ -730,7 +773,6 @@ pub const EnvVar = enum {
 pub const SimpleComptimeReason = enum(u32) {
     // Evaluating at comptime because a builtin operand must be comptime-known.
     // These messages all mention a specific builtin.
-    operand_Type,
     operand_setEvalBranchQuota,
     operand_setFloatMode,
     operand_branchHint,
@@ -766,25 +808,34 @@ pub const SimpleComptimeReason = enum(u32) {
     // Evaluating at comptime because types must be comptime-known.
     // Reasons other than `.type` are just more specific messages.
     type,
+    int_signedness,
+    int_bit_width,
     array_sentinel,
+    array_length,
+    pointer_size,
+    pointer_attrs,
     pointer_sentinel,
     slice_sentinel,
-    array_length,
     vector_length,
-    error_set_contents,
-    struct_fields,
-    enum_fields,
-    union_fields,
-    function_ret_ty,
-    function_parameters,
+    fn_ret_ty,
+    fn_param_types,
+    fn_param_attrs,
+    fn_attrs,
+    struct_layout,
+    struct_field_names,
+    struct_field_types,
+    struct_field_attrs,
+    union_layout,
+    union_field_names,
+    union_field_types,
+    union_field_attrs,
+    tuple_field_types,
+    enum_field_names,
+    enum_field_values,
 
     // Evaluating at comptime because decl/field name must be comptime-known.
     decl_name,
     field_name,
-    struct_field_name,
-    enum_field_name,
-    union_field_name,
-    tuple_field_name,
     tuple_field_index,
 
     // Evaluating at comptime because it is an attribute of a global declaration.
@@ -813,7 +864,6 @@ pub const SimpleComptimeReason = enum(u32) {
     pub fn message(r: SimpleComptimeReason) []const u8 {
         return switch (r) {
             // zig fmt: off
-            .operand_Type                => "operand to '@Type' must be comptime-known",
             .operand_setEvalBranchQuota  => "operand to '@setEvalBranchQuota' must be comptime-known",
             .operand_setFloatMode        => "operand to '@setFloatMode' must be comptime-known",
             .operand_branchHint          => "operand to '@branchHint' must be comptime-known",
@@ -845,24 +895,33 @@ pub const SimpleComptimeReason = enum(u32) {
             .clobber              => "clobber must be comptime-known",
 
             .type                => "types must be comptime-known",
+            .int_signedness      => "integer signedness must be comptime-known",
+            .int_bit_width       => "integer bit width must be comptime-known",
             .array_sentinel      => "array sentinel value must be comptime-known",
+            .array_length        => "array length must be comptime-known",
+            .pointer_size        => "pointer size must be comptime-known",
+            .pointer_attrs       => "pointer attributes must be comptime-known",
             .pointer_sentinel    => "pointer sentinel value must be comptime-known",
             .slice_sentinel      => "slice sentinel value must be comptime-known",
-            .array_length        => "array length must be comptime-known",
             .vector_length       => "vector length must be comptime-known",
-            .error_set_contents  => "error set contents must be comptime-known",
-            .struct_fields       => "struct fields must be comptime-known",
-            .enum_fields         => "enum fields must be comptime-known",
-            .union_fields        => "union fields must be comptime-known",
-            .function_ret_ty     => "function return type must be comptime-known",
-            .function_parameters => "function parameters must be comptime-known",
+            .fn_ret_ty           => "function return type must be comptime-known",
+            .fn_param_types      => "function parameter types must be comptime-known",
+            .fn_param_attrs      => "function parameter attributes must be comptime-known",
+            .fn_attrs            => "function attributes must be comptime-known",
+            .struct_layout       => "struct layout must be comptime-known",
+            .struct_field_names  => "struct field names must be comptime-known",
+            .struct_field_types  => "struct field types must be comptime-known",
+            .struct_field_attrs  => "struct field attributes must be comptime-known",
+            .union_layout        => "union layout must be comptime-known",
+            .union_field_names   => "union field names must be comptime-known",
+            .union_field_types   => "union field types must be comptime-known",
+            .union_field_attrs   => "union field attributes must be comptime-known",
+            .tuple_field_types   => "tuple field types must be comptime-known",
+            .enum_field_names    => "enum field names must be comptime-known",
+            .enum_field_values   => "enum field values must be comptime-known",
 
             .decl_name         => "declaration name must be comptime-known",
             .field_name        => "field name must be comptime-known",
-            .struct_field_name => "struct field name must be comptime-known",
-            .enum_field_name   => "enum field name must be comptime-known",
-            .union_field_name  => "union field name must be comptime-known",
-            .tuple_field_name  => "tuple field name must be comptime-known",
             .tuple_field_index => "tuple field index must be comptime-known",
 
             .container_var_init => "initializer of container-level variable must be comptime-known",

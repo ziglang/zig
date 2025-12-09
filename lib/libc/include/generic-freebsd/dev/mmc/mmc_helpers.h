@@ -30,7 +30,7 @@
 
 #include <dev/gpio/gpiobusvar.h>
 
-#include <dev/extres/regulator/regulator.h>
+#include <dev/regulator/regulator.h>
 
 struct mmc_helper {
 	device_t		dev;

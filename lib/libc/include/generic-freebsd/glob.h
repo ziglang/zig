@@ -30,8 +30,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)glob.h	8.1 (Berkeley) 6/2/93
  */
 
 #ifndef _GLOB_H_
@@ -52,8 +50,15 @@ typedef struct {
 	size_t gl_offs;		/* Reserved at beginning of gl_pathv. */
 	int gl_flags;		/* Copy of flags parameter to glob. */
 	char **gl_pathv;	/* List of paths matching pattern. */
-				/* Copy of errfunc parameter to glob. */
-	int (*gl_errfunc)(const char *, int);
+				/* Copy of error callback parameter to glob. */
+	union {
+		int (*gl_errfunc)(const char *, int);
+#ifdef __BLOCKS__
+		int (^gl_errblk)(const char *, int);
+#else
+		void *gl_errblk;
+#endif
+	};
 
 	/*
 	 * Alternate filesystem access methods for glob; replacement
@@ -92,6 +97,7 @@ typedef struct {
 #define	GLOB_QUOTE	0x0400	/* Quote special chars with \. */
 #define	GLOB_TILDE	0x0800	/* Expand tilde names from the passwd file. */
 #define	GLOB_LIMIT	0x1000	/* limit number of returned paths */
+#define	_GLOB_ERR_BLOCK 0x08000000 /* (internal) error callback is a block */
 
 /* source compatibility, these are the old names */
 #define GLOB_MAXPATH	GLOB_LIMIT
@@ -101,6 +107,10 @@ typedef struct {
 __BEGIN_DECLS
 int	glob(const char * __restrict, int,
 	int (*)(const char *, int), glob_t * __restrict);
+#if defined(__BLOCKS__) && __BSD_VISIBLE
+int 	glob_b(const char * __restrict, int,
+	int (^)(const char *, int), glob_t * __restrict);
+#endif
 void	globfree(glob_t *);
 __END_DECLS
 

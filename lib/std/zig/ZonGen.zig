@@ -17,13 +17,13 @@ tree: Ast,
 options: Options,
 
 nodes: std.MultiArrayList(Zoir.Node.Repr),
-extra: std.ArrayListUnmanaged(u32),
-limbs: std.ArrayListUnmanaged(std.math.big.Limb),
-string_bytes: std.ArrayListUnmanaged(u8),
+extra: std.ArrayList(u32),
+limbs: std.ArrayList(std.math.big.Limb),
+string_bytes: std.ArrayList(u8),
 string_table: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.default_max_load_percentage),
 
-compile_errors: std.ArrayListUnmanaged(Zoir.CompileError),
-error_notes: std.ArrayListUnmanaged(Zoir.CompileError.Note),
+compile_errors: std.ArrayList(Zoir.CompileError),
+error_notes: std.ArrayList(Zoir.CompileError.Note),
 
 pub const Options = struct {
     /// When false, string literals are not parsed. `string_literal` nodes will contain empty
@@ -238,7 +238,7 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
         => try zg.addErrorNode(node, "control flow is not allowed in ZON", .{}),
 
         .@"comptime" => try zg.addErrorNode(node, "keyword 'comptime' is not allowed in ZON", .{}),
-        .asm_simple, .@"asm", .asm_legacy => try zg.addErrorNode(node, "inline asm is not allowed in ZON", .{}),
+        .asm_simple, .@"asm" => try zg.addErrorNode(node, "inline asm is not allowed in ZON", .{}),
 
         .builtin_call_two,
         .builtin_call_two_comma,
@@ -889,7 +889,7 @@ fn lowerAstErrors(zg: *ZonGen) Allocator.Error!void {
     defer msg.deinit();
     const msg_bw = &msg.writer;
 
-    var notes: std.ArrayListUnmanaged(Zoir.CompileError.Note) = .empty;
+    var notes: std.ArrayList(Zoir.CompileError.Note) = .empty;
     defer notes.deinit(gpa);
 
     var cur_err = tree.errors[0];

@@ -32,6 +32,8 @@
 #ifndef _EXECINFO_H_
 #define _EXECINFO_H_
 
+#include <sys/cdefs.h>
+
 #include <stddef.h>
 
 __BEGIN_DECLS

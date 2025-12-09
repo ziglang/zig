@@ -72,13 +72,25 @@ struct espstat {
 
 #ifdef _KERNEL
 #include <sys/counter.h>
+#include <netinet/in_kdtrace.h>
 
 VNET_DECLARE(int, esp_enable);
+VNET_DECLARE(int, esp_ctr_compatibility);
+#define V_esp_ctr_compatibility VNET(esp_ctr_compatibility)
 VNET_PCPUSTAT_DECLARE(struct espstat, espstat);
 
-#define	ESPSTAT_ADD(name, val)	\
-    VNET_PCPUSTAT_ADD(struct espstat, espstat, name, (val))
+#define ESPSTAT_ADD(name, val)                                           \
+	do {                                                             \
+		MIB_SDT_PROBE1(esp, count, name, (val));                 \
+		VNET_PCPUSTAT_ADD(struct espstat, espstat, name, (val)); \
+	} while (0)
 #define	ESPSTAT_INC(name)	ESPSTAT_ADD(name, 1)
+#define ESPSTAT_INC2(name, type)                                               \
+	do {                                                                   \
+		MIB_SDT_PROBE2(esp, count, name, 1, (type));                   \
+		VNET_PCPUSTAT_ADD(struct espstat, espstat, name[type], 1); \
+	} while (0)
+
 #define	V_esp_enable	VNET(esp_enable)
 #endif /* _KERNEL */
 #endif /*_NETIPSEC_ESP_VAR_H_*/

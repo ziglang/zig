@@ -46,6 +46,9 @@
 #include <sys/_lock.h>
 #include <sys/_mutex.h>
 #include <sys/_rwlock.h>
+#include <sys/sysctl.h>
+
+#include <netinet/in_kdtrace.h>
 
 #define	IPSEC_ASSERT(_c,_m) KASSERT(_c, _m)
 
@@ -71,6 +74,12 @@ struct ipsecrequest {
 	u_int level;		/* IPsec level defined below. */
 };
 
+struct ipsec_accel_adddel_sp_tq {
+	struct vnet *adddel_vnet;
+	struct task adddel_task;
+	int adddel_scheduled;
+};
+
 /* Security Policy Data Base */
 struct secpolicy {
 	TAILQ_ENTRY(secpolicy) chain;
@@ -93,7 +102,7 @@ struct secpolicy {
 	uint32_t id;			/* It's unique number on the system. */
 	/*
 	 * lifetime handler.
-	 * the policy can be used without limitiation if both lifetime and
+	 * the policy can be used without limitation if both lifetime and
 	 * validtime are zero.
 	 * "lifetime" is passed by sadb_lifetime.sadb_lifetime_addtime.
 	 * "validtime" is passed by sadb_lifetime.sadb_lifetime_usetime.
@@ -102,6 +111,11 @@ struct secpolicy {
 	time_t lastused;	/* updated every when kernel sends a packet */
 	long lifetime;		/* duration of the lifetime of this policy */
 	long validtime;		/* duration this policy is valid without use */
+	CK_LIST_HEAD(, ifp_handle_sp) accel_ifps;
+	struct ipsec_accel_adddel_sp_tq accel_add_tq;
+	struct ipsec_accel_adddel_sp_tq accel_del_tq;
+	struct inpcb *ipsec_accel_add_sp_inp;
+	const char *accel_ifname;
 };
 
 /*
@@ -246,6 +260,7 @@ struct ipsecstat {
 #define	IPSECCTL_DEBUG			12
 #define	IPSECCTL_ESP_RANDPAD		13
 #define	IPSECCTL_MIN_PMTU		14
+#define	IPSECCTL_RANDOM_ID		15
 
 #ifdef _KERNEL
 #include <sys/counter.h>
@@ -279,12 +294,17 @@ VNET_DECLARE(int, ip4_ah_net_deflev);
 VNET_DECLARE(int, ip4_ipsec_dfbit);
 VNET_DECLARE(int, ip4_ipsec_min_pmtu);
 VNET_DECLARE(int, ip4_ipsec_ecn);
+VNET_DECLARE(int, ip4_ipsec_random_id);
 VNET_DECLARE(int, crypto_support);
 VNET_DECLARE(int, async_crypto);
 VNET_DECLARE(int, natt_cksum_policy);
 
-#define	IPSECSTAT_INC(name)	\
-    VNET_PCPUSTAT_ADD(struct ipsecstat, ipsec4stat, name, 1)
+#define IPSECSTAT_INC(name)                                               \
+	do {                                                              \
+		MIB_SDT_PROBE1(ipsec, count, name, 1);                    \
+		VNET_PCPUSTAT_ADD(struct ipsecstat, ipsec4stat, name, 1); \
+	} while (0)
+
 #define	V_ip4_esp_trans_deflev	VNET(ip4_esp_trans_deflev)
 #define	V_ip4_esp_net_deflev	VNET(ip4_esp_net_deflev)
 #define	V_ip4_ah_trans_deflev	VNET(ip4_ah_trans_deflev)
@@ -292,6 +312,7 @@ VNET_DECLARE(int, natt_cksum_policy);
 #define	V_ip4_ipsec_dfbit	VNET(ip4_ipsec_dfbit)
 #define	V_ip4_ipsec_min_pmtu	VNET(ip4_ipsec_min_pmtu)
 #define	V_ip4_ipsec_ecn		VNET(ip4_ipsec_ecn)
+#define	V_ip4_ipsec_random_id	VNET(ip4_ipsec_random_id)
 #define	V_crypto_support	VNET(crypto_support)
 #define	V_async_crypto		VNET(async_crypto)
 #define	V_natt_cksum_policy	VNET(natt_cksum_policy)
@@ -307,6 +328,7 @@ VNET_DECLARE(int, natt_cksum_policy);
 #endif
 
 struct inpcb;
+struct ip;
 struct m_tag;
 struct secasvar;
 struct sockopt;
@@ -318,7 +340,7 @@ int ipsec_if_input(struct mbuf *, struct secasvar *, uint32_t);
 struct ipsecrequest *ipsec_newisr(void);
 void ipsec_delisr(struct ipsecrequest *);
 struct secpolicy *ipsec4_checkpolicy(const struct mbuf *, struct inpcb *,
-    int *, int);
+    struct ip *, int *, int);
 
 u_int ipsec_get_reqlevel(struct secpolicy *, u_int);
 
@@ -333,27 +355,32 @@ size_t ipsec_hdrsiz_internal(struct secpolicy *);
 
 void ipsec_setspidx_inpcb(struct inpcb *, struct secpolicyindex *, u_int);
 
-void ipsec4_setsockaddrs(const struct mbuf *, union sockaddr_union *,
-    union sockaddr_union *);
+void ipsec4_setsockaddrs(const struct mbuf *, const struct ip *,
+    union sockaddr_union *, union sockaddr_union *);
 int ipsec4_common_input_cb(struct mbuf *, struct secasvar *, int, int);
-int ipsec4_check_pmtu(struct mbuf *, struct secpolicy *, int);
-int ipsec4_process_packet(struct mbuf *, struct secpolicy *, struct inpcb *);
+int ipsec4_check_pmtu(struct ifnet *, struct mbuf *, struct ip *ip1,
+    struct secpolicy *, int);
+int ipsec4_process_packet(struct ifnet *, struct mbuf *, struct ip *ip1,
+    struct secpolicy *, struct inpcb *, u_long);
 int ipsec_process_done(struct mbuf *, struct secpolicy *, struct secasvar *,
     u_int);
 
-extern	void m_checkalignment(const char* where, struct mbuf *m0,
-		int off, int len);
-extern	struct mbuf *m_makespace(struct mbuf *m0, int skip, int hlen, int *off);
-extern	caddr_t m_pad(struct mbuf *m, int n);
-extern	int m_striphdr(struct mbuf *m, int skip, int hlen);
+void m_checkalignment(const char* where, struct mbuf *m0,
+    int off, int len);
+struct mbuf *m_makespace(struct mbuf *m0, int skip, int hlen, int *off);
+caddr_t m_pad(struct mbuf *m, int n);
+int m_striphdr(struct mbuf *m, int skip, int hlen);
+
+SYSCTL_DECL(_net_inet_ipsec);
+SYSCTL_DECL(_net_inet6_ipsec6);
 
 #endif /* _KERNEL */
 
 #ifndef _KERNEL
-extern caddr_t ipsec_set_policy(char *, int);
-extern int ipsec_get_policylen(caddr_t);
-extern char *ipsec_dump_policy(caddr_t, char *);
-extern const char *ipsec_strerror(void);
+caddr_t ipsec_set_policy(const char *, int);
+int ipsec_get_policylen(c_caddr_t);
+char *ipsec_dump_policy(c_caddr_t, const char *);
+const char *ipsec_strerror(void);
 
 #endif /* ! KERNEL */
 

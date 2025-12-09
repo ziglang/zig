@@ -31,8 +31,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	from: @(#)frame.h	5.2 (Berkeley) 1/18/91
  */
 
 #ifndef _MACHINE_FRAME_H_
@@ -154,6 +152,7 @@ struct trapframe {
 #define	TF_HASSEGS	0x1
 #define	TF_HASBASES	0x2
 #define	TF_HASFPXSTATE	0x4
+#define	TF_RESERV0	0x8 /* no tlsbase in the trapframe */
 #endif /* __amd64__ */
 
 #endif /* _MACHINE_FRAME_H_ */

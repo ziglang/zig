@@ -16,13 +16,13 @@ files: std.MultiArrayList(File.Entry) = .{},
 /// Long-lived list of all file descriptors.
 /// We store them globally rather than per actual File so that we can re-use
 /// one file handle per every object file within an archive.
-file_handles: std.ArrayListUnmanaged(File.Handle) = .empty,
+file_handles: std.ArrayList(File.Handle) = .empty,
 zig_object: ?File.Index = null,
 internal_object: ?File.Index = null,
-objects: std.ArrayListUnmanaged(File.Index) = .empty,
-dylibs: std.ArrayListUnmanaged(File.Index) = .empty,
+objects: std.ArrayList(File.Index) = .empty,
+dylibs: std.ArrayList(File.Index) = .empty,
 
-segments: std.ArrayListUnmanaged(macho.segment_command_64) = .empty,
+segments: std.ArrayList(macho.segment_command_64) = .empty,
 sections: std.MultiArrayList(Section) = .{},
 
 resolver: SymbolResolver = .{},
@@ -30,7 +30,7 @@ resolver: SymbolResolver = .{},
 /// Key is symbol index.
 undefs: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, UndefRefs) = .empty,
 undefs_mutex: std.Thread.Mutex = .{},
-dupes: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, std.ArrayListUnmanaged(File.Index)) = .empty,
+dupes: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, std.ArrayList(File.Index)) = .empty,
 dupes_mutex: std.Thread.Mutex = .{},
 
 dyld_info_cmd: macho.dyld_info_command = .{},
@@ -55,11 +55,11 @@ eh_frame_sect_index: ?u8 = null,
 unwind_info_sect_index: ?u8 = null,
 objc_stubs_sect_index: ?u8 = null,
 
-thunks: std.ArrayListUnmanaged(Thunk) = .empty,
+thunks: std.ArrayList(Thunk) = .empty,
 
 /// Output synthetic sections
-symtab: std.ArrayListUnmanaged(macho.nlist_64) = .empty,
-strtab: std.ArrayListUnmanaged(u8) = .empty,
+symtab: std.ArrayList(macho.nlist_64) = .empty,
+strtab: std.ArrayList(u8) = .empty,
 indsymtab: Indsymtab = .{},
 got: GotSection = .{},
 stubs: StubsSection = .{},
@@ -915,7 +915,7 @@ pub fn readArMagic(file: std.fs.File, offset: usize, buffer: *[Archive.SARMAG]u8
     return buffer[0..Archive.SARMAG];
 }
 
-fn addObject(self: *MachO, path: Path, handle: File.HandleIndex, offset: u64) !void {
+fn addObject(self: *MachO, path: Path, handle_index: File.HandleIndex, offset: u64) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -929,17 +929,15 @@ fn addObject(self: *MachO, path: Path, handle: File.HandleIndex, offset: u64) !v
     });
     errdefer gpa.free(abs_path);
 
-    const mtime: u64 = mtime: {
-        const file = self.getFileHandle(handle);
-        const stat = file.stat() catch break :mtime 0;
-        break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
-    };
-    const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+    const file = self.getFileHandle(handle_index);
+    const stat = try file.stat();
+    const mtime = stat.mtime.toSeconds();
+    const index: File.Index = @intCast(try self.files.addOne(gpa));
     self.files.set(index, .{ .object = .{
         .offset = offset,
         .path = abs_path,
-        .file_handle = handle,
-        .mtime = mtime,
+        .file_handle = handle_index,
+        .mtime = @intCast(mtime),
         .index = index,
     } });
     try self.objects.append(gpa, index);
@@ -3598,7 +3596,7 @@ pub fn requiresCodeSig(self: MachO) bool {
     const target = self.getTarget();
     return switch (target.cpu.arch) {
         .aarch64 => switch (target.os.tag) {
-            .driverkit, .macos => true,
+            .driverkit, .maccatalyst, .macos => true,
             .ios, .tvos, .visionos, .watchos => target.abi == .simulator,
             else => false,
         },
@@ -4034,7 +4032,7 @@ fn formatSectType(tt: u8, w: *Writer) Writer.Error!void {
 }
 
 const is_hot_update_compatible = switch (builtin.target.os.tag) {
-    .macos => true,
+    .maccatalyst, .macos => true,
     else => false,
 };
 
@@ -4043,19 +4041,19 @@ const default_entry_symbol_name = "_main";
 const Section = struct {
     header: macho.section_64,
     segment_id: u8,
-    atoms: std.ArrayListUnmanaged(Ref) = .empty,
-    free_list: std.ArrayListUnmanaged(Atom.Index) = .empty,
+    atoms: std.ArrayList(Ref) = .empty,
+    free_list: std.ArrayList(Atom.Index) = .empty,
     last_atom_index: Atom.Index = 0,
-    thunks: std.ArrayListUnmanaged(Thunk.Index) = .empty,
-    out: std.ArrayListUnmanaged(u8) = .empty,
-    relocs: std.ArrayListUnmanaged(macho.relocation_info) = .empty,
+    thunks: std.ArrayList(Thunk.Index) = .empty,
+    out: std.ArrayList(u8) = .empty,
+    relocs: std.ArrayList(macho.relocation_info) = .empty,
 };
 
 pub const LiteralPool = struct {
     table: std.AutoArrayHashMapUnmanaged(void, void) = .empty,
-    keys: std.ArrayListUnmanaged(Key) = .empty,
-    values: std.ArrayListUnmanaged(MachO.Ref) = .empty,
-    data: std.ArrayListUnmanaged(u8) = .empty,
+    keys: std.ArrayList(Key) = .empty,
+    values: std.ArrayList(MachO.Ref) = .empty,
+    data: std.ArrayList(u8) = .empty,
 
     pub fn deinit(lp: *LiteralPool, allocator: Allocator) void {
         lp.table.deinit(allocator);
@@ -4169,14 +4167,14 @@ pub const Platform = struct {
     /// Using Apple's ld64 as our blueprint, `min_version` as well as `sdk_version` are set to
     /// the extracted minimum platform version.
     pub fn fromLoadCommand(lc: macho.LoadCommandIterator.LoadCommand) Platform {
-        switch (lc.cmd()) {
+        switch (lc.hdr.cmd) {
             .BUILD_VERSION => {
                 const cmd = lc.cast(macho.build_version_command).?;
                 return .{
                     .os_tag = switch (cmd.platform) {
                         .DRIVERKIT => .driverkit,
                         .IOS, .IOSSIMULATOR => .ios,
-                        .MACCATALYST => .ios,
+                        .MACCATALYST => .maccatalyst,
                         .MACOS => .macos,
                         .TVOS, .TVOSSIMULATOR => .tvos,
                         .VISIONOS, .VISIONOSSIMULATOR => .visionos,
@@ -4184,7 +4182,6 @@ pub const Platform = struct {
                         else => @panic("TODO"),
                     },
                     .abi = switch (cmd.platform) {
-                        .MACCATALYST => .macabi,
                         .IOSSIMULATOR,
                         .TVOSSIMULATOR,
                         .VISIONOSSIMULATOR,
@@ -4200,9 +4197,10 @@ pub const Platform = struct {
             .VERSION_MIN_TVOS,
             .VERSION_MIN_WATCHOS,
             => {
+                // We can't distinguish Mac Catalyst here, but this is legacy stuff anyway.
                 const cmd = lc.cast(macho.version_min_command).?;
                 return .{
-                    .os_tag = switch (lc.cmd()) {
+                    .os_tag = switch (lc.hdr.cmd) {
                         .VERSION_MIN_IPHONEOS => .ios,
                         .VERSION_MIN_MACOSX => .macos,
                         .VERSION_MIN_TVOS => .tvos,
@@ -4232,11 +4230,8 @@ pub const Platform = struct {
     pub fn toApplePlatform(plat: Platform) macho.PLATFORM {
         return switch (plat.os_tag) {
             .driverkit => .DRIVERKIT,
-            .ios => switch (plat.abi) {
-                .macabi => .MACCATALYST,
-                .simulator => .IOSSIMULATOR,
-                else => .IOS,
-            },
+            .ios => if (plat.abi == .simulator) .IOSSIMULATOR else .IOS,
+            .maccatalyst => .MACCATALYST,
             .macos => .MACOS,
             .tvos => if (plat.abi == .simulator) .TVOSSIMULATOR else .TVOS,
             .visionos => if (plat.abi == .simulator) .VISIONOSSIMULATOR else .VISIONOS,
@@ -4302,17 +4297,17 @@ const SupportedPlatforms = struct {
 // Source: https://github.com/apple-oss-distributions/ld64/blob/59a99ab60399c5e6c49e6945a9e1049c42b71135/src/ld/PlatformSupport.cpp#L52
 // zig fmt: off
 const supported_platforms = [_]SupportedPlatforms{
-    .{ .driverkit, .none,      0x130000, 0x130000 },
-    .{ .ios,       .none,      0x0C0000, 0x070000 },
-    .{ .ios,       .macabi,    0x0D0000, 0x0D0000 },
-    .{ .ios,       .simulator, 0x0D0000, 0x080000 },
-    .{ .macos,     .none,      0x0A0E00, 0x0A0800 },
-    .{ .tvos,      .none,      0x0C0000, 0x070000 },
-    .{ .tvos,      .simulator, 0x0D0000, 0x080000 },
-    .{ .visionos,  .none,      0x010000, 0x010000 },
-    .{ .visionos,  .simulator, 0x010000, 0x010000 },
-    .{ .watchos,   .none,      0x050000, 0x020000 },
-    .{ .watchos,   .simulator, 0x060000, 0x020000 },
+    .{ .driverkit,   .none,      0x130000, 0x130000 },
+    .{ .ios,         .none,      0x0C0000, 0x070000 },
+    .{ .ios,         .simulator, 0x0D0000, 0x080000 },
+    .{ .maccatalyst, .none,      0x0D0000, 0x0D0000 },
+    .{ .macos,       .none,      0x0A0E00, 0x0A0800 },
+    .{ .tvos,        .none,      0x0C0000, 0x070000 },
+    .{ .tvos,        .simulator, 0x0D0000, 0x080000 },
+    .{ .visionos,    .none,      0x010000, 0x010000 },
+    .{ .visionos,    .simulator, 0x010000, 0x010000 },
+    .{ .watchos,     .none,      0x050000, 0x020000 },
+    .{ .watchos,     .simulator, 0x060000, 0x020000 },
 };
 // zig fmt: on
 
@@ -4490,8 +4485,8 @@ pub const Ref = struct {
 };
 
 pub const SymbolResolver = struct {
-    keys: std.ArrayListUnmanaged(Key) = .empty,
-    values: std.ArrayListUnmanaged(Ref) = .empty,
+    keys: std.ArrayList(Key) = .empty,
+    values: std.ArrayList(Ref) = .empty,
     table: std.AutoArrayHashMapUnmanaged(void, void) = .empty,
 
     const Result = struct {
@@ -4591,7 +4586,7 @@ pub const UndefRefs = union(enum) {
     entry,
     dyld_stub_binder,
     objc_msgsend,
-    refs: std.ArrayListUnmanaged(Ref),
+    refs: std.ArrayList(Ref),
 
     pub fn deinit(self: *UndefRefs, allocator: Allocator) void {
         switch (self.*) {

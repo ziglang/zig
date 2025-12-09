@@ -11,7 +11,7 @@ const Oom = error{OutOfMemory};
 pub const Decl = @import("Decl.zig");
 
 pub var files: std.StringArrayHashMapUnmanaged(File) = .empty;
-pub var decls: std.ArrayListUnmanaged(Decl) = .empty;
+pub var decls: std.ArrayList(Decl) = .empty;
 pub var modules: std.StringArrayHashMapUnmanaged(File.Index) = .empty;
 
 file: File.Index,
@@ -790,8 +790,6 @@ fn expr(w: *Walk, scope: *Scope, parent_decl: Decl.Index, node: Ast.Node.Index) 
             }
             try expr(w, scope, parent_decl, full.ast.template);
         },
-
-        .asm_legacy => {},
 
         .builtin_call_two,
         .builtin_call_two_comma,

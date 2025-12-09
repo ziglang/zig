@@ -31,6 +31,31 @@
 
 #include <sys/mman.h>
 
+/* struct vie_op.op_type */
+enum {
+	VIE_OP_TYPE_NONE = 0,
+	VIE_OP_TYPE_MOV,
+	VIE_OP_TYPE_MOVSX,
+	VIE_OP_TYPE_MOVZX,
+	VIE_OP_TYPE_AND,
+	VIE_OP_TYPE_OR,
+	VIE_OP_TYPE_SUB,
+	VIE_OP_TYPE_TWO_BYTE,
+	VIE_OP_TYPE_PUSH,
+	VIE_OP_TYPE_CMP,
+	VIE_OP_TYPE_POP,
+	VIE_OP_TYPE_MOVS,
+	VIE_OP_TYPE_GROUP1,
+	VIE_OP_TYPE_STOS,
+	VIE_OP_TYPE_BITTEST,
+	VIE_OP_TYPE_TWOB_GRP15,
+	VIE_OP_TYPE_ADD,
+	VIE_OP_TYPE_TEST,
+	VIE_OP_TYPE_BEXTR,
+	VIE_OP_TYPE_OUTS,
+	VIE_OP_TYPE_LAST
+};
+
 /*
  * Callback functions to read and write memory regions.
  */
@@ -112,7 +137,7 @@ void vie_init(struct vie *vie, const char *inst_bytes, int inst_length);
  * 'gla' is the guest linear address provided by the hardware assist
  * that caused the nested page table fault. It is used to verify that
  * the software instruction decoding is in agreement with the hardware.
- * 
+ *
  * Some hardware assists do not provide the 'gla' to the hypervisor.
  * To skip the 'gla' verification for this or any other reason pass
  * in VIE_INVALID_GLA instead.

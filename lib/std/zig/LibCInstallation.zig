@@ -329,7 +329,7 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, args: FindNativeOptions) F
         defer search_dir.close();
 
         if (self.include_dir == null) {
-            if (search_dir.accessZ(include_dir_example_file, .{})) |_| {
+            if (search_dir.access(include_dir_example_file, .{})) |_| {
                 self.include_dir = try allocator.dupeZ(u8, search_path);
             } else |err| switch (err) {
                 error.FileNotFound => {},
@@ -338,7 +338,7 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, args: FindNativeOptions) F
         }
 
         if (self.sys_include_dir == null) {
-            if (search_dir.accessZ(sys_include_dir_example_file, .{})) |_| {
+            if (search_dir.access(sys_include_dir_example_file, .{})) |_| {
                 self.sys_include_dir = try allocator.dupeZ(u8, search_path);
             } else |err| switch (err) {
                 error.FileNotFound => {},
@@ -382,7 +382,7 @@ fn findNativeIncludeDirWindows(
         };
         defer dir.close();
 
-        dir.accessZ("stdlib.h", .{}) catch |err| switch (err) {
+        dir.access("stdlib.h", .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => return error.FileSystem,
         };
@@ -429,7 +429,7 @@ fn findNativeCrtDirWindows(
         };
         defer dir.close();
 
-        dir.accessZ("ucrt.lib", .{}) catch |err| switch (err) {
+        dir.access("ucrt.lib", .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => return error.FileSystem,
         };
@@ -496,7 +496,7 @@ fn findNativeKernel32LibDir(
         };
         defer dir.close();
 
-        dir.accessZ("kernel32.lib", .{}) catch |err| switch (err) {
+        dir.access("kernel32.lib", .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => return error.FileSystem,
         };
@@ -531,7 +531,7 @@ fn findNativeMsvcIncludeDir(
     };
     defer dir.close();
 
-    dir.accessZ("vcruntime.h", .{}) catch |err| switch (err) {
+    dir.access("vcruntime.h", .{}) catch |err| switch (err) {
         error.FileNotFound => return error.LibCStdLibHeaderNotFound,
         else => return error.FileSystem,
     };

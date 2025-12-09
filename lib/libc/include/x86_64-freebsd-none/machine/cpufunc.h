@@ -65,10 +65,6 @@ breakpoint(void)
 
 #define	bsfq(mask)	__builtin_ctzl(mask)
 
-#define	bsrl(mask)	(__builtin_clz(mask) ^ 0x1f)
-
-#define	bsrq(mask)	(__builtin_clzl(mask) ^ 0x3f)
-
 static __inline void
 clflush(u_long addr)
 {
@@ -80,7 +76,7 @@ static __inline void
 clflushopt(u_long addr)
 {
 
-	__asm __volatile(".byte 0x66;clflush %0" : : "m" (*(char *)addr));
+	__asm __volatile("clflushopt %0" : : "m" (*(char *)addr));
 }
 
 static __inline void
@@ -576,6 +572,15 @@ rss(void)
 	return (sel);
 }
 
+static __inline u_short
+rcs(void)
+{
+	u_short sel;
+
+	__asm __volatile("movw %%cs,%0" : "=rm" (sel));
+	return (sel);
+}
+
 static __inline void
 load_ds(u_short sel)
 {
@@ -944,6 +949,29 @@ sgx_eremove(void *epc)
 {
 
 	return (sgx_encls(SGX_EREMOVE, 0, (uint64_t)epc, 0));
+}
+
+static __inline void
+xrstors(uint8_t *save_area, uint64_t state_bitmap)
+{
+	uint32_t low, hi;
+
+	low = state_bitmap;
+	hi = state_bitmap >> 32;
+	__asm __volatile("xrstors %0" : : "m"(*save_area), "a"(low),
+	    "d"(hi));
+}
+
+static __inline void
+xsaves(uint8_t *save_area, uint64_t state_bitmap)
+{
+	uint32_t low, hi;
+
+	low = state_bitmap;
+	hi = state_bitmap >> 32;
+	__asm __volatile("xsaves %0" : "=m"(*save_area) : "a"(low),
+	    "d"(hi)
+	    : "memory");
 }
 
 void	reset_dbregs(void);

@@ -13,7 +13,7 @@
 
 #if __GNUC_PREREQ__(5, 1) || __has_builtin(__builtin_add_overflow)
 #define ckd_add(result, a, b)						\
-	(_Bool)__builtin_add_overflow((a), (b), (result))
+	__builtin_add_overflow((a), (b), (result))
 #else
 #define ckd_add(result, a, b)						\
 	_Static_assert(0, "checked addition not supported")
@@ -21,7 +21,7 @@
 
 #if __GNUC_PREREQ__(5, 1) || __has_builtin(__builtin_sub_overflow)
 #define ckd_sub(result, a, b)						\
-	(_Bool)__builtin_sub_overflow((a), (b), (result))
+	__builtin_sub_overflow((a), (b), (result))
 #else
 #define ckd_sub(result, a, b)						\
 	_Static_assert(0, "checked subtraction not supported")
@@ -29,7 +29,7 @@
 
 #if __GNUC_PREREQ__(5, 1) || __has_builtin(__builtin_mul_overflow)
 #define ckd_mul(result, a, b)						\
-	(_Bool)__builtin_mul_overflow((a), (b), (result))
+	__builtin_mul_overflow((a), (b), (result))
 #else
 #define ckd_mul(result, a, b)						\
 	_Static_assert(0, "checked multiplication not supported")

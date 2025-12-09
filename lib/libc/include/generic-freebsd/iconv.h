@@ -33,12 +33,10 @@
 #ifndef _ICONV_H_
 #define _ICONV_H_
 
-#include <sys/cdefs.h>
 #include <sys/types.h>
 
 #include <wchar.h>
 
-#include <sys/cdefs.h>
 #include <sys/types.h>
 
 #ifdef __cplusplus

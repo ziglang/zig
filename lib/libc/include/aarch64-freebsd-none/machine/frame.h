@@ -70,7 +70,7 @@ struct frame {
 
 #ifdef COMPAT_FREEBSD32
 struct sigframe32 {
-	struct siginfo32		sf_si;
+	struct __siginfo32		sf_si;
 	ucontext32_t			sf_uc;
 	mcontext32_vfp_t		sf_vfp;
 };

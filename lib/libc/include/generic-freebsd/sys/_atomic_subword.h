@@ -176,7 +176,7 @@ atomic_fcmpset_16(__volatile uint16_t *addr, uint16_t *old, uint16_t val)
 
 #ifndef atomic_load_acq_8
 static __inline uint8_t
-atomic_load_acq_8(volatile uint8_t *p)
+atomic_load_acq_8(const volatile uint8_t *p)
 {
 	int shift;
 	uint8_t ret;
@@ -189,7 +189,7 @@ atomic_load_acq_8(volatile uint8_t *p)
 
 #ifndef atomic_load_acq_16
 static __inline uint16_t
-atomic_load_acq_16(volatile uint16_t *p)
+atomic_load_acq_16(const volatile uint16_t *p)
 {
 	int shift;
 	uint16_t ret;
@@ -205,67 +205,31 @@ atomic_load_acq_16(volatile uint16_t *p)
 #undef _ATOMIC_BYTE_SHIFT
 #undef _ATOMIC_HWORD_SHIFT
 
-/*
- * Provide generic testandset_long implementation based on fcmpset long
- * primitive.  It may not be ideal for any given arch, so machine/atomic.h
- * should define the macro atomic_testandset_long to override with an
- * MD-specific version.
- *
- * (Organizationally, this isn't really subword atomics.  But atomic_common is
- * included too early in machine/atomic.h, so it isn't a good place for derived
- * primitives like this.)
- */
-#ifndef atomic_testandset_acq_long
-static __inline int
-atomic_testandset_acq_long(volatile u_long *p, u_int v)
+#ifndef atomic_set_16
+static __inline void
+atomic_set_16(volatile uint16_t *p, uint16_t bit)
 {
-	u_long bit, old;
-	bool ret;
+	uint16_t v;
 
-	bit = (1ul << (v % (sizeof(*p) * NBBY)));
-
-	old = atomic_load_acq_long(p);
-	ret = false;
-	while (!ret && (old & bit) == 0)
-		ret = atomic_fcmpset_acq_long(p, &old, old | bit);
-
-	return (!ret);
+	v = atomic_load_16(p);
+	for (;;) {
+		if (atomic_fcmpset_16(p, &v, v | bit))
+			break;
+	}
 }
 #endif
 
-#ifndef atomic_testandset_long
-static __inline int
-atomic_testandset_long(volatile u_long *p, u_int v)
+#ifndef atomic_clear_16
+static __inline void
+atomic_clear_16(volatile uint16_t *p, uint16_t bit)
 {
-	u_long bit, old;
-	bool ret;
+	uint16_t v;
 
-	bit = (1ul << (v % (sizeof(*p) * NBBY)));
-
-	old = atomic_load_long(p);
-	ret = false;
-	while (!ret && (old & bit) == 0)
-		ret = atomic_fcmpset_long(p, &old, old | bit);
-
-	return (!ret);
-}
-#endif
-
-#ifndef atomic_testandclear_long
-static __inline int
-atomic_testandclear_long(volatile u_long *p, u_int v)
-{
-	u_long bit, old;
-	bool ret;
-
-	bit = (1ul << (v % (sizeof(*p) * NBBY)));
-
-	old = atomic_load_long(p);
-	ret = false;
-	while (!ret && (old & bit) != 0)
-		ret = atomic_fcmpset_long(p, &old, old & ~bit);
-
-	return (ret);
+	v = atomic_load_16(p);
+	for (;;) {
+		if (atomic_fcmpset_16(p, &v, v & ~bit))
+			break;
+	}
 }
 #endif
 

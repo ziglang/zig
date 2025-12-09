@@ -643,7 +643,7 @@ const MsvcLibDir = struct {
 
         if (!std.fs.path.isAbsolute(dll_path)) return error.PathNotFound;
 
-        var path_it = std.fs.path.componentIterator(dll_path) catch return error.PathNotFound;
+        var path_it = std.fs.path.componentIterator(dll_path);
         // the .dll filename
         _ = path_it.last();
         const root_path = while (path_it.previous()) |dir_component| {
@@ -752,7 +752,7 @@ const MsvcLibDir = struct {
         defer instances_dir.close();
 
         var state_subpath_buf: [std.fs.max_name_bytes + 32]u8 = undefined;
-        var latest_version_lib_dir: std.ArrayListUnmanaged(u8) = .empty;
+        var latest_version_lib_dir: std.ArrayList(u8) = .empty;
         errdefer latest_version_lib_dir.deinit(allocator);
 
         var latest_version: u64 = 0;

@@ -433,7 +433,7 @@ struct cryptop {
 	int		crp_flags;
 
 #define	CRYPTO_F_CBIMM		0x0010	/* Do callback immediately */
-#define	CRYPTO_F_DONE		0x0020	/* Operation completed */
+#define	CRYPTO_F_DONE		0x0020	/* Deprecated, do not use */
 #define	CRYPTO_F_CBIFSYNC	0x0040	/* Do CBIMM if op is synchronous */
 #define	CRYPTO_F_ASYNC_ORDERED	0x0100	/* Completions must happen in order */
 #define	CRYPTO_F_IV_SEPARATE	0x0200	/* Use crp_iv[] as IV. */

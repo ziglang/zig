@@ -13,8 +13,6 @@
 
 #ifdef _KERNEL
 
-#ifdef SMP
-
 #ifndef LOCORE
 
 #include <x86/x86_smp.h>
@@ -39,7 +37,6 @@ void	invlop_handler(void);
 int	start_all_aps(void);
 
 #endif /* !LOCORE */
-#endif /* SMP */
 
 #endif /* _KERNEL */
 #endif /* _MACHINE_SMP_H_ */

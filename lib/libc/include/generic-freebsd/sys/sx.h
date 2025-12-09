@@ -99,7 +99,7 @@
  * Function prototipes.  Routines that start with an underscore are not part
  * of the public interface and are wrappered with a macro.
  */
-void	sx_sysinit(void *arg);
+void	sx_sysinit(const void *arg);
 #define	sx_init(sx, desc)	sx_init_flags((sx), (desc), 0)
 void	sx_init_flags(struct sx *sx, const char *description, int opts);
 void	sx_destroy(struct sx *sx);
@@ -301,12 +301,12 @@ __sx_xunlock(struct sx *sx, struct thread *td, const char *file, int line)
 
 #ifdef _STANDALONE
 /* since we have no threads in the boot loader, trivially implement no-op version */
-#define sx_xlock(s) (1)
-#define sx_try_xlock(s) (1)
-#define sx_xunlock(s) (1)
-#define SX_DUPOK 0
-#define SX_NEW 0
-#define SX_NOWITNESS 0
+#define	sx_xlock(s)	do {} while (0)
+#define	sx_try_xlock(s)	(1)
+#define	sx_xunlock(s)	do {} while (0)
+#define	SX_DUPOK	0
+#define	SX_NEW		0
+#define	SX_NOWITNESS	0
 
 static __inline void
 sx_init_flags(struct sx *sx, const char *description, int opts)

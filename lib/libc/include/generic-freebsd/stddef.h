@@ -27,27 +27,18 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)stddef.h	8.1 (Berkeley) 6/2/93
  */
 
 #ifndef _STDDEF_H_
 #define _STDDEF_H_
 
-#include <sys/cdefs.h>
 #include <sys/_null.h>
 #include <sys/_types.h>
+#include <sys/_visible.h>
 
 #ifndef _PTRDIFF_T_DECLARED
 typedef	__ptrdiff_t	ptrdiff_t;
 #define	_PTRDIFF_T_DECLARED
-#endif
-
-#if __BSD_VISIBLE
-#ifndef _RUNE_T_DECLARED
-typedef	__rune_t	rune_t;
-#define	_RUNE_T_DECLARED
-#endif
 #endif
 
 #ifndef _SIZE_T_DECLARED
@@ -70,7 +61,9 @@ typedef	__max_align_t	max_align_t;
 #endif
 #endif
 
-#define	offsetof(type, field)	__offsetof(type, field)
+#ifndef offsetof
+#define	offsetof(type, field)	__builtin_offsetof(type, field)
+#endif
 
 #if __EXT1_VISIBLE
 /* ISO/IEC 9899:2011 K.3.3.2 */

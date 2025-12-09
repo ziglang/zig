@@ -29,6 +29,6 @@
 #ifndef _AMD64_BUS_DMA_H_
 #define _AMD64_BUS_DMA_H_
 
-#include <x86/bus_dma.h> 
+#include <x86/bus_dma.h>
 
 #endif /* _AMD64_BUS_DMA_H_ */

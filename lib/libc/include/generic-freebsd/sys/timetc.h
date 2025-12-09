@@ -49,7 +49,7 @@ struct timecounter {
 		 * This function is optional.  It will be called whenever the
 		 * timecounter is rewound, and is intended to check for PPS
 		 * events.  Normal hardware does not need it but timecounters
-		 * which latch PPS in hardware (like sys/pci/xrpu.c) do.
+		 * which latch PPS in hardware do.
 		 */
 	u_int 			tc_counter_mask;
 		/* This mask should mask off any unimplemented bits. */
@@ -87,7 +87,7 @@ extern int tc_min_ticktock_freq; /*
 u_int64_t tc_getfrequency(void);
 void	tc_init(struct timecounter *tc);
 void	tc_setclock(struct timespec *ts);
-void	tc_ticktock(int cnt);
+void	tc_ticktock(long cnt);
 void	cpu_tick_calibration(void);
 
 #ifdef SYSCTL_DECL

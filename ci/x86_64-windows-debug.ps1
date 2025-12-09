@@ -5,6 +5,7 @@ $ZIG_LLVM_CLANG_LLD_URL = "https://ziglang.org/deps/$ZIG_LLVM_CLANG_LLD_NAME.zip
 $PREFIX_PATH = "$($Env:USERPROFILE)\$ZIG_LLVM_CLANG_LLD_NAME"
 $ZIG = "$PREFIX_PATH\bin\zig.exe"
 $ZIG_LIB_DIR = "$(Get-Location)\lib"
+$ZSF_MAX_RSS = if ($Env:ZSF_MAX_RSS) { $Env:ZSF_MAX_RSS } else { 0 }
 
 if (!(Test-Path "$PREFIX_PATH.zip")) {
     Write-Output "Downloading $ZIG_LLVM_CLANG_LLD_URL"
@@ -54,11 +55,12 @@ CheckLastExitCode
 
 Write-Output "Main test suite..."
 & "stage3-debug\bin\zig.exe" build test docs `
+  --maxrss $ZSF_MAX_RSS `
   --zig-lib-dir "$ZIG_LIB_DIR" `
   --search-prefix "$PREFIX_PATH" `
   -Dstatic-llvm `
   -Dskip-non-native `
-  -Dskip-release `
+  -Dskip-test-incremental `
   -Denable-symlinks-windows `
   --test-timeout 30m
 CheckLastExitCode
@@ -95,7 +97,7 @@ Enter-VsDevShell -VsInstallPath "C:\Program Files (x86)\Microsoft Visual Studio\
 CheckLastExitCode
 
 Write-Output "Build and run behavior tests with msvc..."
-& cl.exe -I..\lib test-x86_64-windows-msvc.c compiler_rt-x86_64-windows-msvc.c /W3 /Z7 -link -nologo -debug -subsystem:console kernel32.lib ntdll.lib libcmt.lib
+& cl.exe -I..\lib test-x86_64-windows-msvc.c compiler_rt-x86_64-windows-msvc.c /W3 /Z7 -link -nologo -debug -subsystem:console kernel32.lib ntdll.lib libcmt.lib ws2_32.lib
 CheckLastExitCode
 
 & .\test-x86_64-windows-msvc.exe

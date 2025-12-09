@@ -44,12 +44,14 @@ unset CXX
 ninja install
 
 stage3-debug/bin/zig build test docs \
-  --maxrss 42949672960 \
+  --maxrss ${ZSF_MAX_RSS:-0} \
   -Dstatic-llvm \
+  -Dskip-spirv \
+  -Dskip-wasm \
   -Dskip-linux \
   -Dskip-netbsd \
   -Dskip-windows \
-  -Dskip-macos \
+  -Dskip-darwin \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
   --test-timeout 2m

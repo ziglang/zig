@@ -53,6 +53,7 @@ struct ng_nat_mode {
 #define NG_NAT_PROXY_ONLY		0x40
 #define NG_NAT_REVERSE			0x80
 #define NG_NAT_UNREGISTERED_CGN		0x100
+#define NG_NAT_UDP_EIM			0x200
 
 #define NG_NAT_DESC_LENGTH	64
 #define NG_NAT_REDIRPROTO_ADDR	(IPPROTO_MAX + 3) 	/* LibAlias' LINK_ADDR, also unused in in.h */

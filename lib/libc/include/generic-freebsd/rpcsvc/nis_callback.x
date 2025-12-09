@@ -36,14 +36,7 @@
  *	All Rights Reserved.
  */
 
-/* From: %#pragma ident	"@(#)nis_callback.x	1.7	94/05/03 SMI" */
-
-#ifndef RPC_HDR
-%#include <sys/cdefs.h>
-#endif
-
 /*
- * "@(#)zns_cback.x 1.2 90/09/10 Copyr 1990 Sun Micro" 
  *
  * RPCL description of the Callback Service.
  */

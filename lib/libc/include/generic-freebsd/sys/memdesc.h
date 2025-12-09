@@ -163,4 +163,40 @@ void	memdesc_copyback(struct memdesc *mem, int off, int size,
     const void *src);
 void	memdesc_copydata(struct memdesc *mem, int off, int size, void *dst);
 
+/*
+ * This routine constructs a chain of M_EXT mbufs backed by a data
+ * buffer described by a memory descriptor.  Some buffers may require
+ * multiple mbufs.  For memory descriptors using unmapped storage
+ * (e.g. memdesc_vmpages), M_EXTPG mbufs are used.
+ *
+ * Since memory descriptors are not an actual buffer, just a
+ * description of the buffer, the caller is required to supply a
+ * couple of helper routines to manage allocation of the raw mbufs and
+ * associate them with a reference to the underlying buffer.
+ *
+ * The memdesc_alloc_ext_mbuf_t callback is passed the callback
+ * argument as its first argument, the how flag as its second
+ * argument, and the pointer and length of a KVA buffer.  This
+ * callback should allocate an mbuf for the KVA buffer, either by
+ * making a copy of the data or using m_extaddref().
+ *
+ * The memdesc_alloc_extpg_mbuf_t callback is passed the callback
+ * argument as its first argument and the how flag as its second
+ * argument.  It should return an empty mbuf allocated by
+ * mb_alloc_ext_pgs.
+ *
+ * If either of the callbacks returns NULL, any partially allocated
+ * chain is freed and this routine returns NULL.
+ *
+ * If can_truncate is true, then this function might return a short
+ * chain to avoid gratuitously splitting up a page.
+ */
+typedef struct mbuf *memdesc_alloc_ext_mbuf_t(void *, int, void *, size_t);
+typedef struct mbuf *memdesc_alloc_extpg_mbuf_t(void *, int);
+
+struct mbuf *memdesc_alloc_ext_mbufs(struct memdesc *mem,
+    memdesc_alloc_ext_mbuf_t *ext_alloc,
+    memdesc_alloc_extpg_mbuf_t *extpg_alloc, void *cb_arg, int how,
+    size_t offset, size_t len, size_t *actual_len, bool can_truncate);
+
 #endif /* _SYS_MEMDESC_H_ */

@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)ffs_extern.h	8.6 (Berkeley) 3/30/95
  */
 
 #ifndef _UFS_FFS_EXTERN_H
@@ -84,7 +82,8 @@ int	ffs_inotovp(struct mount *, ino_t, uint64_t, int, struct vnode **,
 	    int);
 int	ffs_isblock(struct fs *, uint8_t *, ufs1_daddr_t);
 int	ffs_isfreeblock(struct fs *, uint8_t *, ufs1_daddr_t);
-void	ffs_oldfscompat_write(struct fs *, struct ufsmount *);
+void	ffs_oldfscompat_write(struct fs *);
+bool	ffs_oldfscompat_inode_read(struct fs *, union dinodep, time_t);
 int	ffs_own_mount(const struct mount *mp);
 int	ffs_sbsearch(void *, struct fs **, int, struct malloc_type *,
 	    int (*)(void *, off_t, void **, int));

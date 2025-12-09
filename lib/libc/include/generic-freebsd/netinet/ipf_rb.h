@@ -305,13 +305,11 @@ _n##_rb_walktree(struct _n##_rb_head *head, _n##_rb_walker_t func, void *arg)\
 	_t *prev;							\
 	_t *next;							\
 	_t *node = head->top._f.right;					\
-	_t *base;							\
 									\
 	while (node != &_n##_rb_zero)					\
 		node = node->_f.left;					\
 									\
 	for (;;) {							\
-		base = node;						\
 		prev = node;						\
 		while ((node->_f.parent->_f.right == node) &&		\
 		       (node != &_n##_rb_zero))	{			\

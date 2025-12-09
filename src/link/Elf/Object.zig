@@ -6,29 +6,29 @@ file_handle: File.HandleIndex,
 index: File.Index,
 
 header: ?elf.Elf64_Ehdr = null,
-shdrs: std.ArrayListUnmanaged(elf.Elf64_Shdr) = .empty,
+shdrs: std.ArrayList(elf.Elf64_Shdr) = .empty,
 
-symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .empty,
-strtab: std.ArrayListUnmanaged(u8) = .empty,
+symtab: std.ArrayList(elf.Elf64_Sym) = .empty,
+strtab: std.ArrayList(u8) = .empty,
 first_global: ?Symbol.Index = null,
-symbols: std.ArrayListUnmanaged(Symbol) = .empty,
-symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
-symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index) = .empty,
-relocs: std.ArrayListUnmanaged(elf.Elf64_Rela) = .empty,
+symbols: std.ArrayList(Symbol) = .empty,
+symbols_extra: std.ArrayList(u32) = .empty,
+symbols_resolver: std.ArrayList(Elf.SymbolResolver.Index) = .empty,
+relocs: std.ArrayList(elf.Elf64_Rela) = .empty,
 
-atoms: std.ArrayListUnmanaged(Atom) = .empty,
-atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .empty,
-atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
+atoms: std.ArrayList(Atom) = .empty,
+atoms_indexes: std.ArrayList(Atom.Index) = .empty,
+atoms_extra: std.ArrayList(u32) = .empty,
 
-groups: std.ArrayListUnmanaged(Elf.Group) = .empty,
-group_data: std.ArrayListUnmanaged(u32) = .empty,
+groups: std.ArrayList(Elf.Group) = .empty,
+group_data: std.ArrayList(u32) = .empty,
 
-input_merge_sections: std.ArrayListUnmanaged(Merge.InputSection) = .empty,
-input_merge_sections_indexes: std.ArrayListUnmanaged(Merge.InputSection.Index) = .empty,
+input_merge_sections: std.ArrayList(Merge.InputSection) = .empty,
+input_merge_sections_indexes: std.ArrayList(Merge.InputSection.Index) = .empty,
 
-fdes: std.ArrayListUnmanaged(Fde) = .empty,
-cies: std.ArrayListUnmanaged(Cie) = .empty,
-eh_frame_data: std.ArrayListUnmanaged(u8) = .empty,
+fdes: std.ArrayList(Fde) = .empty,
+cies: std.ArrayList(Cie) = .empty,
+eh_frame_data: std.ArrayList(u8) = .empty,
 
 alive: bool = true,
 dirty: bool = true,
@@ -861,7 +861,10 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
         for (imsec.strings.items, imsec.subsections.items) |str, *imsec_msub| {
             const string = imsec.bytes.items[str.pos..][0..str.len];
             const res = try msec.insert(gpa, string);
-            if (!res.found_existing) {
+            if (res.found_existing) {
+                const msub = msec.mergeSubsection(res.sub.*);
+                msub.alignment = msub.alignment.maxStrict(atom_ptr.alignment);
+            } else {
                 const msub_index = try msec.addMergeSubsection(gpa);
                 const msub = msec.mergeSubsection(msub_index);
                 msub.merge_section_index = imsec.merge_section_index;

@@ -11,7 +11,7 @@ pub fn deinit(a: *Archive, gpa: Allocator) void {
 pub fn parse(
     gpa: Allocator,
     diags: *Diags,
-    file_handles: *const std.ArrayListUnmanaged(File.Handle),
+    file_handles: *const std.ArrayList(File.Handle),
     path: Path,
     handle_index: File.HandleIndex,
 ) !Archive {
@@ -27,15 +27,13 @@ pub fn parse(
 
     const size = (try handle.stat()).size;
 
-    var objects: std.ArrayListUnmanaged(Object) = .empty;
+    var objects: std.ArrayList(Object) = .empty;
     defer objects.deinit(gpa);
 
-    var strtab: std.ArrayListUnmanaged(u8) = .empty;
+    var strtab: std.ArrayList(u8) = .empty;
     defer strtab.deinit(gpa);
 
     while (pos < size) {
-        pos = mem.alignForward(usize, pos, 2);
-
         var hdr: elf.ar_hdr = undefined;
         {
             const n = try handle.preadAll(mem.asBytes(&hdr), pos);
@@ -50,7 +48,7 @@ pub fn parse(
         }
 
         const obj_size = try hdr.size();
-        defer pos += obj_size;
+        defer pos = std.mem.alignForward(usize, pos + obj_size, 2);
 
         if (hdr.isSymtab() or hdr.isSymtab64()) continue;
         if (hdr.isStrtab()) {
@@ -120,7 +118,6 @@ pub fn setArHdr(opts: struct {
         .ar_fmag = undefined,
     };
     @memset(mem.asBytes(&hdr), 0x20);
-    @memcpy(&hdr.ar_fmag, elf.ARFMAG);
 
     {
         var writer: std.Io.Writer = .fixed(&hdr.ar_name);
@@ -131,10 +128,15 @@ pub fn setArHdr(opts: struct {
             .name_off => |x| writer.print("/{d}", .{x}) catch unreachable,
         }
     }
+    hdr.ar_date[0] = '0';
+    hdr.ar_uid[0] = '0';
+    hdr.ar_gid[0] = '0';
+    hdr.ar_mode[0] = '0';
     {
         var writer: std.Io.Writer = .fixed(&hdr.ar_size);
         writer.print("{d}", .{opts.size}) catch unreachable;
     }
+    hdr.ar_fmag = elf.ARFMAG.*;
 
     return hdr;
 }
@@ -143,7 +145,7 @@ const strtab_delimiter = '\n';
 pub const max_member_name_len = 15;
 
 pub const ArSymtab = struct {
-    symtab: std.ArrayListUnmanaged(Entry) = .empty,
+    symtab: std.ArrayList(Entry) = .empty,
     strtab: StringTable = .{},
 
     pub fn deinit(ar: *ArSymtab, allocator: Allocator) void {
@@ -237,7 +239,7 @@ pub const ArSymtab = struct {
 };
 
 pub const ArStrtab = struct {
-    buffer: std.ArrayListUnmanaged(u8) = .empty,
+    buffer: std.ArrayList(u8) = .empty,
 
     pub fn deinit(ar: *ArStrtab, allocator: Allocator) void {
         ar.buffer.deinit(allocator);

@@ -1,5 +1,3 @@
-/* @(#)yp.x	2.1 88/08/01 4.0 RPCSRC */
-
 /*-
  * Copyright (c) 2010, Oracle America, Inc.
  *
@@ -34,10 +32,6 @@
 /*
  * Protocol description file for the Yellow Pages Service
  */
-
-#ifndef RPC_HDR
-%#include <sys/cdefs.h>
-#endif
 
 const YPMAXRECORD = 16777216;
 const YPMAXDOMAIN = 64;

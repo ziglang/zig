@@ -1,4 +1,4 @@
-data: std.ArrayListUnmanaged(u8) = .empty,
+data: std.ArrayList(u8) = .empty,
 /// Externally owned memory.
 basename: []const u8,
 index: File.Index,
@@ -6,15 +6,15 @@ index: File.Index,
 symtab: std.MultiArrayList(Nlist) = .{},
 strtab: StringTable = .{},
 
-symbols: std.ArrayListUnmanaged(Symbol) = .empty,
-symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
-globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .empty,
+symbols: std.ArrayList(Symbol) = .empty,
+symbols_extra: std.ArrayList(u32) = .empty,
+globals: std.ArrayList(MachO.SymbolResolver.Index) = .empty,
 /// Maps string index (so name) into nlist index for the global symbol defined within this
 /// module.
 globals_lookup: std.AutoHashMapUnmanaged(u32, u32) = .empty,
-atoms: std.ArrayListUnmanaged(Atom) = .empty,
-atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .empty,
-atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
+atoms: std.ArrayList(Atom) = .empty,
+atoms_indexes: std.ArrayList(Atom.Index) = .empty,
+atoms_extra: std.ArrayList(u32) = .empty,
 
 /// Table of tracked LazySymbols.
 lazy_syms: LazySymbolTable = .{},
@@ -1737,7 +1737,7 @@ pub fn fmtAtoms(self: *ZigObject, macho_file: *MachO) std.fmt.Alt(Format, Format
 const AvMetadata = struct {
     symbol_index: Symbol.Index,
     /// A list of all exports aliases of this Av.
-    exports: std.ArrayListUnmanaged(Symbol.Index) = .empty,
+    exports: std.ArrayList(Symbol.Index) = .empty,
 
     fn @"export"(m: AvMetadata, zig_object: *ZigObject, name: []const u8) ?*u32 {
         for (m.exports.items) |*exp| {
@@ -1769,7 +1769,7 @@ const TlvInitializer = struct {
 const NavTable = std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, AvMetadata);
 const UavTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, AvMetadata);
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, LazySymbolMetadata);
-const RelocationTable = std.ArrayListUnmanaged(std.ArrayListUnmanaged(Relocation));
+const RelocationTable = std.ArrayList(std.ArrayList(Relocation));
 const TlvInitializerTable = std.AutoArrayHashMapUnmanaged(Atom.Index, TlvInitializer);
 
 const x86_64 = struct {

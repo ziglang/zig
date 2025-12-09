@@ -3081,11 +3081,6 @@ pub const cpu = struct {
             .xsaveopt,
         }),
     };
-    pub const @"i86": CpuModel = .{
-        .name = "i86",
-        .llvm_name = null,
-        .features = featureSet(&[_]Feature{}),
-    };
     pub const @"i386": CpuModel = .{
         .name = "i386",
         .llvm_name = "i386",
@@ -3125,6 +3120,13 @@ pub const cpu = struct {
             .slow_unaligned_mem_16,
             .vzeroupper,
             .x87,
+        }),
+    };
+    pub const @"i86": CpuModel = .{
+        .name = "i86",
+        .llvm_name = null,
+        .features = featureSet(&[_]Feature{
+            .@"16bit_mode",
         }),
     };
     pub const icelake_client: CpuModel = .{

@@ -63,7 +63,7 @@
 /*
  * Parallel Port Bus sleep/wakeup queue.
  */
-#define PPBPRI	(PZERO+8)
+#define PPBPRI	(PWAIT)
 
 /*
  * Parallel Port Chipset mode masks.

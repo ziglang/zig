@@ -208,7 +208,6 @@ const Payload = union(Letter) {
 };
 
 test "union with specified enum tag" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
@@ -219,11 +218,13 @@ test "union with specified enum tag" {
 }
 
 test "packed union generates correctly aligned type" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    // This test will be removed after the following accepted proposal is implemented:
+    // https://github.com/ziglang/zig/issues/24657
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const U = packed union {
         f1: *const fn () error{TestUnexpectedResult}!void,
@@ -605,7 +606,6 @@ fn returnAnInt(x: i32) TaggedFoo {
 }
 
 test "tagged union with all void fields but a meaningful tag" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -1032,7 +1032,6 @@ test "containers with single-field enums" {
 }
 
 test "@unionInit on union with tag but no fields" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -1446,8 +1445,6 @@ test "access the tag of a global tagged union" {
 }
 
 test "coerce enum literal to union in result loc" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     const U = union(enum) {
         a,
         b: u8,
@@ -1550,7 +1547,7 @@ test "packed union field pointer has correct alignment" {
 
     const host_size = switch (builtin.zig_backend) {
         else => comptime std.math.divCeil(comptime_int, @bitSizeOf(S), 8) catch unreachable,
-        .stage2_x86_64 => @sizeOf(S),
+        .stage2_x86_64, .stage2_c => @sizeOf(S),
     };
     comptime assert(@TypeOf(ap) == *align(4:2:host_size) u20);
     comptime assert(@TypeOf(bp) == *align(1:2:host_size) u20);
@@ -2201,14 +2198,8 @@ test "matching captures causes union equivalence" {
         fn SignedUnsigned(comptime I: type) type {
             const bits = @typeInfo(I).int.bits;
             return union {
-                u: @Type(.{ .int = .{
-                    .signedness = .unsigned,
-                    .bits = bits,
-                } }),
-                i: @Type(.{ .int = .{
-                    .signedness = .signed,
-                    .bits = bits,
-                } }),
+                u: @Int(.unsigned, bits),
+                i: @Int(.signed, bits),
             };
         }
     };
@@ -2226,6 +2217,7 @@ test "matching captures causes union equivalence" {
 test "signed enum tag with negative value" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const Enum = enum(i8) {

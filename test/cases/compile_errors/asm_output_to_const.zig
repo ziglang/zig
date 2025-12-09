@@ -1,12 +1,18 @@
 export fn foo() void {
-    const f: i64 = 1000;
+    const local: usize = 0;
+    asm volatile (""
+        : [_] "=r" (local),
+    );
+}
 
-    asm volatile (
-        \\ movq $10, %[f]
-        : [f] "=r" (f),
+const global: usize = 0;
+export fn bar() void {
+    asm volatile (""
+        : [_] "=r" (global),
     );
 }
 
 // error
 //
-// :4:5: error: asm cannot output to const local 'f'
+// :4:21: error: asm cannot output to const '_'
+// :11:21: error: asm cannot output to const '_'

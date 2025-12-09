@@ -66,8 +66,9 @@ struct secpolicy *ipsec6_checkpolicy(const struct mbuf *,
 void ipsec6_setsockaddrs(const struct mbuf *, union sockaddr_union *,
     union sockaddr_union *);
 int ipsec6_common_input_cb(struct mbuf *, struct secasvar *, int, int);
-int ipsec6_check_pmtu(struct mbuf *, struct secpolicy *, int);
-int ipsec6_process_packet(struct mbuf *, struct secpolicy *, struct inpcb *);
+int ipsec6_check_pmtu(struct ifnet *, struct mbuf *, struct secpolicy *, int);
+int ipsec6_process_packet(struct ifnet *, struct mbuf *, struct secpolicy *,
+    struct inpcb *, u_long);
 
 int ip6_ipsec_filtertunnel(struct mbuf *);
 int ip6_ipsec_pcbctl(struct inpcb *, struct sockopt *);

@@ -35,9 +35,9 @@
 #include "opt_cam.h"
 #endif
 
-#include <sys/cdefs.h>
 #ifndef _KERNEL
 #include <stdbool.h>
+#include <stdio.h>
 #endif
 
 typedef u_int path_id_t;
@@ -349,6 +349,11 @@ typedef enum {
 	CAM_EAF_PRINT_STATUS	= 0x10,
 	CAM_EAF_PRINT_RESULT	= 0x20
 } cam_error_ata_flags;
+
+typedef enum {
+	CAM_ENF_PRINT_NONE	= 0x00,
+	CAM_ENF_PRINT_STATUS	= 0x10,
+} cam_error_nvme_flags;
 
 typedef enum {
 	CAM_STRVIS_FLAG_NONE		= 0x00,

@@ -224,7 +224,7 @@ fn renameExe(dir: std.fs.Dir, old_sub_path: []const u8, new_sub_path: []const u8
         error.AccessDenied => {
             if (attempt == 13) return error.AccessDenied;
             // give the kernel a chance to finish closing the executable handle
-            std.os.windows.kernel32.Sleep(@as(u32, 1) << attempt >> 1);
+            _ = std.os.windows.kernel32.SleepEx(@as(u32, 1) << attempt >> 1, std.os.windows.FALSE);
             attempt += 1;
             continue;
         },

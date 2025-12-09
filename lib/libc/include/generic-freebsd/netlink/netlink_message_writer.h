@@ -37,62 +37,45 @@
  * It is not meant to be included directly
  */
 
-struct mbuf;
+struct nl_buf;
 struct nl_writer;
-typedef bool nl_writer_cb(struct nl_writer *nw, void *buf, int buflen, int cnt);
+typedef bool nl_writer_cb(struct nl_writer *nw);
 
 struct nl_writer {
-	int			alloc_len;	/* allocated buffer length */
-	int			offset;		/* offset from the start of the buffer */
-	struct nlmsghdr		*hdr;		/* Pointer to the currently-filled msg */
-	char			*data;		/* pointer to the contiguous storage */
-	void			*_storage;	/* Underlying storage pointer */
-	nl_writer_cb		*cb;		/* Callback to flush data */
+	struct nl_buf		*buf;	/* Underlying storage pointer */
+	struct nlmsghdr		*hdr;	/* Pointer to the currently-filled msg */
+	nl_writer_cb		*cb;	/* Callback to flush data */
 	union {
-		void		*ptr;
+		struct nlpcb	*nlp;
 		struct {
 			uint16_t	proto;
 			uint16_t	id;
+			int		priv;
 		} group;
-	} arg;
-	int			num_messages;	/* Number of messages in the buffer */
-	int			malloc_flag;	/* M_WAITOK or M_NOWAIT */
-	uint8_t			writer_type;	/* NS_WRITER_TYPE_* */
-	uint8_t			writer_target;	/* NS_WRITER_TARGET_*  */
-	bool			ignore_limit;	/* If true, ignores RCVBUF limit */
-	bool			enomem;		/* True if ENOMEM occured */
-	bool			suppress_ack;	/* If true, don't send NLMSG_ERR */
+	};
+	u_int		num_messages;	/* Number of messages in the buffer */
+	int		malloc_flag;	/* M_WAITOK or M_NOWAIT */
+	bool		ignore_limit;	/* If true, ignores RCVBUF limit */
+	bool		enomem;		/* True if ENOMEM occured */
+	bool		suppress_ack;	/* If true, don't send NLMSG_ERR */
 };
-#define	NS_WRITER_TARGET_SOCKET	0
-#define	NS_WRITER_TARGET_GROUP	1
-#define	NS_WRITER_TARGET_CHAIN	2
-
-#define	NS_WRITER_TYPE_MBUF	0
-#define NS_WRITER_TYPE_BUF	1
-#define NS_WRITER_TYPE_LBUF	2
-#define NS_WRITER_TYPE_MBUFC	3
-#define NS_WRITER_TYPE_STUB	4
-
 
 #define	NLMSG_SMALL	128
 #define	NLMSG_LARGE	2048
 
 /* Message and attribute writing */
-
-struct nlpcb;
-
 #if defined(NETLINK) || defined(NETLINK_MODULE)
 /* Provide optimized calls to the functions inside the same linking unit */
 
-bool _nlmsg_get_unicast_writer(struct nl_writer *nw, int expected_size, struct nlpcb *nlp);
-bool _nlmsg_get_group_writer(struct nl_writer *nw, int expected_size, int proto, int group_id);
-bool _nlmsg_get_chain_writer(struct nl_writer *nw, int expected_size, struct mbuf **pm);
+bool _nl_writer_unicast(struct nl_writer *, size_t, struct nlpcb *nlp, bool);
+bool _nl_writer_group(struct nl_writer *, size_t, uint16_t, uint16_t, int,
+    bool);
 bool _nlmsg_flush(struct nl_writer *nw);
 void _nlmsg_ignore_limit(struct nl_writer *nw);
 
-bool _nlmsg_refill_buffer(struct nl_writer *nw, int required_size);
-bool _nlmsg_add(struct nl_writer *nw, uint32_t portid, uint32_t seq, uint16_t type,
-    uint16_t flags, uint32_t len);
+bool _nlmsg_refill_buffer(struct nl_writer *nw, size_t required_len);
+bool _nlmsg_add(struct nl_writer *nw, uint32_t portid, uint32_t seq,
+    uint16_t type, uint16_t flags, uint32_t len);
 bool _nlmsg_end(struct nl_writer *nw);
 void _nlmsg_abort(struct nl_writer *nw);
 
@@ -100,21 +83,17 @@ bool _nlmsg_end_dump(struct nl_writer *nw, int error, struct nlmsghdr *hdr);
 
 
 static inline bool
-nlmsg_get_unicast_writer(struct nl_writer *nw, int expected_size, struct nlpcb *nlp)
+nl_writer_unicast(struct nl_writer *nw, size_t size, struct nlpcb *nlp,
+    bool waitok)
 {
-	return (_nlmsg_get_unicast_writer(nw, expected_size, nlp));
+	return (_nl_writer_unicast(nw, size, nlp, waitok));
 }
 
 static inline bool
-nlmsg_get_group_writer(struct nl_writer *nw, int expected_size, int proto, int group_id)
+nl_writer_group(struct nl_writer *nw, size_t size, uint16_t proto,
+    uint16_t group_id, int priv, bool waitok)
 {
-	return (_nlmsg_get_group_writer(nw, expected_size, proto, group_id));
-}
-
-static inline bool
-nlmsg_get_chain_writer(struct nl_writer *nw, int expected_size, struct mbuf **pm)
-{
-	return (_nlmsg_get_chain_writer(nw, expected_size, pm));
+	return (_nl_writer_group(nw, size, proto, group_id, priv, waitok));
 }
 
 static inline bool
@@ -130,7 +109,7 @@ nlmsg_ignore_limit(struct nl_writer *nw)
 }
 
 static inline bool
-nlmsg_refill_buffer(struct nl_writer *nw, int required_size)
+nlmsg_refill_buffer(struct nl_writer *nw, size_t required_size)
 {
 	return (_nlmsg_refill_buffer(nw, required_size));
 }
@@ -163,15 +142,15 @@ nlmsg_end_dump(struct nl_writer *nw, int error, struct nlmsghdr *hdr)
 #else
 /* Provide access to the functions via netlink_glue.c */
 
-bool nlmsg_get_unicast_writer(struct nl_writer *nw, int expected_size, struct nlpcb *nlp);
-bool nlmsg_get_group_writer(struct nl_writer *nw, int expected_size, int proto, int group_id);
-bool nlmsg_get_chain_writer(struct nl_writer *nw, int expected_size, struct mbuf **pm);
+bool nl_writer_unicast(struct nl_writer *, size_t, struct nlpcb *, bool waitok);
+bool nl_writer_group(struct nl_writer *, size_t, uint16_t, uint16_t, int,
+    bool waitok);
 bool nlmsg_flush(struct nl_writer *nw);
 void nlmsg_ignore_limit(struct nl_writer *nw);
 
-bool nlmsg_refill_buffer(struct nl_writer *nw, int required_size);
-bool nlmsg_add(struct nl_writer *nw, uint32_t portid, uint32_t seq, uint16_t type,
-    uint16_t flags, uint32_t len);
+bool nlmsg_refill_buffer(struct nl_writer *nw, size_t required_size);
+bool nlmsg_add(struct nl_writer *nw, uint32_t portid, uint32_t seq,
+    uint16_t type, uint16_t flags, uint32_t len);
 bool nlmsg_end(struct nl_writer *nw);
 void nlmsg_abort(struct nl_writer *nw);
 
@@ -186,18 +165,12 @@ nlmsg_reply(struct nl_writer *nw, const struct nlmsghdr *hdr, int payload_len)
 	    hdr->nlmsg_flags, payload_len));
 }
 
-#define nlmsg_data(_hdr)	((void *)((_hdr) + 1))
-
 /*
  * KPI similar to mtodo():
  * current (uncompleted) header is guaranteed to be contiguous,
  *  but can be reallocated, thus pointers may need to be readjusted.
  */
-static inline int
-nlattr_save_offset(const struct nl_writer *nw)
-{
-	return (nw->offset - ((char *)nw->hdr - nw->data));
-}
+u_int nlattr_save_offset(const struct nl_writer *nw);
 
 static inline void *
 _nlattr_restore_offset(const struct nl_writer *nw, int off)
@@ -213,22 +186,7 @@ nlattr_set_len(const struct nl_writer *nw, int off)
 	nla->nla_len = nlattr_save_offset(nw) - off;
 }
 
-static inline void *
-nlmsg_reserve_data_raw(struct nl_writer *nw, size_t sz)
-{
-	sz = NETLINK_ALIGN(sz);
-
-	if (__predict_false(nw->offset + sz > nw->alloc_len)) {
-		if (!nlmsg_refill_buffer(nw, sz))
-			return (NULL);
-	}
-
-	void *data_ptr = &nw->data[nw->offset];
-	nw->offset += sz;
-	bzero(data_ptr, sz);
-
-	return (data_ptr);
-}
+void *nlmsg_reserve_data_raw(struct nl_writer *nw, size_t sz);
 #define nlmsg_reserve_object(_ns, _t)	((_t *)nlmsg_reserve_data_raw(_ns, sizeof(_t)))
 #define nlmsg_reserve_data(_ns, _sz, _t)	((_t *)nlmsg_reserve_data_raw(_ns, _sz))
 
@@ -258,109 +216,95 @@ _nlmsg_reserve_attr(struct nl_writer *nw, uint16_t nla_type, uint16_t sz)
 }
 #define	nlmsg_reserve_attr(_ns, _at, _t)	((_t *)_nlmsg_reserve_attr(_ns, _at, NLA_ALIGN(sizeof(_t))))
 
-static inline bool
-nlattr_add(struct nl_writer *nw, int attr_type, int attr_len, const void *data)
-{
-	int required_len = NLA_ALIGN(attr_len + sizeof(struct nlattr));
-
-	if (__predict_false(nw->offset + required_len > nw->alloc_len)) {
-		if (!nlmsg_refill_buffer(nw, required_len))
-			return (false);
-	}
-
-	struct nlattr *nla = (struct nlattr *)(&nw->data[nw->offset]);
-
-	nla->nla_len = attr_len + sizeof(struct nlattr);
-	nla->nla_type = attr_type;
-	if (attr_len > 0) {
-		if ((attr_len % 4) != 0) {
-			/* clear padding bytes */
-			bzero((char *)nla + required_len - 4, 4);
-		}
-		memcpy((nla + 1), data, attr_len);
-	}
-	nw->offset += required_len;
-	return (true);
-}
+bool nlattr_add(struct nl_writer *nw, uint16_t attr_type, uint16_t attr_len,
+    const void *data);
 
 static inline bool
 nlattr_add_raw(struct nl_writer *nw, const struct nlattr *nla_src)
 {
-	int attr_len = nla_src->nla_len - sizeof(struct nlattr);
+	MPASS(nla_src->nla_len >= sizeof(struct nlattr));
 
-	MPASS(attr_len >= 0);
-
-	return (nlattr_add(nw, nla_src->nla_type, attr_len, (const void *)(nla_src + 1)));
+	return (nlattr_add(nw, nla_src->nla_type,
+	    nla_src->nla_len - sizeof(struct nlattr),
+	    (const void *)(nla_src + 1)));
 }
 
 static inline bool
-nlattr_add_u8(struct nl_writer *nw, int attrtype, uint8_t value)
+nlattr_add_bool(struct nl_writer *nw, uint16_t attrtype, bool value)
+{
+	return (nlattr_add(nw, attrtype, sizeof(bool), &value));
+}
+
+static inline bool
+nlattr_add_u8(struct nl_writer *nw, uint16_t attrtype, uint8_t value)
 {
 	return (nlattr_add(nw, attrtype, sizeof(uint8_t), &value));
 }
 
 static inline bool
-nlattr_add_u16(struct nl_writer *nw, int attrtype, uint16_t value)
+nlattr_add_u16(struct nl_writer *nw, uint16_t attrtype, uint16_t value)
 {
 	return (nlattr_add(nw, attrtype, sizeof(uint16_t), &value));
 }
 
 static inline bool
-nlattr_add_u32(struct nl_writer *nw, int attrtype, uint32_t value)
+nlattr_add_u32(struct nl_writer *nw, uint16_t attrtype, uint32_t value)
 {
 	return (nlattr_add(nw, attrtype, sizeof(uint32_t), &value));
 }
 
 static inline bool
-nlattr_add_u64(struct nl_writer *nw, int attrtype, uint64_t value)
+nlattr_add_u64(struct nl_writer *nw, uint16_t attrtype, uint64_t value)
 {
 	return (nlattr_add(nw, attrtype, sizeof(uint64_t), &value));
 }
 
 static inline bool
-nlattr_add_s8(struct nl_writer *nw, int attrtype, int8_t value)
+nlattr_add_s8(struct nl_writer *nw, uint16_t attrtype, int8_t value)
 {
 	return (nlattr_add(nw, attrtype, sizeof(int8_t), &value));
 }
 
 static inline bool
-nlattr_add_s16(struct nl_writer *nw, int attrtype, int16_t value)
+nlattr_add_s16(struct nl_writer *nw, uint16_t attrtype, int16_t value)
 {
 	return (nlattr_add(nw, attrtype, sizeof(int16_t), &value));
 }
 
 static inline bool
-nlattr_add_s32(struct nl_writer *nw, int attrtype, int32_t value)
+nlattr_add_s32(struct nl_writer *nw, uint16_t attrtype, int32_t value)
 {
 	return (nlattr_add(nw, attrtype, sizeof(int32_t), &value));
 }
 
 static inline bool
-nlattr_add_s64(struct nl_writer *nw, int attrtype, int64_t value)
+nlattr_add_s64(struct nl_writer *nw, uint16_t attrtype, int64_t value)
 {
 	return (nlattr_add(nw, attrtype, sizeof(int64_t), &value));
 }
 
 static inline bool
-nlattr_add_flag(struct nl_writer *nw, int attrtype)
+nlattr_add_flag(struct nl_writer *nw, uint16_t attrtype)
 {
 	return (nlattr_add(nw, attrtype, 0, NULL));
 }
 
 static inline bool
-nlattr_add_string(struct nl_writer *nw, int attrtype, const char *str)
+nlattr_add_string(struct nl_writer *nw, uint16_t attrtype, const char *str)
 {
 	return (nlattr_add(nw, attrtype, strlen(str) + 1, str));
 }
 
 static inline bool
-nlattr_add_in_addr(struct nl_writer *nw, int attrtype, const struct in_addr *in)
+nlattr_add_in_addr(struct nl_writer *nw, uint16_t attrtype,
+    const struct in_addr *in)
 {
 	return (nlattr_add(nw, attrtype, sizeof(*in), in));
 }
 
 static inline bool
-nlattr_add_in6_addr(struct nl_writer *nw, int attrtype, const struct in6_addr *in6)
+nlattr_add_in6_addr(struct nl_writer *nw, uint16_t attrtype,
+    const struct in6_addr *in6)
 {
 	return (nlattr_add(nw, attrtype, sizeof(*in6), in6));
 }

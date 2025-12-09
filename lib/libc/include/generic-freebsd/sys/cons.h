@@ -32,8 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	from: @(#)cons.h	7.2 (Berkeley) 5/9/91
  */
 
 #ifndef _MACHINE_CONS_H_
@@ -95,6 +93,8 @@ struct consdev {
 #define	GETS_ECHOPASS	2	/* Print a * for every character. */
 
 #ifdef _KERNEL
+
+extern	int cn_mute;
 
 extern	struct msgbuf consmsgbuf; /* Message buffer for constty. */
 extern	struct tty *constty;	/* Temporary virtual console. */

@@ -81,7 +81,7 @@ kmsan_md_unsupported(vm_offset_t addr)
 	 * The kernel itself isn't shadowed: for most purposes global variables
 	 * are always initialized, and because KMSAN kernels are large
 	 * (GENERIC-KMSAN is ~80MB at the time of writing), shadowing would
-	 * incur signficant memory usage.
+	 * incur significant memory usage.
 	 */
 	return (addr < VM_MIN_KERNEL_ADDRESS || addr >= KERNBASE);
 }

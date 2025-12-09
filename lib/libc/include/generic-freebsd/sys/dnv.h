@@ -32,6 +32,7 @@
 #define	_DNV_H_
 
 #include <sys/cdefs.h>
+#include <sys/_nv.h>
 
 #ifndef _KERNEL
 #include <stdarg.h>
@@ -39,13 +40,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/nv_namespace.h>
-#endif
-
-#ifndef	_NVLIST_T_DECLARED
-#define	_NVLIST_T_DECLARED
-struct nvlist;
-
-typedef struct nvlist nvlist_t;
 #endif
 
 __BEGIN_DECLS

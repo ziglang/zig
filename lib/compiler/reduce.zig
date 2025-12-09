@@ -109,7 +109,7 @@ pub fn main() !void {
     const root_source_file_path = opt_root_source_file_path orelse
         fatal("missing root source file path argument; see -h for usage", .{});
 
-    var interestingness_argv: std.ArrayListUnmanaged([]const u8) = .empty;
+    var interestingness_argv: std.ArrayList([]const u8) = .empty;
     try interestingness_argv.ensureUnusedCapacity(arena, argv.len + 1);
     interestingness_argv.appendAssumeCapacity(checker_path);
     interestingness_argv.appendSliceAssumeCapacity(argv);

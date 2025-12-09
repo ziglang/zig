@@ -7,11 +7,11 @@ const mem = std.mem;
 const NativePaths = @This();
 
 arena: Allocator,
-include_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
-lib_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
-framework_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
-rpaths: std.ArrayListUnmanaged([]const u8) = .empty,
-warnings: std.ArrayListUnmanaged([]const u8) = .empty,
+include_dirs: std.ArrayList([]const u8) = .empty,
+lib_dirs: std.ArrayList([]const u8) = .empty,
+framework_dirs: std.ArrayList([]const u8) = .empty,
+rpaths: std.ArrayList([]const u8) = .empty,
+warnings: std.ArrayList([]const u8) = .empty,
 
 pub fn detect(arena: Allocator, native_target: *const std.Target) !NativePaths {
     var self: NativePaths = .{ .arena = arena };
@@ -21,9 +21,9 @@ pub fn detect(arena: Allocator, native_target: *const std.Target) !NativePaths {
         var it = mem.tokenizeScalar(u8, nix_cflags_compile, ' ');
         while (true) {
             const word = it.next() orelse break;
-            if (mem.eql(u8, word, "-isystem")) {
+            if (mem.eql(u8, word, "-isystem") or mem.eql(u8, word, "-idirafter")) {
                 const include_path = it.next() orelse {
-                    try self.addWarning("Expected argument after -isystem in NIX_CFLAGS_COMPILE");
+                    try self.addWarningFmt("Expected argument after {s} in NIX_CFLAGS_COMPILE", .{word});
                     break;
                 };
                 try self.addIncludeDir(include_path);
@@ -65,10 +65,42 @@ pub fn detect(arena: Allocator, native_target: *const std.Target) !NativePaths {
                 const lib_path = word[2..];
                 try self.addLibDir(lib_path);
                 try self.addRPath(lib_path);
-            } else if (mem.startsWith(u8, word, "-l")) {
+            } else if (mem.startsWith(u8, word, "-l") or mem.startsWith(u8, word, "-static")) {
                 // Ignore this argument.
             } else {
                 try self.addWarningFmt("Unrecognized C flag from NIX_LDFLAGS: {s}", .{word});
+                break;
+            }
+        }
+    } else |err| switch (err) {
+        error.InvalidWtf8 => unreachable,
+        error.EnvironmentVariableNotFound => {},
+        error.OutOfMemory => |e| return e,
+    }
+    if (process.getEnvVarOwned(arena, "NIX_CFLAGS_LINK")) |nix_cflags_link| {
+        is_nix = true;
+        var it = mem.tokenizeScalar(u8, nix_cflags_link, ' ');
+        while (true) {
+            const word = it.next() orelse break;
+            if (mem.eql(u8, word, "-rpath")) {
+                const rpath = it.next() orelse {
+                    try self.addWarning("Expected argument after -rpath in NIX_CFLAGS_LINK");
+                    break;
+                };
+                try self.addRPath(rpath);
+            } else if (mem.eql(u8, word, "-L") or mem.eql(u8, word, "-l")) {
+                _ = it.next() orelse {
+                    try self.addWarning("Expected argument after -L or -l in NIX_CFLAGS_LINK");
+                    break;
+                };
+            } else if (mem.startsWith(u8, word, "-L")) {
+                const lib_path = word[2..];
+                try self.addLibDir(lib_path);
+                try self.addRPath(lib_path);
+            } else if (mem.startsWith(u8, word, "-l") or mem.startsWith(u8, word, "-static")) {
+                // Ignore this argument.
+            } else {
+                try self.addWarningFmt("Unrecognized C flag from NIX_CFLAGS_LINK: {s}", .{word});
                 break;
             }
         }

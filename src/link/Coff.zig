@@ -26,6 +26,8 @@ pending_uavs: std.AutoArrayHashMapUnmanaged(Node.UavMapIndex, struct {
     src_loc: Zcu.LazySrcLoc,
 }),
 relocs: std.ArrayList(Reloc),
+const_prog_node: std.Progress.Node,
+synth_prog_node: std.Progress.Node,
 
 pub const default_file_alignment: u16 = 0x200;
 pub const default_size_of_stack_reserve: u32 = 0x1000000;
@@ -610,7 +612,7 @@ fn create(
         .Obj => false,
     };
     const machine = target.toCoffMachine();
-    const timestamp: u32 = if (options.repro) 0 else @truncate(@as(u64, @bitCast(std.time.timestamp())));
+    const timestamp: u32 = 0;
     const major_subsystem_version = options.major_subsystem_version orelse 6;
     const minor_subsystem_version = options.minor_subsystem_version orelse 0;
     const magic: std.coff.OptionalHeader.Magic = switch (target.ptrBitWidth()) {
@@ -630,11 +632,11 @@ fn create(
     };
 
     const coff = try arena.create(Coff);
-    const file = try path.root_dir.handle.createFile(path.sub_path, .{
+    const file = try path.root_dir.handle.adaptToNewApi().createFile(comp.io, path.sub_path, .{
         .read = true,
         .mode = link.File.determineMode(comp.config.output_mode, comp.config.link_mode),
     });
-    errdefer file.close();
+    errdefer file.close(comp.io);
     coff.* = .{
         .base = .{
             .tag = .coff2,
@@ -642,7 +644,7 @@ fn create(
             .comp = comp,
             .emit = path,
 
-            .file = file,
+            .file = .adaptFromNewApi(file),
             .gc_sections = false,
             .print_gc_sections = false,
             .build_id = .none,
@@ -671,6 +673,8 @@ fn create(
         }),
         .pending_uavs = .empty,
         .relocs = .empty,
+        .const_prog_node = .none,
+        .synth_prog_node = .none,
     };
     errdefer coff.deinit();
 
@@ -973,6 +977,26 @@ fn initHeaders(
     assert(coff.nodes.len == expected_nodes_len);
 }
 
+pub fn startProgress(coff: *Coff, prog_node: std.Progress.Node) void {
+    prog_node.increaseEstimatedTotalItems(3);
+    coff.const_prog_node = prog_node.start("Constants", coff.pending_uavs.count());
+    coff.synth_prog_node = prog_node.start("Synthetics", count: {
+        var count = coff.globals.count() - coff.global_pending_index;
+        for (&coff.lazy.values) |*lazy| count += lazy.map.count() - lazy.pending_index;
+        break :count count;
+    });
+    coff.mf.update_prog_node = prog_node.start("Relocations", coff.mf.updates.items.len);
+}
+
+pub fn endProgress(coff: *Coff) void {
+    coff.mf.update_prog_node.end();
+    coff.mf.update_prog_node = .none;
+    coff.synth_prog_node.end();
+    coff.synth_prog_node = .none;
+    coff.const_prog_node.end();
+    coff.const_prog_node = .none;
+}
+
 fn getNode(coff: *const Coff, ni: MappedFile.Node.Index) Node {
     return coff.nodes.get(@intFromEnum(ni));
 }
@@ -1172,7 +1196,7 @@ pub fn globalSymbol(coff: *Coff, name: []const u8, lib_name: ?[]const u8) !Symbo
     });
     if (!sym_gop.found_existing) {
         sym_gop.value_ptr.* = coff.addSymbolAssumeCapacity();
-        coff.base.comp.link_synth_prog_node.increaseEstimatedTotalItems(1);
+        coff.synth_prog_node.increaseEstimatedTotalItems(1);
     }
     return sym_gop.value_ptr.*;
 }
@@ -1250,7 +1274,7 @@ pub fn lazySymbol(coff: *Coff, lazy: link.File.LazySymbol) !Symbol.Index {
     const sym_gop = try coff.lazy.getPtr(lazy.kind).map.getOrPut(gpa, lazy.ty);
     if (!sym_gop.found_existing) {
         sym_gop.value_ptr.* = try coff.initSymbolAssumeCapacity();
-        coff.base.comp.link_synth_prog_node.increaseEstimatedTotalItems(1);
+        coff.synth_prog_node.increaseEstimatedTotalItems(1);
     }
     return sym_gop.value_ptr.*;
 }
@@ -1585,7 +1609,7 @@ pub fn lowerUav(
                 .alignment = uav_align,
                 .src_loc = src_loc,
             };
-            coff.base.comp.link_const_prog_node.increaseEstimatedTotalItems(1);
+            coff.const_prog_node.increaseEstimatedTotalItems(1);
         }
     }
     return .{ .sym_index = @intFromEnum(si) };
@@ -1726,17 +1750,16 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
     const comp = coff.base.comp;
     task: {
         while (coff.pending_uavs.pop()) |pending_uav| {
-            const sub_prog_node =
-                coff.idleProgNode(tid, comp.link_const_prog_node, .{ .uav = pending_uav.key });
+            const sub_prog_node = coff.idleProgNode(tid, coff.const_prog_node, .{ .uav = pending_uav.key });
             defer sub_prog_node.end();
             coff.flushUav(
-                .{ .zcu = coff.base.comp.zcu.?, .tid = tid },
+                .{ .zcu = comp.zcu.?, .tid = tid },
                 pending_uav.key,
                 pending_uav.value.alignment,
                 pending_uav.value.src_loc,
             ) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                else => |e| return coff.base.comp.link_diags.fail(
+                else => |e| return comp.link_diags.fail(
                     "linker failed to lower constant: {t}",
                     .{e},
                 ),
@@ -1744,17 +1767,17 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             break :task;
         }
         if (coff.global_pending_index < coff.globals.count()) {
-            const pt: Zcu.PerThread = .{ .zcu = coff.base.comp.zcu.?, .tid = tid };
+            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = tid };
             const gmi: Node.GlobalMapIndex = @enumFromInt(coff.global_pending_index);
             coff.global_pending_index += 1;
-            const sub_prog_node = comp.link_synth_prog_node.start(
+            const sub_prog_node = coff.synth_prog_node.start(
                 gmi.globalName(coff).name.toSlice(coff),
                 0,
             );
             defer sub_prog_node.end();
             coff.flushGlobal(pt, gmi) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                else => |e| return coff.base.comp.link_diags.fail(
+                else => |e| return comp.link_diags.fail(
                     "linker failed to lower constant: {t}",
                     .{e},
                 ),
@@ -1763,7 +1786,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
         }
         var lazy_it = coff.lazy.iterator();
         while (lazy_it.next()) |lazy| if (lazy.value.pending_index < lazy.value.map.count()) {
-            const pt: Zcu.PerThread = .{ .zcu = coff.base.comp.zcu.?, .tid = tid };
+            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = tid };
             const lmr: Node.LazyMapRef = .{ .kind = lazy.key, .index = lazy.value.pending_index };
             lazy.value.pending_index += 1;
             const kind = switch (lmr.kind) {
@@ -1771,7 +1794,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
                 .const_data => "data",
             };
             var name: [std.Progress.Node.max_name_len]u8 = undefined;
-            const sub_prog_node = comp.link_synth_prog_node.start(
+            const sub_prog_node = coff.synth_prog_node.start(
                 std.fmt.bufPrint(&name, "lazy {s} for {f}", .{
                     kind,
                     Type.fromInterned(lmr.lazySymbol(coff).ty).fmt(pt),
@@ -1781,7 +1804,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
             defer sub_prog_node.end();
             coff.flushLazy(pt, lmr) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                else => |e| return coff.base.comp.link_diags.fail(
+                else => |e| return comp.link_diags.fail(
                     "linker failed to lower lazy {s}: {t}",
                     .{ kind, e },
                 ),
@@ -1802,6 +1825,7 @@ pub fn idle(coff: *Coff, tid: Zcu.PerThread.Id) !bool {
         }
     }
     if (coff.pending_uavs.count() > 0) return true;
+    if (coff.globals.count() > coff.global_pending_index) return true;
     for (&coff.lazy.values) |lazy| if (lazy.map.count() > lazy.pending_index) return true;
     if (coff.mf.updates.items.len > 0) return true;
     return false;
@@ -2335,7 +2359,7 @@ pub fn deleteExport(coff: *Coff, exported: Zcu.Exported, name: InternPool.NullTe
 }
 
 pub fn dump(coff: *Coff, tid: Zcu.PerThread.Id) void {
-    const w = std.debug.lockStderrWriter(&.{});
+    const w, _ = std.debug.lockStderrWriter(&.{});
     defer std.debug.unlockStderrWriter();
     coff.printNode(tid, w, .root, 0) catch {};
 }

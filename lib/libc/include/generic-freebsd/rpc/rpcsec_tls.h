@@ -28,20 +28,8 @@
 #ifndef	_RPC_RPCSEC_TLS_H_
 #define	_RPC_RPCSEC_TLS_H_
 
-/* Operation values for rpctls syscall. */
-#define	RPCTLS_SYSC_CLSETPATH	1
-#define	RPCTLS_SYSC_CLSOCKET	2
-#define	RPCTLS_SYSC_CLSHUTDOWN	3
-#define	RPCTLS_SYSC_SRVSETPATH	4
-#define	RPCTLS_SYSC_SRVSOCKET	5
-#define	RPCTLS_SYSC_SRVSHUTDOWN	6
-#define	RPCTLS_SYSC_SRVSTARTUP	7
-
-/* Max nprocs for SRV startup */
-#define	RPCTLS_SRV_MAXNPROCS	16
-
-/* System call used by the rpctlscd, rpctlssd daemons. */
-int	rpctls_syscall(int, const char *);
+/* System call used by the rpc.tlsclntd(8), rpc.tlsservd(8) daemons. */
+int	rpctls_syscall(uint64_t);
 
 /* Flag bits to indicate certificate results. */
 #define	RPCTLS_FLAGS_HANDSHAKE	0x01
@@ -61,15 +49,11 @@ int	rpctls_syscall(int, const char *);
 #ifdef _KERNEL
 /* Functions that perform upcalls to the rpctlsd daemon. */
 enum clnt_stat	rpctls_connect(CLIENT *newclient, char *certname,
-		    struct socket *so, uint64_t *sslp, uint32_t *reterr);
-enum clnt_stat	rpctls_cl_handlerecord(uint64_t sec, uint64_t usec,
-		    uint64_t ssl, uint32_t *reterr);
-enum clnt_stat	rpctls_srv_handlerecord(uint64_t sec, uint64_t usec,
-		    uint64_t ssl, int procpos, uint32_t *reterr);
-enum clnt_stat	rpctls_cl_disconnect(uint64_t sec, uint64_t usec,
-		    uint64_t ssl, uint32_t *reterr);
-enum clnt_stat	rpctls_srv_disconnect(uint64_t sec, uint64_t usec,
-		    uint64_t ssl, int procpos, uint32_t *reterr);
+		    struct socket *so, uint32_t *reterr);
+enum clnt_stat	rpctls_cl_handlerecord(void *socookie, uint32_t *reterr);
+enum clnt_stat	rpctls_srv_handlerecord(void *socookie, uint32_t *reterr);
+enum clnt_stat	rpctls_cl_disconnect(void *socookie, uint32_t *reterr);
+enum clnt_stat	rpctls_srv_disconnect(void *socookie, uint32_t *reterr);
 
 /* Initialization function for rpcsec_tls. */
 int		rpctls_init(void);
@@ -80,9 +64,6 @@ bool		rpctls_getinfo(u_int *maxlen, bool rpctlscd_run,
 
 /* String for AUTH_TLS reply verifier. */
 #define	RPCTLS_START_STRING	"STARTTLS"
-
-/* ssl refno value to indicate TLS handshake being done. */
-#define	RPCTLS_REFNO_HANDSHAKE	0xFFFFFFFFFFFFFFFFULL
 
 /* Macros for VIMAGE. */
 /* Just define the KRPC_VNETxxx() macros as VNETxxx() macros. */

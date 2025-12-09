@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	From: @(#)if.h	8.1 (Berkeley) 6/10/93
  */
 
 #ifndef	_NET_IF_CLONE_H_
@@ -150,13 +148,12 @@ typedef void (*if_clone_event_handler_t)(void *, struct if_clone *);
 EVENTHANDLER_DECLARE(if_clone_event, if_clone_event_handler_t);
 
 /* The below interfaces used only by net/if.c. */
-void	vnet_if_clone_init(void);
 int	if_clone_create(char *, size_t, caddr_t);
 int	if_clone_destroy(const char *);
 int	if_clone_list(struct if_clonereq *);
 void	if_clone_restoregroup(struct ifnet *);
 
-/* The below interfaces are used only by epair(4). */
+/* The below interfaces are used only by epair(4) and tun(4)/tap(4). */
 void	if_clone_addif(struct if_clone *, struct ifnet *);
 int	if_clone_destroyif(struct if_clone *, struct ifnet *);
 

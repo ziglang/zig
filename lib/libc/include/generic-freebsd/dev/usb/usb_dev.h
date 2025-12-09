@@ -96,7 +96,7 @@ struct usb_fs_privdata {
 	int fifo_index;
 	struct cdev *cdev;
 
-	LIST_ENTRY(usb_fs_privdata) pd_next;
+	SLIST_ENTRY(usb_fs_privdata) pd_next;
 };
 
 /*

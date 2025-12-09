@@ -259,7 +259,7 @@ struct flow_entry_data {
 	u_long		bytes;
 	long		first;		/* uptime on first packet */
 	long		last;		/* uptime on last packet */
-	u_char		tcp_flags;	/* cumulative OR */
+	uint16_t	tcp_flags;	/* cumulative OR */
 };
 
 struct flow6_entry_data {
@@ -277,7 +277,7 @@ struct flow6_entry_data {
 	u_long		bytes;
 	long		first;		/* uptime on first packet */
 	long		last;		/* uptime on last packet */
-	u_char		tcp_flags;	/* cumulative OR */
+	uint16_t	tcp_flags;	/* cumulative OR */
 };
 
 /*

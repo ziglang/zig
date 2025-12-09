@@ -103,6 +103,10 @@ enum mmc_chip_select {
 	cs_dontcare = 0, cs_high, cs_low
 };
 
+enum mmc_bus_type {
+	bus_type_default = 0, bus_type_spi
+};
+
 enum mmc_bus_width {
 	bus_width_1 = 0, bus_width_4 = 2, bus_width_8 = 3
 };
@@ -123,6 +127,7 @@ struct mmc_ios {
 	uint32_t	clock;	/* Speed of the clock in Hz to move data */
 	enum mmc_vdd	vdd;	/* Voltage to apply to the power pins */
 	enum mmc_vccq	vccq;	/* Voltage to use for signaling */
+	enum mmc_bus_type bus_type;
 	enum mmc_bus_mode bus_mode;
 	enum mmc_chip_select chip_select;
 	enum mmc_bus_width bus_width;

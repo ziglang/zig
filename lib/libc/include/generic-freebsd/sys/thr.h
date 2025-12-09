@@ -43,6 +43,7 @@ typedef __size_t	size_t;
 #define	THR_SUSPENDED		0x0001
 /* Create the system scope thread. */
 #define	THR_SYSTEM_SCOPE	0x0002
+#define	THR_C_RUNTIME		0x0004
 
 struct thr_param {
     void	(*start_func)(void *);	/* thread entry function. */

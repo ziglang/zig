@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)paths.h	8.1 (Berkeley) 6/2/93
  */
 
 #ifndef _PATHS_H_
@@ -63,7 +61,6 @@
 #define	_PATH_FIRMWARE	"/usr/share/firmware"
 #define	_PATH_FTPUSERS	"/etc/ftpusers"
 #define	_PATH_FWMEM	"/dev/fwmem"
-#define	_PATH_GBDE	"/sbin/gbde"
 #define	_PATH_GELI	"/sbin/geli"
 #define	_PATH_HALT	"/sbin/halt"
 #ifdef COMPAT_libcompat
@@ -84,6 +81,7 @@
 #define	_PATH_MOUNT	"/sbin/mount"
 #define	_PATH_NEWFS	"/sbin/newfs"
 #define	_PATH_NOLOGIN	"/var/run/nologin"
+#define	_PATH_NOSHUTDOWN "/var/run/noshutdown"
 #define	_PATH_RCP	"/bin/rcp"
 #define	_PATH_REBOOT	"/sbin/reboot"
 #define	_PATH_RLOGIN	"/usr/bin/rlogin"

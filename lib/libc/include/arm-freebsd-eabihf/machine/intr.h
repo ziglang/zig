@@ -39,16 +39,19 @@
 #ifndef _MACHINE_INTR_H_
 #define _MACHINE_INTR_H_
 
+#ifndef LOCORE
 #ifdef FDT
 #include <dev/ofw/openfirm.h>
 #endif
+
+void arm_irq_memory_barrier(uintptr_t);
+#endif /* !LOCORE */
 
 #ifndef NIRQ
 #define	NIRQ		1024	/* XXX - It should be an option. */
 #endif
 
-#include <sys/intr.h>
-
-void arm_irq_memory_barrier(uintptr_t);
+#define	INTR_ROOT_IRQ	0
+#define	INTR_ROOT_COUNT	1
 
 #endif	/* _MACHINE_INTR_H */

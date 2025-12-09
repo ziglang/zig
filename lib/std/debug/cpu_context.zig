@@ -9,6 +9,7 @@ else switch (native_arch) {
     .arm, .armeb, .thumb, .thumbeb => Arm,
     .csky => Csky,
     .hexagon => Hexagon,
+    .kvx => Kvx,
     .lanai => Lanai,
     .loongarch32, .loongarch64 => LoongArch,
     .m68k => M68k,
@@ -19,6 +20,7 @@ else switch (native_arch) {
     .riscv32, .riscv32be, .riscv64, .riscv64be => Riscv,
     .ve => Ve,
     .s390x => S390x,
+    .x86_16 => X86_16,
     .x86 => X86,
     .x86_64 => X86_64,
     else => noreturn,
@@ -248,6 +250,13 @@ const Aarch64 = extern struct {
         return ctx;
     }
 
+    pub fn getFp(ctx: *const Aarch64) u64 {
+        return ctx.x[29];
+    }
+    pub fn getPc(ctx: *const Aarch64) u64 {
+        return ctx.pc;
+    }
+
     pub fn dwarfRegisterBytes(ctx: *Aarch64, register_num: u16) DwarfRegisterError![]u8 {
         // DWARF for the Arm(r) 64-bit Architecture (AArch64) § 4.1 "DWARF register names"
         switch (register_num) {
@@ -322,6 +331,13 @@ const Arc = extern struct {
         return ctx;
     }
 
+    pub fn getFp(ctx: *const Arc) u32 {
+        return ctx.r[27];
+    }
+    pub fn getPc(ctx: *const Arc) u32 {
+        return ctx.pcl;
+    }
+
     pub fn dwarfRegisterBytes(ctx: *Arc, register_num: u16) DwarfRegisterError![]u8 {
         switch (register_num) {
             0...31 => return @ptrCast(&ctx.r[register_num]),
@@ -352,6 +368,13 @@ const Arm = struct {
             : [r] "{r0}" (&ctx.r),
             : .{ .memory = true });
         return ctx;
+    }
+
+    pub fn getFp(ctx: *const Arm) u32 {
+        return ctx.r[11];
+    }
+    pub fn getPc(ctx: *const Arm) u32 {
+        return ctx.r[15];
     }
 
     pub fn dwarfRegisterBytes(ctx: *Arm, register_num: u16) DwarfRegisterError![]u8 {
@@ -411,6 +434,13 @@ const Csky = extern struct {
             : [ctx] "{r12}" (&ctx),
             : .{ .r13 = true, .memory = true });
         return ctx;
+    }
+
+    pub fn getFp(ctx: *const Csky) u32 {
+        return ctx.r[14];
+    }
+    pub fn getPc(ctx: *const Csky) u32 {
+        return ctx.pc;
     }
 
     pub fn dwarfRegisterBytes(ctx: *Csky, register_num: u16) DwarfRegisterError![]u8 {
@@ -474,6 +504,13 @@ const Hexagon = extern struct {
         return ctx;
     }
 
+    pub fn getFp(ctx: *const Hexagon) u32 {
+        return ctx.r[30];
+    }
+    pub fn getPc(ctx: *const Hexagon) u32 {
+        return ctx.pc;
+    }
+
     pub fn dwarfRegisterBytes(ctx: *Hexagon, register_num: u16) DwarfRegisterError![]u8 {
         // Sourced from LLVM's HexagonRegisterInfo.td, which disagrees with LLDB...
         switch (register_num) {
@@ -486,6 +523,78 @@ const Hexagon = extern struct {
             77...259 => return error.UnsupportedRegister,
             // 999999...1000030 => return error.UnsupportedRegister,
             // 9999999...10000030 => return error.UnsupportedRegister,
+
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+/// This is an `extern struct` so that inline assembly in `current` can use field offsets.
+const Kvx = extern struct {
+    r: [64]u64,
+    ra: u64,
+    pc: u64,
+
+    pub inline fn current() Kvx {
+        var ctx: Kvx = undefined;
+        asm volatile (
+            \\ so (0)[$r32] = $r0r1r2r3
+            \\ ;;
+            \\ so (32)[$r32] = $r4r5r6r7
+            \\ ;;
+            \\ so (64)[$r32] = $r8r9r10r11
+            \\ ;;
+            \\ so (96)[$r32] = $r12r13r14r15
+            \\ ;;
+            \\ so (128)[$r32] = $r16r17r18r19
+            \\ ;;
+            \\ so (160)[$r32] = $r20r21r22r23
+            \\ ;;
+            \\ so (192)[$r32] = $r24r25r26r27
+            \\ ;;
+            \\ so (224)[$r32] = $r28r29r30r31
+            \\ ;;
+            \\ so (256)[$r32] = $r32r33r34r35
+            \\ ;;
+            \\ so (288)[$r32] = $r36r37r38r39
+            \\ ;;
+            \\ so (320)[$r32] = $r40r41r42r43
+            \\ ;;
+            \\ so (352)[$r32] = $r44r45r46r47
+            \\ ;;
+            \\ so (384)[$r32] = $r48r49r50r51
+            \\ ;;
+            \\ so (416)[$r32] = $r52r53r54r55
+            \\ ;;
+            \\ so (448)[$r32] = $r56r57r58r59
+            \\ get $r34 = $pc
+            \\ ;;
+            \\ so (480)[$r32] = $r60r61r62r63
+            \\ get $r35 = $ra
+            \\ ;;
+            \\ sq (512)[$r32] = $r34r35
+            :
+            : [ctx] "{r32}" (&ctx),
+            : .{ .r34 = true, .r35 = true, .memory = true });
+        return ctx;
+    }
+
+    pub fn getFp(ctx: *const Kvx) u64 {
+        return ctx.r[14];
+    }
+    pub fn getPc(ctx: *const Kvx) u64 {
+        return ctx.pc;
+    }
+
+    pub fn dwarfRegisterBytes(ctx: *Kvx, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            0...63 => return @ptrCast(&ctx.r[register_num]),
+            64 => return @ptrCast(&ctx.pc),
+            67 => return @ptrCast(&ctx.ra),
+
+            65...66 => return error.UnsupportedRegister, // SFRs
+            68...255 => return error.UnsupportedRegister, // SFRs
+            256...767 => return error.UnsupportedRegister, // XCRs
 
             else => return error.InvalidRegister,
         }
@@ -535,6 +644,13 @@ const Lanai = extern struct {
             : [ctx] "{r9}" (&ctx),
             : .{ .memory = true });
         return ctx;
+    }
+
+    pub fn getFp(ctx: *const Lanai) u32 {
+        return ctx.r[5];
+    }
+    pub fn getPc(ctx: *const Lanai) u32 {
+        return ctx.r[2];
     }
 
     pub fn dwarfRegisterBytes(ctx: *Lanai, register_num: u16) DwarfRegisterError![]u8 {
@@ -634,6 +750,13 @@ const LoongArch = extern struct {
         return ctx;
     }
 
+    pub fn getFp(ctx: *const LoongArch) Gpr {
+        return ctx.r[22];
+    }
+    pub fn getPc(ctx: *const LoongArch) Gpr {
+        return ctx.pc;
+    }
+
     pub fn dwarfRegisterBytes(ctx: *LoongArch, register_num: u16) DwarfRegisterError![]u8 {
         switch (register_num) {
             0...31 => return @ptrCast(&ctx.r[register_num]),
@@ -664,6 +787,13 @@ const M68k = extern struct {
             : [ctx] "{a0}" (&ctx),
             : .{ .a1 = true, .memory = true });
         return ctx;
+    }
+
+    pub fn getFp(ctx: *const M68k) u32 {
+        return ctx.a[6];
+    }
+    pub fn getPc(ctx: *const M68k) u32 {
+        return ctx.pc;
     }
 
     pub fn dwarfRegisterBytes(ctx: *M68k, register_num: u16) DwarfRegisterError![]u8 {
@@ -778,6 +908,15 @@ const Mips = extern struct {
         return ctx;
     }
 
+    pub fn getFp(ctx: *const Mips) usize {
+        // On N32, `Gpr` is 64 bits but `usize` is 32 bits.
+        return @intCast(ctx.r[30]);
+    }
+    pub fn getPc(ctx: *const Mips) usize {
+        // On N32, `Gpr` is 64 bits but `usize` is 32 bits.
+        return @intCast(ctx.pc);
+    }
+
     pub fn dwarfRegisterBytes(ctx: *Mips, register_num: u16) DwarfRegisterError![]u8 {
         switch (register_num) {
             0...31 => return @ptrCast(&ctx.r[register_num]),
@@ -848,6 +987,13 @@ const Or1k = extern struct {
             : [ctx] "{r15}" (&ctx),
             : .{ .r9 = true, .memory = true });
         return ctx;
+    }
+
+    pub fn getFp(ctx: *const Or1k) u32 {
+        return ctx.r[2];
+    }
+    pub fn getPc(ctx: *const Or1k) u32 {
+        return ctx.pc;
     }
 
     pub fn dwarfRegisterBytes(ctx: *Or1k, register_num: u16) DwarfRegisterError![]u8 {
@@ -953,6 +1099,13 @@ const Powerpc = extern struct {
             : [ctx] "{r10}" (&ctx),
             : .{ .r8 = true, .lr = true, .memory = true });
         return ctx;
+    }
+
+    pub fn getFp(ctx: *const Powerpc) Gpr {
+        return ctx.r[1];
+    }
+    pub fn getPc(ctx: *const Powerpc) Gpr {
+        return ctx.pc;
     }
 
     pub fn dwarfRegisterBytes(ctx: *Powerpc, register_num: u16) DwarfRegisterError![]u8 {
@@ -1101,6 +1254,13 @@ const Riscv = extern struct {
         return ctx;
     }
 
+    pub fn getFp(ctx: *const Riscv) Gpr {
+        return ctx.x[8];
+    }
+    pub fn getPc(ctx: *const Riscv) Gpr {
+        return ctx.pc;
+    }
+
     pub fn dwarfRegisterBytes(ctx: *Riscv, register_num: u16) DwarfRegisterError![]u8 {
         switch (register_num) {
             0...31 => return @ptrCast(&ctx.x[register_num]),
@@ -1139,6 +1299,13 @@ const S390x = extern struct {
             : [ctx] "{r2}" (&ctx),
             : .{ .r0 = true, .r1 = true, .memory = true });
         return ctx;
+    }
+
+    pub fn getFp(ctx: *const S390x) u64 {
+        return ctx.r[11];
+    }
+    pub fn getPc(ctx: *const S390x) u64 {
+        return ctx.psw.addr;
     }
 
     pub fn dwarfRegisterBytes(ctx: *S390x, register_num: u16) DwarfRegisterError![]u8 {
@@ -1243,6 +1410,13 @@ const Sparc = extern struct {
             asm volatile ("ta 3" ::: .{ .memory = true }); // ST_FLUSH_WINDOWS
     }
 
+    pub fn getFp(ctx: *const Sparc) Gpr {
+        return ctx.i[6];
+    }
+    pub fn getPc(ctx: *const Sparc) Gpr {
+        return ctx.pc;
+    }
+
     pub fn dwarfRegisterBytes(ctx: *Sparc, register_num: u16) DwarfRegisterError![]u8 {
         switch (register_num) {
             0...7 => return @ptrCast(&ctx.g[register_num]),
@@ -1337,6 +1511,13 @@ const Ve = extern struct {
         return ctx;
     }
 
+    pub fn getFp(ctx: *const Ve) u64 {
+        return ctx.s[9];
+    }
+    pub fn getPc(ctx: *const Ve) u64 {
+        return ctx.ic;
+    }
+
     pub fn dwarfRegisterBytes(ctx: *Ve, register_num: u16) DwarfRegisterError![]u8 {
         switch (register_num) {
             0...63 => return @ptrCast(&ctx.s[register_num]),
@@ -1345,6 +1526,53 @@ const Ve = extern struct {
             64...127 => return error.UnsupportedRegister, // v0 - v63
             128...143 => return error.UnsupportedRegister, // vm0 - vm15
 
+            else => return error.InvalidRegister,
+        }
+    }
+};
+
+const X86_16 = struct {
+    pub const Register = enum {
+        // zig fmt: off
+        sp, bp, ss,
+        ip, cs,
+        // zig fmt: on
+    };
+
+    regs: std.enums.EnumArray(Register, u16),
+
+    pub inline fn current() X86_16 {
+        var ctx: X86_16 = undefined;
+        asm volatile (
+            \\ movw %%sp, 0x00(%%di)
+            \\ movw %%bp, 0x02(%%di)
+            \\ movw %%ss, 0x04(%%di)
+            \\ pushw %%cs
+            \\ call 1f
+            \\1:
+            \\ popw 0x06(%%di)
+            \\ popw 0x08(%%di)
+            :
+            : [gprs] "{di}" (&ctx.regs.values),
+            : .{ .memory = true });
+        return ctx;
+    }
+
+    pub fn getFp(ctx: *const X86_16) u16 {
+        return ctx.regs.get(.bp);
+    }
+    pub fn getPc(ctx: *const X86_16) u16 {
+        return ctx.regs.get(.ip);
+    }
+
+    // NOTE: There doesn't seem to be any standard for DWARF x86-16 so we'll just reuse the ones for x86.
+    pub fn dwarfRegisterBytes(ctx: *X86_16, register_num: u16) DwarfRegisterError![]u8 {
+        switch (register_num) {
+            4 => return @ptrCast(ctx.regs.getPtr(.sp)),
+            5 => return @ptrCast(ctx.regs.getPtr(.bp)),
+            6 => return @ptrCast(ctx.regs.getPtr(.ip)),
+            41 => return @ptrCast(ctx.regs.getPtr(.cs)),
+            42 => return @ptrCast(ctx.regs.getPtr(.ss)),
             else => return error.InvalidRegister,
         }
     }
@@ -1381,6 +1609,13 @@ const X86 = struct {
             : [gprs] "{edi}" (&ctx.gprs.values),
             : .{ .memory = true });
         return ctx;
+    }
+
+    pub fn getFp(ctx: *const X86) u32 {
+        return ctx.gprs.get(.ebp);
+    }
+    pub fn getPc(ctx: *const X86) u32 {
+        return ctx.gprs.get(.eip);
     }
 
     pub fn dwarfRegisterBytes(ctx: *X86, register_num: u16) DwarfRegisterError![]u8 {
@@ -1449,6 +1684,15 @@ const X86_64 = struct {
             : [gprs] "{rdi}" (&ctx.gprs.values),
             : .{ .rax = true, .memory = true });
         return ctx;
+    }
+
+    pub fn getFp(ctx: *const X86_64) usize {
+        // On x32, registers are 64 bits but `usize` is 32 bits.
+        return @intCast(ctx.gprs.get(.rbp));
+    }
+    pub fn getPc(ctx: *const X86_64) usize {
+        // On x32, registers are 64 bits but `usize` is 32 bits.
+        return @intCast(ctx.gprs.get(.rip));
     }
 
     pub fn dwarfRegisterBytes(ctx: *X86_64, register_num: u16) DwarfRegisterError![]u8 {
@@ -1568,6 +1812,10 @@ const signal_ucontext_t = switch (native_os) {
         // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/include/uapi/asm-generic/ucontext.h
         .arc,
         .arceb,
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
         .csky,
         .hexagon,
         .m68k,
@@ -1606,6 +1854,14 @@ const signal_ucontext_t = switch (native_os) {
                     _efa: u32,
                     _stop_pc: u32,
                     r30: u32,
+                },
+                // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/arm/include/uapi/asm/sigcontext.h
+                .arm, .armeb, .thumb, .thumbeb => extern struct {
+                    _trap_no: u32,
+                    _error_code: u32,
+                    _oldmask: u32,
+                    r: [15]u32,
+                    pc: u32,
                 },
                 // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/csky/include/uapi/asm/sigcontext.h
                 .csky => extern struct {
@@ -1752,21 +2008,6 @@ const signal_ucontext_t = switch (native_os) {
                 else => unreachable,
             },
         },
-        // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/arm/include/asm/ucontext.h
-        .arm, .armeb, .thumb, .thumbeb => extern struct {
-            _flags: u32,
-            _link: ?*signal_ucontext_t,
-            _stack: std.os.linux.stack_t,
-            _unused: [31]i32,
-            // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/arm/include/uapi/asm/sigcontext.h
-            mcontext: extern struct {
-                _trap_no: u32,
-                _error_code: u32,
-                _oldmask: u32,
-                r: [15]u32,
-                pc: u32,
-            },
-        },
         // https://github.com/torvalds/linux/blob/cd5a0afbdf8033dc83786315d63f8b325bdba2fd/arch/powerpc/include/uapi/asm/ucontext.h
         .powerpc, .powerpcle => extern struct {
             _flags: u32,
@@ -1890,7 +2131,7 @@ const signal_ucontext_t = switch (native_os) {
         },
     },
     // https://github.com/ziglang/zig/blob/60be67d3c0ba6ae15fa7115596734ab1e74fbcd3/lib/libc/include/any-macos-any/sys/_types/_ucontext.h
-    .driverkit, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
+    .driverkit, .ios, .maccatalyst, .macos, .tvos, .watchos, .visionos => extern struct {
         _onstack: i32,
         _sigmask: std.c.sigset_t,
         _stack: std.c.stack_t,

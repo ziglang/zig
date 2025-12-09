@@ -31,8 +31,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	from: @(#)vm_page.h	8.2 (Berkeley) 12/13/93
- *
  *
  * Copyright (c) 1987, 1990 Carnegie-Mellon University.
  * All rights reserved.
@@ -245,23 +243,26 @@ struct vm_domain {
 	} vmd_pgcache[VM_NFREEPOOL];
 	struct vmem *vmd_kernel_arena;	/* (c) per-domain kva R/W arena. */
 	struct vmem *vmd_kernel_rwx_arena; /* (c) per-domain kva R/W/X arena. */
+	struct vmem *vmd_kernel_nofree_arena; /* (c) per-domain kva NOFREE arena. */
 	u_int vmd_domain;		/* (c) Domain number. */
 	u_int vmd_page_count;		/* (c) Total page count. */
 	long vmd_segs;			/* (c) bitmask of the segments */
+	struct pglist vmd_nofreeq;	/* (f) NOFREE page bump allocator. */
 	u_int __aligned(CACHE_LINE_SIZE) vmd_free_count; /* (a,f) free page count */
 	u_int vmd_pageout_deficit;	/* (a) Estimated number of pages deficit */
 	uint8_t vmd_pad[CACHE_LINE_SIZE - (sizeof(u_int) * 2)];
 
 	/* Paging control variables, used within single threaded page daemon. */
 	struct pidctrl vmd_pid;		/* Pageout controller. */
-	boolean_t vmd_oom;
-	u_int vmd_inactive_threads;
+	bool vmd_oom;			/* An OOM kill was requested. */
+	bool vmd_helper_threads_enabled;/* Use multiple threads to scan. */
+	u_int vmd_inactive_threads;	/* Number of extra helper threads. */
 	u_int vmd_inactive_shortage;		/* Per-thread shortage. */
 	blockcount_t vmd_inactive_running;	/* Number of inactive threads. */
 	blockcount_t vmd_inactive_starting;	/* Number of threads started. */
-	volatile u_int vmd_addl_shortage;	/* Shortage accumulator. */
-	volatile u_int vmd_inactive_freed;	/* Successful inactive frees. */
-	volatile u_int vmd_inactive_us;		/* Microseconds for above. */
+	u_int vmd_addl_shortage;	/* (a) Shortage accumulator. */
+	u_int vmd_inactive_freed;	/* (a) Successful inactive frees. */
+	u_int vmd_inactive_us;		/* (a) Microseconds for above. */
 	u_int vmd_inactive_pps;		/* Exponential decay frees/second. */
 	int vmd_oom_seq;
 	int vmd_last_active_scan;
@@ -354,6 +355,12 @@ vm_batchqueue_init(struct vm_batchqueue *bq)
 {
 
 	bq->bq_cnt = 0;
+}
+
+static inline bool
+vm_batchqueue_empty(const struct vm_batchqueue *bq)
+{
+	return (bq->bq_cnt == 0);
 }
 
 static inline int

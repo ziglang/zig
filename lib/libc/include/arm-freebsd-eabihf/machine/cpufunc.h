@@ -97,9 +97,6 @@ void	armv7_cpu_sleep			(int);
 void	pj4b_config			(void);
 #endif
 
-#if defined(CPU_ARM1176)
-void    arm11x6_sleep                   (int);  /* no ref. for errata */
-#endif
 
 
 /*

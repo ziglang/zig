@@ -56,7 +56,9 @@ typedef	__uint64_t	uint64_t;
 /*
  * Note: While tempting to try to avoid namespace pollution from this file,
  * several software packages assume these marcos are defined, even when it
- * defines _POSIX_C_SOURCE to request an unpolluted namespace.
+ * defines _POSIX_C_SOURCE to request an unpolluted namespace.  <sys/endian.h>
+ * is not defined by any version of POSIX.1, so we don't have to be
+ * careful. No POSIX.1 defined header file includes <sys/endian.h> on FreeBSD.
  */
 
 /*

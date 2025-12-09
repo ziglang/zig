@@ -296,6 +296,13 @@ struct sadb_x_sa_replay {
 };
 _Static_assert(sizeof(struct sadb_x_sa_replay) == 8, "struct size mismatch");
 
+struct sadb_x_if_hw_offl {
+  u_int16_t sadb_x_if_hw_offl_len;
+  u_int16_t sadb_x_if_hw_offl_exttype;
+  u_int32_t sadb_x_if_hw_offl_flags;
+  u_int8_t sadb_x_if_hw_offl_if[32];	/* IF_NAMESIZE is 16, keep room */
+};
+
 #define SADB_EXT_RESERVED             0
 #define SADB_EXT_SA                   1
 #define SADB_EXT_LIFETIME_CURRENT     2
@@ -326,7 +333,10 @@ _Static_assert(sizeof(struct sadb_x_sa_replay) == 8, "struct size mismatch");
 #define SADB_X_EXT_SA_REPLAY          26	/* Replay window override. */
 #define	SADB_X_EXT_NEW_ADDRESS_SRC    27
 #define	SADB_X_EXT_NEW_ADDRESS_DST    28
-#define	SADB_EXT_MAX                  28
+#define	SADB_X_EXT_LFT_CUR_SW_OFFL    29
+#define	SADB_X_EXT_LFT_CUR_HW_OFFL    30
+#define	SADB_X_EXT_IF_HW_OFFL	      31
+#define	SADB_EXT_MAX                  31
 
 #define SADB_SATYPE_UNSPEC	0
 #define SADB_SATYPE_AH		2
@@ -444,13 +454,13 @@ _Static_assert(sizeof(struct sadb_x_sa_replay) == 8, "struct size mismatch");
 /* Utilities */
 #define PFKEY_ALIGN8(a) (1 + (((a) - 1) | (8 - 1)))
 #define	PFKEY_EXTLEN(msg) \
-	PFKEY_UNUNIT64(((struct sadb_ext *)(msg))->sadb_ext_len)
+	PFKEY_UNUNIT64(((const struct sadb_ext *)(msg))->sadb_ext_len)
 #define PFKEY_ADDR_PREFIX(ext) \
-	(((struct sadb_address *)(ext))->sadb_address_prefixlen)
+	(((const struct sadb_address *)(ext))->sadb_address_prefixlen)
 #define PFKEY_ADDR_PROTO(ext) \
-	(((struct sadb_address *)(ext))->sadb_address_proto)
+	(((const struct sadb_address *)(ext))->sadb_address_proto)
 #define PFKEY_ADDR_SADDR(ext) \
-	((struct sockaddr *)((caddr_t)(ext) + sizeof(struct sadb_address)))
+	((const struct sockaddr *)((c_caddr_t)(ext) + sizeof(struct sadb_address)))
 
 /* in 64bits */
 #define	PFKEY_UNUNIT64(a)	((a) << 3)

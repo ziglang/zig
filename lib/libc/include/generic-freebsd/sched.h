@@ -29,7 +29,6 @@
 #ifndef __SCHED_H__
 #define __SCHED_H__
 
-#include <sys/cdefs.h>
 #include <sys/types.h>
 #include <sys/sched.h>
 #if __BSD_VISIBLE

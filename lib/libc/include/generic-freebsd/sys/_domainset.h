@@ -32,6 +32,8 @@
 #include <sys/_bitset.h>
 
 #ifdef _KERNEL
+#include <machine/param.h>
+
 #define	DOMAINSET_SETSIZE	MAXMEMDOM
 #endif
 

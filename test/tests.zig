@@ -1186,7 +1186,15 @@ const test_targets = blk: {
             .use_lld = false,
         },
 
-        // macOS Targets
+        // Darwin Targets
+
+        .{
+            .target = .{
+                .cpu_arch = .aarch64,
+                .os_tag = .maccatalyst,
+                .abi = .none,
+            },
+        },
 
         .{
             .target = .{
@@ -1206,6 +1214,14 @@ const test_targets = blk: {
             .use_lld = false,
             .optimize_mode = .ReleaseFast,
             .strip = true,
+        },
+
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .maccatalyst,
+                .abi = .none,
+            },
         },
 
         .{
@@ -1365,18 +1381,16 @@ const test_targets = blk: {
 
         // WASI Targets
 
-        // Disabled due to no active maintainer (feel free to fix the failures
-        // and then re-enable at any time). The failures occur due to backend
-        // miscompilation of different AIR from the frontend.
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .wasm32,
-        //        .os_tag = .wasi,
-        //        .abi = .none,
-        //    },
-        //    .use_llvm = false,
-        //    .use_lld = false,
-        //},
+        .{
+            .target = .{
+                .cpu_arch = .wasm32,
+                .os_tag = .wasi,
+                .abi = .none,
+            },
+            .skip_modules = &.{ "compiler-rt", "std" },
+            .use_llvm = false,
+            .use_lld = false,
+        },
         .{
             .target = .{
                 .cpu_arch = .wasm32,
@@ -1740,14 +1754,13 @@ const c_abi_targets = blk: {
             },
         },
 
-        // Clang explodes when parsing `cfuncs.c`.
-        // .{
-        //     .target = .{
-        //         .cpu_arch = .s390x,
-        //         .os_tag = .linux,
-        //         .abi = .musl,
-        //     },
-        // },
+        .{
+            .target = .{
+                .cpu_arch = .s390x,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+        },
 
         .{
             .target = std.Target.Query.parse(.{
@@ -2231,10 +2244,12 @@ const ModuleTestOptions = struct {
     test_default_only: bool,
     skip_single_threaded: bool,
     skip_non_native: bool,
+    skip_spirv: bool,
+    skip_wasm: bool,
     skip_freebsd: bool,
     skip_netbsd: bool,
     skip_windows: bool,
-    skip_macos: bool,
+    skip_darwin: bool,
     skip_linux: bool,
     skip_llvm: bool,
     skip_libc: bool,
@@ -2266,10 +2281,13 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (options.skip_non_native and !test_target.target.isNative())
             continue;
 
+        if (options.skip_spirv and test_target.target.cpu_arch != null and test_target.target.cpu_arch.?.isSpirV()) continue;
+        if (options.skip_wasm and test_target.target.cpu_arch != null and test_target.target.cpu_arch.?.isWasm()) continue;
+
         if (options.skip_freebsd and test_target.target.os_tag == .freebsd) continue;
         if (options.skip_netbsd and test_target.target.os_tag == .netbsd) continue;
         if (options.skip_windows and test_target.target.os_tag == .windows) continue;
-        if (options.skip_macos and test_target.target.os_tag == .macos) continue;
+        if (options.skip_darwin and test_target.target.os_tag != null and test_target.target.os_tag.?.isDarwin()) continue;
         if (options.skip_linux and test_target.target.os_tag == .linux) continue;
 
         const would_use_llvm = wouldUseLlvm(test_target.use_llvm, test_target.target, test_target.optimize_mode);
@@ -2324,8 +2342,11 @@ fn addOneModuleTest(
     const libc_suffix = if (test_target.link_libc == true) "-libc" else "";
     const model_txt = target.cpu.model.name;
 
-    // wasm32-wasi builds need more RAM, idk why
-    const max_rss = if (target.os.tag == .wasi)
+    // These emulated targets need a lot more RAM for unknown reasons.
+    const max_rss = if (mem.eql(u8, options.name, "std") and
+        (target.cpu.arch == .hexagon or
+            (target.cpu.arch.isRISCV() and !resolved_target.query.isNative()) or
+            target.cpu.arch.isWasm()))
         options.max_rss * 2
     else
         options.max_rss;
@@ -2484,6 +2505,7 @@ fn addOneModuleTest(
 }
 
 pub fn wouldUseLlvm(use_llvm: ?bool, query: std.Target.Query, optimize_mode: OptimizeMode) bool {
+    if (comptime builtin.cpu.arch.endian() == .big) return true; // https://github.com/ziglang/zig/issues/25961
     if (use_llvm) |x| return x;
     if (query.ofmt == .c) return false;
     switch (optimize_mode) {
@@ -2503,13 +2525,15 @@ pub fn wouldUseLlvm(use_llvm: ?bool, query: std.Target.Query, optimize_mode: Opt
 const CAbiTestOptions = struct {
     test_target_filters: []const []const u8,
     skip_non_native: bool,
+    skip_wasm: bool,
     skip_freebsd: bool,
     skip_netbsd: bool,
     skip_windows: bool,
-    skip_macos: bool,
+    skip_darwin: bool,
     skip_linux: bool,
     skip_llvm: bool,
     skip_release: bool,
+    max_rss: usize = 0,
 };
 
 pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
@@ -2522,10 +2546,13 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
 
         for (c_abi_targets) |c_abi_target| {
             if (options.skip_non_native and !c_abi_target.target.isNative()) continue;
+
+            if (options.skip_wasm and c_abi_target.target.cpu_arch != null and c_abi_target.target.cpu_arch.?.isWasm()) continue;
+
             if (options.skip_freebsd and c_abi_target.target.os_tag == .freebsd) continue;
             if (options.skip_netbsd and c_abi_target.target.os_tag == .netbsd) continue;
             if (options.skip_windows and c_abi_target.target.os_tag == .windows) continue;
-            if (options.skip_macos and c_abi_target.target.os_tag == .macos) continue;
+            if (options.skip_darwin and c_abi_target.target.os_tag != null and c_abi_target.target.os_tag.?.isDarwin()) continue;
             if (options.skip_linux and c_abi_target.target.os_tag == .linux) continue;
 
             const would_use_llvm = wouldUseLlvm(c_abi_target.use_llvm, c_abi_target.target, .Debug);
@@ -2579,6 +2606,7 @@ pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
                 .root_module = test_mod,
                 .use_llvm = c_abi_target.use_llvm,
                 .use_lld = c_abi_target.use_lld,
+                .max_rss = options.max_rss,
             });
 
             // This test is intentionally trying to check if the external ABI is

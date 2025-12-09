@@ -38,6 +38,8 @@
 
 extern int registered_toedevs;
 
+struct tcpcb;
+
 int  tcp_offload_connect(struct socket *, struct sockaddr *);
 void tcp_offload_listen_start(struct tcpcb *);
 void tcp_offload_listen_stop(struct tcpcb *);

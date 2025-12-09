@@ -36,18 +36,18 @@
 
 #include <sys/types.h>
 
-#define	__atomic_load_bool_relaxed(p)	(*(volatile _Bool *)(p))
+#define	__atomic_load_bool_relaxed(p)	(*(const volatile _Bool *)(p))
 #define	__atomic_store_bool_relaxed(p, v)	\
     (*(volatile _Bool *)(p) = (_Bool)(v))
 
-#define	__atomic_load_char_relaxed(p)	(*(volatile u_char *)(p))
-#define	__atomic_load_short_relaxed(p)	(*(volatile u_short *)(p))
-#define	__atomic_load_int_relaxed(p)	(*(volatile u_int *)(p))
-#define	__atomic_load_long_relaxed(p)	(*(volatile u_long *)(p))
-#define	__atomic_load_8_relaxed(p)	(*(volatile uint8_t *)(p))
-#define	__atomic_load_16_relaxed(p)	(*(volatile uint16_t *)(p))
-#define	__atomic_load_32_relaxed(p)	(*(volatile uint32_t *)(p))
-#define	__atomic_load_64_relaxed(p)	(*(volatile uint64_t *)(p))
+#define	__atomic_load_char_relaxed(p)	(*(const volatile u_char *)(p))
+#define	__atomic_load_short_relaxed(p)	(*(const volatile u_short *)(p))
+#define	__atomic_load_int_relaxed(p)	(*(const volatile u_int *)(p))
+#define	__atomic_load_long_relaxed(p)	(*(const volatile u_long *)(p))
+#define	__atomic_load_8_relaxed(p)	(*(const volatile uint8_t *)(p))
+#define	__atomic_load_16_relaxed(p)	(*(const volatile uint16_t *)(p))
+#define	__atomic_load_32_relaxed(p)	(*(const volatile uint32_t *)(p))
+#define	__atomic_load_64_relaxed(p)	(*(const volatile uint64_t *)(p))
 
 #define	__atomic_store_char_relaxed(p, v)	\
     (*(volatile u_char *)(p) = (u_char)(v))
@@ -124,7 +124,7 @@
 	__atomic_store_generic(p, v, int64_t, uint64_t, 64)
 #endif
 
-#define	atomic_load_ptr(p)	(*(volatile __typeof(*p) *)(p))
+#define	atomic_load_ptr(p)	(*(const volatile __typeof(*p) *)(p))
 #define	atomic_store_ptr(p, v)	(*(volatile __typeof(*p) *)(p) = (v))
 
 /*
@@ -133,7 +133,7 @@
  * openly resorting to the stronger acquire fence, to be sorted out.
  */
 #define	atomic_load_consume_ptr(p)	\
-    ((__typeof(*p)) atomic_load_acq_ptr((uintptr_t *)p))
+    ((__typeof(*p)) atomic_load_acq_ptr((const volatile uintptr_t *)p))
 
 #define	atomic_interrupt_fence()	__compiler_membar()
 

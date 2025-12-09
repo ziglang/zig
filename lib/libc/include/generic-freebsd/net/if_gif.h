@@ -120,7 +120,8 @@ int in6_gif_setopts(struct gif_softc *, u_int);
 #define GIFGOPTS	_IOWR('i', 150, struct ifreq)
 #define GIFSOPTS	_IOW('i', 151, struct ifreq)
 
+#define	GIF_NOCLAMP		0x0001
 #define	GIF_IGNORE_SOURCE	0x0002
-#define	GIF_OPTMASK		(GIF_IGNORE_SOURCE)
+#define	GIF_OPTMASK		(GIF_NOCLAMP|GIF_IGNORE_SOURCE)
 
 #endif /* _NET_IF_GIF_H_ */

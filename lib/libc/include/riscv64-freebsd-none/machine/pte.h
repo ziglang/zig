@@ -83,6 +83,51 @@ typedef	uint64_t	pn_t;			/* page number */
 #define	PTE_PROMOTE	(PTE_V | PTE_RWX | PTE_D | PTE_G | PTE_U | \
 			 PTE_SW_MANAGED | PTE_SW_WIRED)
 
+/*
+ * Svpbmt Memory Attribute (MA) bits [62:61].
+ *
+ * +------+-------+------------------------------------------------------------+
+ * | Mode | Value | Requested Memory Attributes                                |
+ * +------+-------+------------------------------------------------------------+
+ * | PMA  | 00    | None, inherited from Physical Memory Attributes (firmware) |
+ * | NC   | 01    | Non-cacheable, idempotent, weakly-ordered (RVWMO),         |
+ * |      |       | main memory                                                |
+ * | IO   | 10    | Non-cacheable, non-idempotent, strongly-ordered, I/O       |
+ * | --   | 11    | Reserved                                                   |
+ * +------+-------+------------------------------------------------------------+
+ */
+#define	PTE_MA_SHIFT		61
+#define	PTE_MA_MASK		(0x3ul << PTE_MA_SHIFT)
+#define	PTE_MA_NONE		(0ul)
+#define	PTE_MA_NC		(1ul << PTE_MA_SHIFT)
+#define	PTE_MA_IO		(2ul << PTE_MA_SHIFT)
+
+/*
+ * T-HEAD Custom Memory Attribute (MA) bits [63:59].
+ *
+ * bit 59: Trustable (relating to TEE)
+ * bit 60: Shareable (among CPUs, not configurable)
+ * bit 61: Bufferable (writes to device memory)
+ * bit 62: Cacheable
+ * bit 63: Memory Ordering (1 = strongly ordered (device), 0 = default)
+ *
+ * +------+-------+------------------------------------------------------------+
+ * | Mode | Value | Requested Memory Attributes                                |
+ * +------+-------+------------------------------------------------------------+
+ * | NC   | 00110 | Weakly-ordered, non-cacheable, bufferable, shareable,      |
+ * |      |       | non-trustable                                              |
+ * | PMA  | 01110 | Weakly-ordered, cacheable, bufferable, shareable,          |
+ * |      |       | non-trustable                                              |
+ * | IO   | 10010 | Strongly-ordered, non-cacheable, non-bufferable,           |
+ * |      |       | shareable, non-trustable                                   |
+ * +------+-------+------------------------------------------------------------+
+ */
+#define	PTE_THEAD_MA_SHIFT	59
+#define	PTE_THEAD_MA_MASK	(0x1ful << PTE_THEAD_MA_SHIFT)
+#define	PTE_THEAD_MA_NC		(0x6ul  << PTE_THEAD_MA_SHIFT)
+#define	PTE_THEAD_MA_NONE	(0xeul  << PTE_THEAD_MA_SHIFT)
+#define	PTE_THEAD_MA_IO		(0x12ul << PTE_THEAD_MA_SHIFT)
+
 /* Bits 63 - 54 are reserved for future use. */
 #define PTE_HI_MASK	0xFFC0000000000000ULL
 
@@ -93,5 +138,3 @@ typedef	uint64_t	pn_t;			/* page number */
 #define	PTE_SIZE	8
 
 #endif /* !_MACHINE_PTE_H_ */
-
-/* End of pte.h */

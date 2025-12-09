@@ -126,11 +126,6 @@ struct	vlanreq {
 
 #define	VLAN_PCP_MAX		7
 
-#define	DOT1Q_VID_NULL		0x0
-#define	DOT1Q_VID_DEF_PVID	0x1
-#define	DOT1Q_VID_DEF_SR_PVID	0x2
-#define	DOT1Q_VID_RSVD_IMPL	0xfff
-
 /*
  * 802.1q full tag. Proto and vid are stored in host byte order.
  */
@@ -166,6 +161,7 @@ extern	int (*vlan_tag_p)(struct ifnet *, uint16_t *);
 extern	int (*vlan_pcp_p)(struct ifnet *, uint16_t *);
 extern	int (*vlan_setcookie_p)(struct ifnet *, void *);
 extern	void *(*vlan_cookie_p)(struct ifnet *);
+extern	void (*vlan_input_p)(struct ifnet *, struct mbuf *);
 
 #include <sys/_eventhandler.h>
 

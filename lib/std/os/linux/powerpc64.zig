@@ -217,7 +217,21 @@ pub fn clone() callconv(.naked) u64 {
     );
 }
 
-pub const restore = restore_rt;
+pub fn restore() callconv(.naked) noreturn {
+    switch (builtin.zig_backend) {
+        .stage2_c => asm volatile (
+            \\ li 0, %[number]
+            \\ sc
+            :
+            : [number] "i" (@intFromEnum(SYS.sigreturn)),
+        ),
+        else => asm volatile (
+            \\ sc
+            :
+            : [number] "{r0}" (@intFromEnum(SYS.sigreturn)),
+        ),
+    }
+}
 
 pub fn restore_rt() callconv(.naked) noreturn {
     switch (builtin.zig_backend) {

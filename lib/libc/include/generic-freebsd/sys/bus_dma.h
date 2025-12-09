@@ -161,11 +161,8 @@ void _busdma_dflt_lock(void *arg, bus_dma_lock_op_t op);
  *	boundary:	Boundary that segments cannot cross.
  *	lowaddr:	Low restricted address that cannot appear in a mapping.
  *	highaddr:	High restricted address that cannot appear in a mapping.
- *	filtfunc:	An optional function to further test if an address
- *			within the range of lowaddr and highaddr cannot appear
- *			in a mapping.
- *	filtfuncarg:	An argument that will be passed to filtfunc in addition
- *			to the address to test.
+ *	filtfunc:	(deprecated, must be NULL)
+ *	filtfuncarg:	(deprecated, must be NULL)
  *	maxsize:	Maximum mapping size supported by this tag.
  *	nsegments:	Number of discontinuities allowed in maps.
  *	maxsegsz:	Maximum size of a segment in the map.

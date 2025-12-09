@@ -32,8 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)ttycom.h	8.1 (Berkeley) 3/28/94
  */
 
 #ifndef	_SYS_TTYCOM_H_
@@ -71,8 +69,8 @@
 						/* 89-91 conflicts: tun and tap */
 #define	TIOCTIMESTAMP	_IOR('t', 89, struct timeval)	/* enable/get timestamp
 						 * of last input event */
-#define	TIOCMGDTRWAIT	_IOR('t', 90, int)	/* modem: get wait on close */
-#define	TIOCMSDTRWAIT	_IOW('t', 91, int)	/* modem: set wait on close */
+/*	TIOCMGDTRWAIT	_IOR('t', 90, int)	 * was modem: get wait on close */
+/*	TIOCMSDTRWAIT	_IOW('t', 91, int)	 * was modem: set wait on close */
 						/* 92-93 tun and tap */
 						/* 94-97 conflicts: tun and tap */
 #define	TIOCDRAIN	 _IO('t', 94)		/* wait till output drained */

@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)resourcevar.h	8.4 (Berkeley) 1/9/95
  */
 
 #ifndef	_SYS_RESOURCEVAR_H_
@@ -124,6 +122,8 @@ struct uidinfo {
 	long	ui_kqcnt;		/* (b) number of kqueues */
 	long	ui_umtxcnt;		/* (b) number of shared umtxs */
 	long	ui_pipecnt;		/* (b) consumption of pipe buffers */
+	long	ui_inotifycnt;		/* (b) number of inotify descriptors */
+	long	ui_inotifywatchcnt;	/* (b) number of inotify watches */
 	uid_t	ui_uid;			/* (a) uid */
 	u_int	ui_ref;			/* (b) reference count */
 #ifdef	RACCT
@@ -146,6 +146,8 @@ int	 chgsbsize(struct uidinfo *uip, u_int *hiwat, u_int to,
 int	 chgptscnt(struct uidinfo *uip, int diff, rlim_t maxval);
 int	 chgumtxcnt(struct uidinfo *uip, int diff, rlim_t maxval);
 int	 chgpipecnt(struct uidinfo *uip, int diff, rlim_t max);
+int	 chginotifycnt(struct uidinfo *uip, int diff, rlim_t maxval);
+int	 chginotifywatchcnt(struct uidinfo *uip, int diff, rlim_t maxval);
 int	 kern_proc_setrlimit(struct thread *td, struct proc *p, u_int which,
 	    struct rlimit *limp);
 struct plimit

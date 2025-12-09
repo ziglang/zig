@@ -33,16 +33,24 @@
 
 /* Genetlink helpers */
 static inline struct nlmsghdr *
-snl_create_genl_msg_request(struct snl_writer *nw, int genl_family, uint8_t genl_cmd)
+snl_create_genl_msg_request(struct snl_writer *nw, uint16_t genl_family,
+    uint8_t genl_cmd)
 {
+	struct nlmsghdr *hdr;
+	struct genlmsghdr *ghdr;
+
 	assert(nw->hdr == NULL);
 
-	struct nlmsghdr *hdr = snl_reserve_msg_object(nw, struct nlmsghdr);
+	hdr = snl_reserve_msg_object(nw, struct nlmsghdr);
+	if (__predict_false(hdr == NULL))
+		return (NULL);
 	hdr->nlmsg_type = genl_family;
 	hdr->nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
-	nw->hdr = hdr;
-	struct genlmsghdr *ghdr = snl_reserve_msg_object(nw, struct genlmsghdr);
+	ghdr = snl_reserve_msg_object(nw, struct genlmsghdr);
+	if (__predict_false(ghdr == NULL))
+		return (NULL);
 	ghdr->cmd = genl_cmd;
+	nw->hdr = hdr;
 
 	return (hdr);
 }
@@ -52,37 +60,52 @@ static struct snl_field_parser snl_fp_genl[] = {};
 #define	SNL_DECLARE_GENL_PARSER(_name, _np)	SNL_DECLARE_PARSER(_name,\
     struct genlmsghdr, snl_fp_genl, _np)
 
-struct snl_genl_ctrl_mcast_group {
+struct _snl_genl_ctrl_mcast_group {
 	uint32_t mcast_grp_id;
-	char *mcast_grp_name;
+	const char *mcast_grp_name;
 };
 
-struct snl_genl_ctrl_mcast_groups {
+struct _snl_genl_ctrl_mcast_groups {
 	uint32_t num_groups;
-	struct snl_genl_ctrl_mcast_group **groups;
+	struct _snl_genl_ctrl_mcast_group **groups;
 };
 
-#define	_OUT(_field)	offsetof(struct snl_genl_ctrl_mcast_group, _field)
+#define	_OUT(_field)	offsetof(struct _snl_genl_ctrl_mcast_group, _field)
 static struct snl_attr_parser _nla_p_getmc[] = {
-	{ .type = CTRL_ATTR_MCAST_GRP_NAME, .off = _OUT(mcast_grp_name), .cb = snl_attr_get_string },
-	{ .type = CTRL_ATTR_MCAST_GRP_ID, .off = _OUT(mcast_grp_id), .cb = snl_attr_get_uint32 },
+	{
+		.type = CTRL_ATTR_MCAST_GRP_NAME,
+		.off = _OUT(mcast_grp_name),
+		.cb = snl_attr_get_string,
+	},
+	{
+		.type = CTRL_ATTR_MCAST_GRP_ID,
+		.off = _OUT(mcast_grp_id),
+		.cb = snl_attr_get_uint32,
+	},
 };
 #undef _OUT
 SNL_DECLARE_ATTR_PARSER_EXT(_genl_ctrl_mc_parser,
-		sizeof(struct snl_genl_ctrl_mcast_group),
-		_nla_p_getmc, NULL);
+    sizeof(struct _snl_genl_ctrl_mcast_group), _nla_p_getmc, NULL);
 
 struct _getfamily_attrs {
 	uint16_t family_id;
-	char	*family_name;
-	struct snl_genl_ctrl_mcast_groups mcast_groups;
+	const char *family_name;
+	struct _snl_genl_ctrl_mcast_groups mcast_groups;
 };
 
 #define	_IN(_field)	offsetof(struct genlmsghdr, _field)
 #define	_OUT(_field)	offsetof(struct _getfamily_attrs, _field)
 static struct snl_attr_parser _nla_p_getfam[] = {
-	{ .type = CTRL_ATTR_FAMILY_ID , .off = _OUT(family_id), .cb = snl_attr_get_uint16 },
-	{ .type = CTRL_ATTR_FAMILY_NAME, .off = _OUT(family_name), .cb = snl_attr_get_string },
+	{
+		.type = CTRL_ATTR_FAMILY_ID,
+		.off = _OUT(family_id),
+		.cb = snl_attr_get_uint16,
+	},
+	{
+		.type = CTRL_ATTR_FAMILY_NAME,
+		.off = _OUT(family_name),
+		.cb = snl_attr_get_string,
+	},
 	{
 		.type = CTRL_ATTR_MCAST_GROUPS,
 		.off = _OUT(mcast_groups),
@@ -95,7 +118,7 @@ static struct snl_attr_parser _nla_p_getfam[] = {
 SNL_DECLARE_GENL_PARSER(_genl_ctrl_getfam_parser, _nla_p_getfam);
 
 static bool
-snl_get_genl_family_info(struct snl_state *ss, const char *family_name,
+_snl_get_genl_family_info(struct snl_state *ss, const char *family_name,
     struct _getfamily_attrs *attrs)
 {
 	struct snl_writer nw;
@@ -104,7 +127,7 @@ snl_get_genl_family_info(struct snl_state *ss, const char *family_name,
 	memset(attrs, 0, sizeof(*attrs));
 
 	snl_init_writer(ss, &nw);
-	hdr = snl_create_genl_msg_request(&nw, GENL_ID_CTRL, CTRL_CMD_GETFAMILY);
+	snl_create_genl_msg_request(&nw, GENL_ID_CTRL, CTRL_CMD_GETFAMILY);
 	snl_add_msg_attr_string(&nw, CTRL_ATTR_FAMILY_NAME, family_name);
 	if ((hdr = snl_finalize_msg(&nw)) == NULL || !snl_send_message(ss, hdr))
 		return (false);
@@ -123,12 +146,30 @@ snl_get_genl_family(struct snl_state *ss, const char *family_name)
 {
 	struct _getfamily_attrs attrs = {};
 
-	snl_get_genl_family_info(ss, family_name, &attrs);
+	if (__predict_false(!_snl_get_genl_family_info(ss, family_name,
+	    &attrs)))
+		return (0);
 	return (attrs.family_id);
 }
 
-static const struct snl_hdr_parser *snl_all_genl_parsers[] = {
-	&_genl_ctrl_getfam_parser, &_genl_ctrl_mc_parser,
-};
+static inline uint16_t
+snl_get_genl_mcast_group(struct snl_state *ss, const char *family_name,
+    const char *group_name, uint16_t *family_id)
+{
+	struct _getfamily_attrs attrs = {};
+
+	if (__predict_false(!_snl_get_genl_family_info(ss, family_name,
+	    &attrs)))
+		return (0);
+	if (attrs.family_id == 0)
+		return (0);
+	if (family_id != NULL)
+		*family_id = attrs.family_id;
+	for (u_int i = 0; i < attrs.mcast_groups.num_groups; i++)
+		if (strcmp(attrs.mcast_groups.groups[i]->mcast_grp_name,
+                    group_name) == 0)
+			return (attrs.mcast_groups.groups[i]->mcast_grp_id);
+	return (0);
+}
 
 #endif

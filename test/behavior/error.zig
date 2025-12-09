@@ -1090,3 +1090,22 @@ test "compare error union to error set" {
     try S.doTheTest(0);
     try comptime S.doTheTest(0);
 }
+
+test "'if' ignores error via local while 'else' ignores error directly" {
+    const S = struct {
+        /// This function is intentionally fallible despite never returning an
+        /// error so that it participates in error return tracing.
+        fn testOne(cond: bool) !void {
+            if (cond) {
+                const result = notError();
+                result catch {};
+            } else {
+                notError() catch {};
+            }
+        }
+        fn notError() error{E}!void {}
+    };
+
+    try S.testOne(false);
+    try S.testOne(true);
+}

@@ -100,6 +100,8 @@
 	    ((ic)->ic_flags_ext & IEEE80211_FEXT_SEQNO_OFFLOAD)
 #define	IEEE80211_CONF_FRAG_OFFLOAD(ic)	\
 	    ((ic)->ic_flags_ext & IEEE80211_FEXT_FRAG_OFFLOAD)
+#define	IEEE80211_CONF_AMPDU_OFFLOAD(ic)	\
+	    ((ic)->ic_flags_ext & IEEE80211_FEXT_AMPDU_OFFLOAD)
 
 /*
  * 802.11 control state is split into a common portion that maps
@@ -163,8 +165,12 @@ struct ieee80211com {
 	uint32_t		ic_caps;	/* capabilities */
 	uint32_t		ic_htcaps;	/* HT capabilities */
 	uint32_t		ic_htextcaps;	/* HT extended capabilities */
-	uint32_t		ic_cryptocaps;	/* crypto capabilities */
+				/* driver-supported software crypto caps */
+	uint32_t		ic_sw_cryptocaps;
+	uint32_t		ic_cryptocaps;	/* hardware crypto caps */
 						/* set of mode capabilities */
+				/* driver/net80211 sw KEYMGMT capabilities */
+	uint32_t		ic_sw_keymgmtcaps;
 	uint8_t			ic_modecaps[IEEE80211_MODE_BYTES];
 	uint8_t			ic_promisc;	/* vap's needing promisc mode */
 	uint8_t			ic_allmulti;	/* vap's needing all multicast*/
@@ -693,13 +699,14 @@ MALLOC_DECLARE(M_80211_VAP);
 #define	IEEE80211_FEXT_VHT	0x00400000	/* CONF: VHT support */
 #define	IEEE80211_FEXT_QUIET_IE	0x00800000	/* STATUS: quiet IE in a beacon has been added */
 #define	IEEE80211_FEXT_UAPSD	0x01000000	/* CONF: enable U-APSD */
+#define	IEEE80211_FEXT_AMPDU_OFFLOAD	0x02000000	/* CONF: driver/fw handles AMPDU[-TX] itself */
 
 #define	IEEE80211_FEXT_BITS \
 	"\20\2INACT\3SCANWAIT\4BGSCAN\5WPS\6TSN\7SCANREQ\10RESUME" \
 	"\0114ADDR\12NONEPR_PR\13SWBMISS\14DFS\15DOTD\16STATEWAIT\17REINIT" \
 	"\20BPF\21WDSLEGACY\22PROBECHAN\23UNIQMAC\24SCAN_OFFLOAD\25SEQNO_OFFLOAD" \
 	    "\26FRAG_OFFLOAD\27VHT" \
-	"\30QUIET_IE\31UAPSD"
+	"\30QUIET_IE\31UAPSD\32AMPDU_OFFLOAD"
 
 /* ic_flags_ht/iv_flags_ht */
 #define	IEEE80211_FHT_NONHT_PR	 0x00000001	/* STATUS: non-HT sta present */
@@ -728,17 +735,29 @@ MALLOC_DECLARE(M_80211_VAP);
 
 #define	IEEE80211_FVEN_BITS	"\20"
 
+/*
+ * These flags are compared in ieee80211_setupcurchan().
+ * Thus 160 should be > 80P80.
+ */
 #define	IEEE80211_FVHT_VHT	0x000000001	/* CONF: VHT supported */
 #define	IEEE80211_FVHT_USEVHT40	0x000000002	/* CONF: Use VHT40 */
 #define	IEEE80211_FVHT_USEVHT80	0x000000004	/* CONF: Use VHT80 */
-#define	IEEE80211_FVHT_USEVHT160	0x000000008	/* CONF: Use VHT160 */
-#define	IEEE80211_FVHT_USEVHT80P80	0x000000010	/* CONF: Use VHT 80+80 */
-#define	IEEE80211_FVHT_MASK						\
+#define	IEEE80211_FVHT_USEVHT80P80	0x000000008	/* CONF: Use VHT 80+80 */
+#define	IEEE80211_FVHT_USEVHT160	0x000000010	/* CONF: Use VHT160 */
+#define	IEEE80211_FVHT_STBC_TX	0x00000020	/* CONF: STBC tx enabled */
+#define	IEEE80211_FVHT_STBC_RX	0x00000040	/* CONF: STBC rx enabled */
+
+#define	IEEE80211_FVHT_CHANWIDTH_MASK					\
 	(IEEE80211_FVHT_VHT | IEEE80211_FVHT_USEVHT40 |			\
 	IEEE80211_FVHT_USEVHT80 | IEEE80211_FVHT_USEVHT160 |		\
 	IEEE80211_FVHT_USEVHT80P80)
+
+#define	IEEE80211_FVHT_MASK						\
+	(IEEE80211_FVHT_CHANWIDTH_MASK |				\
+	IEEE80211_FVHT_STBC_TX | IEEE80211_FVHT_STBC_RX)
+
 #define	IEEE80211_VFHT_BITS \
-	"\20\1VHT\2VHT40\3VHT80\4VHT160\5VHT80P80"
+	"\20\1VHT\2VHT40\3VHT80\4VHT80P80\5VHT160\6STBC_TX\7STBC_RX"
 
 #define	IEEE80211_COM_DETACHED	0x00000001	/* ieee80211_ifdetach called */
 #define	IEEE80211_COM_REF_ADD	0x00000002	/* add / remove reference */
@@ -746,9 +765,17 @@ MALLOC_DECLARE(M_80211_VAP);
 #define	IEEE80211_COM_REF_S	1
 #define	IEEE80211_COM_REF_MAX	(IEEE80211_COM_REF >> IEEE80211_COM_REF_S)
 
-int	ic_printf(struct ieee80211com *, const char *, ...) __printflike(2, 3);
+/* TODO: Transition macro */
+#define	ic_printf	net80211_ic_printf
+
 void	ieee80211_ifattach(struct ieee80211com *);
 void	ieee80211_ifdetach(struct ieee80211com *);
+void	ieee80211_set_software_ciphers(struct ieee80211com *,
+	    uint32_t cipher_suite);
+void	ieee80211_set_hardware_ciphers(struct ieee80211com *,
+	    uint32_t cipher_suite);
+void	ieee80211_set_driver_keymgmt_suites(struct ieee80211com *ic,
+	    uint32_t keymgmt_set);
 int	ieee80211_vap_setup(struct ieee80211com *, struct ieee80211vap *,
 		const char name[IFNAMSIZ], int unit,
 		enum ieee80211_opmode opmode, int flags,
@@ -772,7 +799,8 @@ void	ieee80211_iterate_coms(ieee80211_com_iter_func *, void *);
 int	ieee80211_media_change(struct ifnet *);
 void	ieee80211_media_status(struct ifnet *, struct ifmediareq *);
 int	ieee80211_ioctl(struct ifnet *, u_long, caddr_t);
-int	ieee80211_rate2media(struct ieee80211com *, int,
+int	ieee80211_rate2media(struct ieee80211com *,
+		const struct ieee80211_node_txrate *,
 		enum ieee80211_phymode);
 int	ieee80211_media2rate(int);
 int	ieee80211_mhz2ieee(u_int, u_int);
@@ -813,6 +841,14 @@ char	ieee80211_channel_type_char(const struct ieee80211_channel *c);
 #define	ieee80211_get_current_channel(_ic)	((_ic)->ic_curchan)
 #define	ieee80211_get_home_channel(_ic)		((_ic)->ic_bsschan)
 #define	ieee80211_get_vap_desired_channel(_iv)	((_iv)->iv_des_chan)
+
+bool	ieee80211_is_key_global(const struct ieee80211vap *vap,
+	    const struct ieee80211_key *key);
+bool	ieee80211_is_key_unicast(const struct ieee80211vap *vap,
+	    const struct ieee80211_key *key);
+
+bool	ieee80211_is_ctl_frame_for_vap(struct ieee80211_node *,
+	    const struct mbuf *);
 
 void	ieee80211_radiotap_attach(struct ieee80211com *,
 	    struct ieee80211_radiotap_header *th, int tlen,
@@ -976,7 +1012,7 @@ ieee80211_get_node_txpower(struct ieee80211_node *ni)
  * Debugging facilities compiled in when IEEE80211_DEBUG is defined.
  *
  * The intent is that any problem in the net80211 layer can be
- * diagnosed by inspecting the statistics (dumped by the wlanstats
+ * diagnosed by inspecting the statistics (dumped by the wlanstat
  * program) and/or the msgs generated by net80211.  Messages are
  * broken into functional classes and can be controlled with the
  * wlandebug program.  Certain of these msg groups are for facilities

@@ -140,8 +140,8 @@ const Parse = struct {
     gpa: Allocator,
     ast: Ast,
     arena: Allocator,
-    buf: std.ArrayListUnmanaged(u8),
-    errors: std.ArrayListUnmanaged(ErrorMessage),
+    buf: std.ArrayList(u8),
+    errors: std.ArrayList(ErrorMessage),
 
     name: []const u8,
     id: u32,
@@ -466,7 +466,7 @@ const Parse = struct {
     fn parseStrLit(
         p: *Parse,
         token: Ast.TokenIndex,
-        buf: *std.ArrayListUnmanaged(u8),
+        buf: *std.ArrayList(u8),
         bytes: []const u8,
         offset: u32,
     ) InnerError!void {

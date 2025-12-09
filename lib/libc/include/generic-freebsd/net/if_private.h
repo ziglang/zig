@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	From: @(#)if.h	8.1 (Berkeley) 6/10/93
  */
 
 #ifndef	_NET_IF_PRIVATE_H_
@@ -139,6 +137,8 @@ struct ifnet {
 	if_get_counter_t if_get_counter; /* get counter values */
 	int	(*if_requestencap)	/* make link header from request */
 		(struct ifnet *, struct if_encap_req *);
+
+	const struct if_ipsec_accel_methods *if_ipsec_accel_m;
 
 	/* Statistics. */
 	counter_u64_t	if_counters[IFCOUNTERS];

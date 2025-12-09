@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)ufsmount.h	8.6 (Berkeley) 3/30/95
  */
 
 #ifndef _UFS_UFS_UFSMOUNT_H_
@@ -99,8 +97,6 @@ struct ufsmount {
 	uint64_t um_maxsymlinklen;		/* (c) max size of short
 						       symlink */
 	struct	mtx um_lock;			/* (c) Protects ufsmount & fs */
-	struct	sx um_checkpath_lock;		/* (c) Protects ufs_checkpath()
-						       result */
 	struct	mount_softdeps *um_softdep;	/* (c) softdep mgmt structure */
 	struct	vnode *um_quotas[MAXQUOTAS];	/* (q) pointer to quota files */
 	struct	ucred *um_cred[MAXQUOTAS];	/* (q) quota file access cred */

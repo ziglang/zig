@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)route.h	8.4 (Berkeley) 1/9/95
  */
 
 #ifndef _NET_ROUTE_H_
@@ -241,6 +239,7 @@ struct rtstat {
 	uint64_t rts_add_retry;		/* # of route addition retries */
 	uint64_t rts_del_failure;	/* # of route deletion failure */
 	uint64_t rts_del_retry;		/* # of route deletion retries */
+	uint64_t rts_spare[5];
 };
 
 /*
@@ -296,6 +295,7 @@ struct rt_msghdr {
 #define	RTM_DELMADDR	0x10	/* (4) mcast group membership being deleted */
 #define	RTM_IFANNOUNCE	0x11	/* (5) iface arrival/departure */
 #define	RTM_IEEE80211	0x12	/* (5) IEEE80211 wireless event */
+#define	RTM_IPFWLOG	0x13	/* (1) IPFW rule match log event */
 
 #endif /* NETLINK_COMPAT*/
 

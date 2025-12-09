@@ -354,6 +354,8 @@ pub extern "c" fn _dyld_image_count() u32;
 pub extern "c" fn _dyld_get_image_header(image_index: u32) ?*mach_header;
 pub extern "c" fn _dyld_get_image_vmaddr_slide(image_index: u32) usize;
 pub extern "c" fn _dyld_get_image_name(image_index: u32) [*:0]const u8;
+pub extern "c" fn _dyld_get_image_header_containing_address(address: *const anyopaque) ?*mach_header;
+pub extern "c" fn dyld_image_path_containing_address(address: *const anyopaque) ?[*:0]const u8;
 pub extern "c" fn dladdr(addr: *const anyopaque, info: *dl_info) c_int;
 
 pub const dl_info = extern struct {

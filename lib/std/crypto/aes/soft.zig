@@ -265,6 +265,26 @@ pub const Block = struct {
         return Block{ .repr = x };
     }
 
+    /// Apply the inverse MixColumns operation to a block.
+    pub fn invMixColumns(block: Block) Block {
+        var out: Repr = undefined;
+        inline for (0..4) |i| {
+            const col = block.repr[i];
+            const b0: u8 = @truncate(col);
+            const b1: u8 = @truncate(col >> 8);
+            const b2: u8 = @truncate(col >> 16);
+            const b3: u8 = @truncate(col >> 24);
+
+            const r0 = mul(0x0e, b0) ^ mul(0x0b, b1) ^ mul(0x0d, b2) ^ mul(0x09, b3);
+            const r1 = mul(0x09, b0) ^ mul(0x0e, b1) ^ mul(0x0b, b2) ^ mul(0x0d, b3);
+            const r2 = mul(0x0d, b0) ^ mul(0x09, b1) ^ mul(0x0e, b2) ^ mul(0x0b, b3);
+            const r3 = mul(0x0b, b0) ^ mul(0x0d, b1) ^ mul(0x09, b2) ^ mul(0x0e, b3);
+
+            out[i] = @as(u32, r0) | (@as(u32, r1) << 8) | (@as(u32, r2) << 16) | (@as(u32, r3) << 24);
+        }
+        return Block{ .repr = out };
+    }
+
     /// Perform operations on multiple blocks in parallel.
     pub const parallel = struct {
         /// The recommended number of AES encryption/decryption to perform in parallel for the chosen implementation.
@@ -438,6 +458,15 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
             var out: Self = undefined;
             for (0..native_words) |i| {
                 out.repr[i] = block_vec1.repr[i].orBlocks(block_vec2.repr[i]);
+            }
+            return out;
+        }
+
+        /// Apply the inverse MixColumns operation to each block in the vector.
+        pub fn invMixColumns(block_vec: Self) Self {
+            var out: Self = undefined;
+            for (0..native_words) |i| {
+                out.repr[i] = block_vec.repr[i].invMixColumns();
             }
             return out;
         }

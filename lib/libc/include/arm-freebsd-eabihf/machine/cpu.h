@@ -45,13 +45,7 @@ void	cpu_halt(void);
  * unconditionally with -DSMP. Although it looks like a bug,
  * handle this case here and in #elif condition in ARM_SMP_UP macro.
  */
-#if __ARM_ARCH <= 6 && defined(SMP) && !defined(KLD_MODULE)
-#error SMP option is not supported on ARMv6
-#endif
 
-#if __ARM_ARCH <= 6 && defined(SMP_ON_UP)
-#error SMP_ON_UP option is only supported on ARMv7+ CPUs
-#endif
 
 #if !defined(SMP) && defined(SMP_ON_UP)
 #error SMP option must be defined for SMP_ON_UP option
@@ -68,7 +62,7 @@ do {								\
 		up_code;					\
 	}							\
 } while (0)
-#elif defined(SMP) && __ARM_ARCH > 6
+#elif defined(SMP)
 #define ARM_SMP_UP(smp_code, up_code)				\
 do {								\
 	smp_code;						\
@@ -146,15 +140,15 @@ fname(uint64_t reg)							\
 /* TLB */
 
 _WF0(_CP15_TLBIALL, CP15_TLBIALL)		/* Invalidate entire unified TLB */
-#if __ARM_ARCH >= 7 && defined(SMP)
+#if defined(SMP)
 _WF0(_CP15_TLBIALLIS, CP15_TLBIALLIS)		/* Invalidate entire unified TLB IS */
 #endif
 _WF1(_CP15_TLBIASID, CP15_TLBIASID(%0))		/* Invalidate unified TLB by ASID */
-#if __ARM_ARCH >= 7 && defined(SMP)
+#if defined(SMP)
 _WF1(_CP15_TLBIASIDIS, CP15_TLBIASIDIS(%0))	/* Invalidate unified TLB by ASID IS */
 #endif
 _WF1(_CP15_TLBIMVAA, CP15_TLBIMVAA(%0))		/* Invalidate unified TLB by MVA, all ASID */
-#if __ARM_ARCH >= 7 && defined(SMP)
+#if defined(SMP)
 _WF1(_CP15_TLBIMVAAIS, CP15_TLBIMVAAIS(%0))	/* Invalidate unified TLB by MVA, all ASID IS */
 #endif
 _WF1(_CP15_TLBIMVA, CP15_TLBIMVA(%0))		/* Invalidate unified TLB by MVA */
@@ -164,21 +158,19 @@ _WF1(_CP15_TTB_SET, CP15_TTBR0(%0))
 /* Cache and Branch predictor */
 
 _WF0(_CP15_BPIALL, CP15_BPIALL)			/* Branch predictor invalidate all */
-#if __ARM_ARCH >= 7 && defined(SMP)
+#if defined(SMP)
 _WF0(_CP15_BPIALLIS, CP15_BPIALLIS)		/* Branch predictor invalidate all IS */
 #endif
 _WF1(_CP15_BPIMVA, CP15_BPIMVA(%0))		/* Branch predictor invalidate by MVA */
 _WF1(_CP15_DCCIMVAC, CP15_DCCIMVAC(%0))		/* Data cache clean and invalidate by MVA PoC */
 _WF1(_CP15_DCCISW, CP15_DCCISW(%0))		/* Data cache clean and invalidate by set/way */
 _WF1(_CP15_DCCMVAC, CP15_DCCMVAC(%0))		/* Data cache clean by MVA PoC */
-#if __ARM_ARCH >= 7
 _WF1(_CP15_DCCMVAU, CP15_DCCMVAU(%0))		/* Data cache clean by MVA PoU */
-#endif
 _WF1(_CP15_DCCSW, CP15_DCCSW(%0))		/* Data cache clean by set/way */
 _WF1(_CP15_DCIMVAC, CP15_DCIMVAC(%0))		/* Data cache invalidate by MVA PoC */
 _WF1(_CP15_DCISW, CP15_DCISW(%0))		/* Data cache invalidate by set/way */
 _WF0(_CP15_ICIALLU, CP15_ICIALLU)		/* Instruction cache invalidate all PoU */
-#if __ARM_ARCH >= 7 && defined(SMP)
+#if defined(SMP)
 _WF0(_CP15_ICIALLUIS, CP15_ICIALLUIS)		/* Instruction cache invalidate all PoU IS */
 #endif
 _WF1(_CP15_ICIMVAU, CP15_ICIMVAU(%0))		/* Instruction cache invalidate */
@@ -209,10 +201,8 @@ _WF1(cp15_prrr_set, CP15_PRRR(%0))
 _WF1(cp15_nmrr_set, CP15_NMRR(%0))
 _RF0(cp15_ttbr_get, CP15_TTBR0(%0))
 _RF0(cp15_dfar_get, CP15_DFAR(%0))
-#if __ARM_ARCH >= 7
 _RF0(cp15_ifar_get, CP15_IFAR(%0))
 _RF0(cp15_l2ctlr_get, CP15_L2CTLR(%0))
-#endif
 _RF0(cp15_actlr_get, CP15_ACTLR(%0))
 _WF1(cp15_actlr_set, CP15_ACTLR(%0))
 _WF1(cp15_ats1cpr_set, CP15_ATS1CPR(%0))
@@ -251,14 +241,6 @@ _RF0(cp15_cbar_get, CP15_CBAR(%0))
 
 /* Performance Monitor registers */
 
-#if __ARM_ARCH == 6 && defined(CPU_ARM1176)
-_RF0(cp15_pmuserenr_get, CP15_PMUSERENR(%0))
-_WF1(cp15_pmuserenr_set, CP15_PMUSERENR(%0))
-_RF0(cp15_pmcr_get, CP15_PMCR(%0))
-_WF1(cp15_pmcr_set, CP15_PMCR(%0))
-_RF0(cp15_pmccntr_get, CP15_PMCCNTR(%0))
-_WF1(cp15_pmccntr_set, CP15_PMCCNTR(%0))
-#elif __ARM_ARCH > 6
 _RF0(cp15_pmcr_get, CP15_PMCR(%0))
 _WF1(cp15_pmcr_set, CP15_PMCR(%0))
 _RF0(cp15_pmcnten_get, CP15_PMCNTENSET(%0))
@@ -280,7 +262,6 @@ _WF1(cp15_pmuserenr_set, CP15_PMUSERENR(%0))
 _RF0(cp15_pminten_get, CP15_PMINTENSET(%0))
 _WF1(cp15_pminten_set, CP15_PMINTENSET(%0))
 _WF1(cp15_pminten_clr, CP15_PMINTENCLR(%0))
-#endif
 
 _RF0(cp15_tpidrurw_get, CP15_TPIDRURW(%0))
 _WF1(cp15_tpidrurw_set, CP15_TPIDRURW(%0))
@@ -380,7 +361,7 @@ tlb_flush_range_local(vm_offset_t va, vm_size_t size)
 }
 
 /* Broadcasting operations. */
-#if __ARM_ARCH >= 7 && defined(SMP)
+#if defined(SMP)
 
 static __inline void
 tlb_flush_all(void)
@@ -442,14 +423,14 @@ tlb_flush_range(vm_offset_t va,  vm_size_t size)
 	);
 	dsb();
 }
-#else /* __ARM_ARCH < 7 */
+#else /* !SMP */
 
 #define tlb_flush_all() 		tlb_flush_all_local()
 #define tlb_flush_all_ng() 		tlb_flush_all_ng_local()
 #define tlb_flush(va) 			tlb_flush_local(va)
 #define tlb_flush_range(va, size) 	tlb_flush_range_local(va, size)
 
-#endif /* __ARM_ARCH < 7 */
+#endif /* !SMP */
 
 /*
  * Cache maintenance operations.
@@ -465,11 +446,7 @@ icache_sync(vm_offset_t va, vm_size_t size)
 	va &= ~cpuinfo.dcache_line_mask;
 
 	for ( ; va < eva; va += cpuinfo.dcache_line_size) {
-#if __ARM_ARCH >= 7
 		_CP15_DCCMVAU(va);
-#else
-		_CP15_DCCMVAC(va);
-#endif
 	}
 	dsb();
 	ARM_SMP_UP(
@@ -515,11 +492,7 @@ dcache_wb_pou(vm_offset_t va, vm_size_t size)
 	dsb();
 	va &= ~cpuinfo.dcache_line_mask;
 	for ( ; va < eva; va += cpuinfo.dcache_line_size) {
-#if __ARM_ARCH >= 7
 		_CP15_DCCMVAU(va);
-#else
-		_CP15_DCCMVAC(va);
-#endif
 	}
 	dsb();
 }
@@ -686,8 +659,7 @@ cp15_ats1cuw_check(vm_offset_t addr)
 static __inline uint64_t
 get_cyclecount(void)
 {
-#if __ARM_ARCH > 6 || (__ARM_ARCH == 6 && defined(CPU_ARM1176))
-#if (__ARM_ARCH > 6) && defined(DEV_PMU)
+#if defined(DEV_PMU)
 	if (pmu_attched) {
 		u_int cpu;
 		uint64_t h, h2;
@@ -711,12 +683,6 @@ get_cyclecount(void)
 	} else
 #endif
 		return cp15_pmccntr_get();
-#else /* No performance counters, so use nanotime(9). */
-	struct timespec tv;
-
-	nanotime(&tv);
-	return (tv.tv_sec * (uint64_t)1000000000ull + tv.tv_nsec);
-#endif
 }
 #endif
 
@@ -729,7 +695,7 @@ get_cyclecount(void)
 #define cpu_spinwait()		/* nothing */
 #define	cpu_lock_delay()	DELAY(1)
 
-#define ARM_NVEC		8
+#define ARM_NVEC		7
 #define ARM_VEC_ALL		0xffffffff
 
 extern vm_offset_t vector_page;

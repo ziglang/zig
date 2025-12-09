@@ -49,15 +49,12 @@ _start:
 #ifdef GCRT
 	subq	$16, %rsp
 #endif
-	movq	%rsi, %rcx
-	movq	%rdi, %rsi		/* argv = ap */
-	addq	$8, %rsi		/* argv += 1 */
-	movq	%rdi, %rdx		/* env = ap */
-	addq	$16, %rdx		/* env += 2 */
-	movslq	(%rdi), %rax
-	movl	%eax, %edi		/* argc = *(long *)(void *)ap */
-	shlq	$3, %rax
-	addq	%rax, %rdx		/* env += argc */
+	movq	%rsi, %rcx		/* cleanup */
+	movslq	(%rdi), %rax		/* long *ap; tmpargc = *ap */
+	leaq	0x8(%rdi), %rsi		/* argv = ap + 1 */
+	leaq	0x10(%rdi, %rax, 8), %rdx /* env = ap + 2 + tmpargc */
+	movl	%eax, %edi		/* argc = tmpargc */
+
 #ifdef PIC
 	/*
 	 * XXX. %rip relative addressing is not intended for use in the

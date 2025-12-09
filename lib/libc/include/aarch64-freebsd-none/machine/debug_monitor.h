@@ -56,6 +56,7 @@ void dbg_monitor_init(void);
 void dbg_register_sync(struct debug_monitor_state *);
 
 #ifdef DDB
+void dbg_show_breakpoint(void);
 void dbg_show_watchpoint(void);
 #endif
 

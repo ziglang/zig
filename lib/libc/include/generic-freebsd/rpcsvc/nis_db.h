@@ -42,8 +42,6 @@
 #define	_RPCSVC_NIS_DB_H
 
 
-/* From: #pragma ident	"@(#)nis_db.h	1.8	94/05/03 SMI" */
-
 /*
  * Note: although the version of <rpcsvc/nis_db.h> shipped with Solaris
  * 2.5/2.5.x is actually older than this one (according to the ident

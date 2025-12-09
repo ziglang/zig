@@ -37,11 +37,15 @@ typedef	__size_t	size_t;
 #define	_SIZE_T_DECLARED
 #endif
 
+#if !defined(_STANDALONE) && defined(_FORTIFY_SOURCE) && _FORTIFY_SOURCE > 0
+#include <ssp/strings.h>
+#endif
+
 __BEGIN_DECLS
 #if __BSD_VISIBLE || __POSIX_VISIBLE <= 200112
 int	 bcmp(const void *, const void *, size_t) __pure;	/* LEGACY */
-void	 bcopy(const void *, void *, size_t);			/* LEGACY */
-void	 bzero(void *, size_t);					/* LEGACY */
+void	 (bcopy)(const void *, void *, size_t);			/* LEGACY */
+void	 (bzero)(void *, size_t);				/* LEGACY */
 #endif
 #if __BSD_VISIBLE
 void	 explicit_bzero(void *, size_t);

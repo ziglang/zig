@@ -2,8 +2,6 @@
  * Copyright (C) 2012 by Darren Reed.
  *
  * See the IPFILTER.LICENCE file for details on licencing.
- *
- * @(#)ip_fil.h	1.35 6/5/96
  * $Id$
  */
 

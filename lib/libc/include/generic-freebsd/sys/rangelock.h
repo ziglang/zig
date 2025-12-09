@@ -29,12 +29,14 @@
 #ifndef	_SYS_RANGELOCK_H
 #define	_SYS_RANGELOCK_H
 
-#include <sys/queue.h>
+#include <sys/types.h>
+#ifndef _KERNEL
+#include <stdbool.h>
+#endif
 
 #define	RL_LOCK_READ		0x0001
 #define	RL_LOCK_WRITE		0x0002
 #define	RL_LOCK_TYPE_MASK	0x0003
-#define	RL_LOCK_GRANTED		0x0004
 
 struct rl_q_entry;
 
@@ -44,42 +46,26 @@ struct rl_q_entry;
  * all existing lock owners are compatible with the request. Two lock
  * owners are compatible if their ranges do not overlap, or both
  * owners are for read.
- *
- * Access to the structure itself is synchronized with the externally
- * supplied mutex.
- *
- * rl_waiters is the queue containing in order (a) granted write lock
- * requests, (b) granted read lock requests, and (c) in order of arrival,
- * lock requests which cannot be granted yet.
- *
- * rl_currdep is the first lock request that cannot be granted now due
- * to the preceding requests conflicting with it (i.e., it points to
- * position (c) in the list above).
  */
 struct rangelock {
-	TAILQ_HEAD(, rl_q_entry) rl_waiters;
-	struct rl_q_entry	*rl_currdep;
+	uintptr_t head;
+	bool sleepers;
 };
 
 #ifdef _KERNEL
 
-struct mtx;
-
 void	 rangelock_init(struct rangelock *lock);
 void	 rangelock_destroy(struct rangelock *lock);
-void	 rangelock_unlock(struct rangelock *lock, void *cookie,
-	    struct mtx *ilk);
-void	*rangelock_unlock_range(struct rangelock *lock, void *cookie,
-	    off_t start, off_t end, struct mtx *ilk);
-void	*rangelock_rlock(struct rangelock *lock, off_t start, off_t end,
-	    struct mtx *ilk);
-void	*rangelock_tryrlock(struct rangelock *lock, off_t start, off_t end,
-	    struct mtx *ilk);
-void	*rangelock_wlock(struct rangelock *lock, off_t start, off_t end,
-	    struct mtx *ilk);
-void	*rangelock_trywlock(struct rangelock *lock, off_t start, off_t end,
-	    struct mtx *ilk);
-void	 rlqentry_free(struct rl_q_entry *rlqe);
+void	 rangelock_unlock(struct rangelock *lock, void *cookie);
+void	*rangelock_rlock(struct rangelock *lock, vm_ooffset_t start,
+    vm_ooffset_t end);
+void	*rangelock_tryrlock(struct rangelock *lock, vm_ooffset_t start,
+    vm_ooffset_t end);
+void	*rangelock_wlock(struct rangelock *lock, vm_ooffset_t start,
+    vm_ooffset_t end);
+void	*rangelock_trywlock(struct rangelock *lock, vm_ooffset_t start,
+    vm_ooffset_t end);
+void	rangelock_may_recurse(struct rangelock *lock);
 #if defined(INVARIANTS) || defined(INVARIANT_SUPPORT)
 void	_rangelock_cookie_assert(void *cookie, int what, const char *file,
     int line);

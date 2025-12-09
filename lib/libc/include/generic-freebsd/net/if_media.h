@@ -258,6 +258,8 @@ uint64_t	ifmedia_baudrate(int);
 #define	IFM_400G_AUI8	IFM_X(117)	/* 400G-AUI8 */
 #define	IFM_50G_KR4	IFM_X(118)	/* 50GBase-KR4 */
 #define	IFM_40G_LM4	IFM_X(119)	/* 40GBase-LM4 */
+#define	IFM_100_BX	IFM_X(120)	/* 100Base-BX */
+#define	IFM_1000_BX	IFM_X(121)	/* 1000Base-BX */
 
 /*
  * Please update ieee8023ad_lacp.c:lacp_compose_key()
@@ -437,11 +439,13 @@ struct ifmedia_description {
 	{ IFM_100_T4,	"100baseT4" },					\
 	{ IFM_100_VG,	"100baseVG" },					\
 	{ IFM_100_T2,	"100baseT2" },					\
+	{ IFM_100_BX,	"100baseBX" },					\
 	{ IFM_10_STP,	"10baseSTP" },					\
 	{ IFM_10_FL,	"10baseFL" },					\
 	{ IFM_1000_SX,	"1000baseSX" },					\
 	{ IFM_1000_LX,	"1000baseLX" },					\
 	{ IFM_1000_CX,	"1000baseCX" },					\
+	{ IFM_1000_BX,	"1000baseBX" },					\
 	{ IFM_1000_T,	"1000baseT" },					\
 	{ IFM_HPNA_1,	"homePNA" },					\
 	{ IFM_10G_LR,	"10Gbase-LR" },					\
@@ -784,11 +788,13 @@ struct ifmedia_baudrate {
 	{ IFM_ETHER | IFM_100_T4,	IF_Mbps(100) },			\
 	{ IFM_ETHER | IFM_100_VG,	IF_Mbps(100) },			\
 	{ IFM_ETHER | IFM_100_T2,	IF_Mbps(100) },			\
+	{ IFM_ETHER | IFM_100_BX,	IF_Mbps(100) },			\
 	{ IFM_ETHER | IFM_1000_SX,	IF_Mbps(1000) },		\
 	{ IFM_ETHER | IFM_10_STP,	IF_Mbps(10) },			\
 	{ IFM_ETHER | IFM_10_FL,	IF_Mbps(10) },			\
 	{ IFM_ETHER | IFM_1000_LX,	IF_Mbps(1000) },		\
 	{ IFM_ETHER | IFM_1000_CX,	IF_Mbps(1000) },		\
+	{ IFM_ETHER | IFM_1000_BX,	IF_Mbps(1000) },		\
 	{ IFM_ETHER | IFM_1000_T,	IF_Mbps(1000) },		\
 	{ IFM_ETHER | IFM_HPNA_1,	IF_Mbps(1) },			\
 	{ IFM_ETHER | IFM_10G_LR,	IF_Gbps(10ULL) },		\

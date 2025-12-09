@@ -34,7 +34,7 @@
  * On this machine, the only purpose for which sf_buf is used is to implement
  * an opaque pointer required by the machine-independent parts of the kernel.
  * That pointer references the vm_page that is "mapped" by the sf_buf.  The
- * actual mapping is provided by the direct virtual-to-physical mapping.  
+ * actual mapping is provided by the direct virtual-to-physical mapping.
  */
 static inline vm_offset_t
 sf_buf_kva(struct sf_buf *sf)

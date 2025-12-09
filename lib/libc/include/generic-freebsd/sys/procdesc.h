@@ -94,8 +94,10 @@ struct procdesc {
  * In-kernel interfaces to process descriptors.
  */
 int	 procdesc_exit(struct proc *);
-int	 procdesc_find(struct thread *, int fd, cap_rights_t *, struct proc **);
-int	 kern_pdgetpid(struct thread *, int fd, cap_rights_t *, pid_t *pidp);
+int	 procdesc_find(struct thread *, int fd, const cap_rights_t *,
+	    struct proc **);
+int	 kern_pdgetpid(struct thread *, int fd, const cap_rights_t *,
+	    pid_t *pidp);
 void	 procdesc_new(struct proc *, int);
 void	 procdesc_finit(struct procdesc *, struct file *);
 pid_t	 procdesc_pid(struct file *);
@@ -106,6 +108,7 @@ int	 procdesc_falloc(struct thread *, struct file **, int *, int,
 
 #else /* !_KERNEL */
 
+#include <sys/cdefs.h>
 #include <sys/_types.h>
 
 #ifndef _PID_T_DECLARED

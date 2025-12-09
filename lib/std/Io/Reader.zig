@@ -200,11 +200,17 @@ pub fn defaultDiscard(r: *Reader, limit: Limit) Error!usize {
     r.seek = 0;
     r.end = 0;
     var d: Writer.Discarding = .init(r.buffer);
-    const n = r.stream(&d.writer, limit) catch |err| switch (err) {
+    var n = r.stream(&d.writer, limit) catch |err| switch (err) {
         error.WriteFailed => unreachable,
         error.ReadFailed => return error.ReadFailed,
         error.EndOfStream => return error.EndOfStream,
     };
+    // If `stream` wrote to `r.buffer` without going through the writer,
+    // we need to discard as much of the buffered data as possible.
+    const remaining = @intFromEnum(limit) - n;
+    const buffered_n_to_discard = @min(remaining, r.end - r.seek);
+    n += buffered_n_to_discard;
+    r.seek += buffered_n_to_discard;
     assert(n <= @intFromEnum(limit));
     return n;
 }
@@ -469,15 +475,15 @@ pub fn readVecAll(r: *Reader, data: [][]u8) Error!void {
     }
 }
 
-/// Returns the next `len` bytes from the stream, filling the buffer as
+/// Returns the next `n` bytes from the stream, filling the buffer as
 /// necessary.
 ///
 /// Invalidates previously returned values from `peek`.
 ///
 /// Asserts that the `Reader` was initialized with a buffer capacity at
-/// least as big as `len`.
+/// least as big as `n`.
 ///
-/// If there are fewer than `len` bytes left in the stream, `error.EndOfStream`
+/// If there are fewer than `n` bytes left in the stream, `error.EndOfStream`
 /// is returned instead.
 ///
 /// See also:
@@ -1246,7 +1252,7 @@ pub const TakeEnumError = Error || error{InvalidEnumTag};
 pub fn takeEnum(r: *Reader, comptime Enum: type, endian: std.builtin.Endian) TakeEnumError!Enum {
     const Tag = @typeInfo(Enum).@"enum".tag_type;
     const int = try r.takeInt(Tag, endian);
-    return std.meta.intToEnum(Enum, int);
+    return std.enums.fromInt(Enum, int) orelse return error.InvalidEnumTag;
 }
 
 /// Reads an integer with the same size as the given nonexhaustive enum's tag type.
@@ -1267,20 +1273,17 @@ pub const TakeLeb128Error = Error || error{Overflow};
 /// Read a single LEB128 value as type T, or `error.Overflow` if the value cannot fit.
 pub fn takeLeb128(r: *Reader, comptime Result: type) TakeLeb128Error!Result {
     const result_info = @typeInfo(Result).int;
-    return std.math.cast(Result, try r.takeMultipleOf7Leb128(@Type(.{ .int = .{
-        .signedness = result_info.signedness,
-        .bits = std.mem.alignForwardAnyAlign(u16, result_info.bits, 7),
-    } }))) orelse error.Overflow;
+    return std.math.cast(Result, try r.takeMultipleOf7Leb128(@Int(
+        result_info.signedness,
+        std.mem.alignForwardAnyAlign(u16, result_info.bits, 7),
+    ))) orelse error.Overflow;
 }
 
 fn takeMultipleOf7Leb128(r: *Reader, comptime Result: type) TakeLeb128Error!Result {
     const result_info = @typeInfo(Result).int;
     comptime assert(result_info.bits % 7 == 0);
     var remaining_bits: std.math.Log2IntCeil(Result) = result_info.bits;
-    const UnsignedResult = @Type(.{ .int = .{
-        .signedness = .unsigned,
-        .bits = result_info.bits,
-    } });
+    const UnsignedResult = @Int(.unsigned, result_info.bits);
     var result: UnsignedResult = 0;
     var fits = true;
     while (true) {
@@ -1718,6 +1721,18 @@ fn failingDiscard(r: *Reader, limit: Limit) Error!usize {
     _ = r;
     _ = limit;
     return error.ReadFailed;
+}
+
+test "discardAll that has to call discard multiple times on an indirect reader" {
+    var fr: Reader = .fixed("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+    var indirect_buffer: [3]u8 = undefined;
+    var tri: std.testing.ReaderIndirect = .init(&fr, &indirect_buffer);
+    const r = &tri.interface;
+
+    try r.discardAll(10);
+    var remaining_buf: [16]u8 = undefined;
+    try r.readSliceAll(&remaining_buf);
+    try std.testing.expectEqualStrings(fr.buffer[10..], remaining_buf[0..]);
 }
 
 test "readAlloc when the backing reader provides one byte at a time" {

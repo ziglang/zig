@@ -127,12 +127,12 @@ ieee80211_ratectl_node_deinit(struct ieee80211_node *ni)
 	vap->iv_rate->ir_node_deinit(ni);
 }
 
-static int __inline
+static void __inline
 ieee80211_ratectl_rate(struct ieee80211_node *ni, void *arg, uint32_t iarg)
 {
 	const struct ieee80211vap *vap = ni->ni_vap;
 
-	return vap->iv_rate->ir_rate(ni, arg, iarg);
+	vap->iv_rate->ir_rate(ni, arg, iarg);
 }
 
 static __inline void

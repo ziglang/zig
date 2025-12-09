@@ -1499,22 +1499,18 @@ const aarch64 = struct {
             .ABS64 => {
                 try atom.scanReloc(symbol, rel, dynAbsRelocAction(symbol, elf_file), elf_file);
             },
-
             .ADR_PREL_PG_HI21 => {
                 try atom.scanReloc(symbol, rel, pcRelocAction(symbol, elf_file), elf_file);
             },
-
             .ADR_GOT_PAGE => {
                 // TODO: relax if possible
                 symbol.flags.needs_got = true;
             },
-
             .LD64_GOT_LO12_NC,
             .LD64_GOTPAGE_LO15,
             => {
                 symbol.flags.needs_got = true;
             },
-
             .CALL26,
             .JUMP26,
             => {
@@ -1522,25 +1518,21 @@ const aarch64 = struct {
                     symbol.flags.needs_plt = true;
                 }
             },
-
             .TLSLE_ADD_TPREL_HI12,
             .TLSLE_ADD_TPREL_LO12_NC,
             => {
                 if (is_dyn_lib) try atom.reportPicError(symbol, rel, elf_file);
             },
-
             .TLSIE_ADR_GOTTPREL_PAGE21,
             .TLSIE_LD64_GOTTPREL_LO12_NC,
             => {
                 symbol.flags.needs_gottp = true;
             },
-
             .TLSGD_ADR_PAGE21,
             .TLSGD_ADD_LO12_NC,
             => {
                 symbol.flags.needs_tlsgd = true;
             },
-
             .TLSDESC_ADR_PAGE21,
             .TLSDESC_LD64_LO12,
             .TLSDESC_ADD_LO12,
@@ -1551,18 +1543,17 @@ const aarch64 = struct {
                     symbol.flags.needs_tlsdesc = true;
                 }
             },
-
             .ADD_ABS_LO12_NC,
             .ADR_PREL_LO21,
-            .LDST8_ABS_LO12_NC,
+            .CONDBR19,
+            .LDST128_ABS_LO12_NC,
             .LDST16_ABS_LO12_NC,
             .LDST32_ABS_LO12_NC,
             .LDST64_ABS_LO12_NC,
-            .LDST128_ABS_LO12_NC,
+            .LDST8_ABS_LO12_NC,
             .PREL32,
             .PREL64,
             => {},
-
             else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
     }
@@ -1599,7 +1590,6 @@ const aarch64 = struct {
                     r_offset,
                 );
             },
-
             .CALL26,
             .JUMP26,
             => {
@@ -1611,27 +1601,26 @@ const aarch64 = struct {
                 };
                 util.writeBranchImm(disp, code);
             },
-
+            .CONDBR19 => {
+                const value = math.cast(i19, S + A - P) orelse return error.Overflow;
+                util.writeCondBrImm(value, code);
+            },
             .PREL32 => {
                 const value = math.cast(i32, S + A - P) orelse return error.Overflow;
                 mem.writeInt(u32, code, @bitCast(value), .little);
             },
-
             .PREL64 => {
                 const value = S + A - P;
                 mem.writeInt(u64, code_buffer[r_offset..][0..8], @bitCast(value), .little);
             },
-
             .ADR_PREL_LO21 => {
                 const value = math.cast(i21, S + A - P) orelse return error.Overflow;
                 util.writeAdrInst(value, code);
             },
-
             .ADR_PREL_PG_HI21 => {
                 // TODO: check for relaxation of ADRP+ADD
                 util.writeAdrInst(try util.calcNumberOfPages(P, S + A), code);
             },
-
             .ADR_GOT_PAGE => if (target.flags.has_got) {
                 util.writeAdrInst(try util.calcNumberOfPages(P, G + GOT + A), code);
             } else {
@@ -1644,18 +1633,15 @@ const aarch64 = struct {
                     r_offset,
                 });
             },
-
             .LD64_GOT_LO12_NC => {
                 assert(target.flags.has_got);
                 const taddr = @as(u64, @intCast(G + GOT + A));
                 util.writeLoadStoreRegInst(@divExact(@as(u12, @truncate(taddr)), 8), code);
             },
-
             .ADD_ABS_LO12_NC => {
                 const taddr = @as(u64, @intCast(S + A));
                 util.writeAddImmInst(@truncate(taddr), code);
             },
-
             .LDST8_ABS_LO12_NC,
             .LDST16_ABS_LO12_NC,
             .LDST32_ABS_LO12_NC,
@@ -1674,44 +1660,37 @@ const aarch64 = struct {
                 };
                 util.writeLoadStoreRegInst(off, code);
             },
-
             .TLSLE_ADD_TPREL_HI12 => {
                 const value = math.cast(i12, (S + A - TP) >> 12) orelse
                     return error.Overflow;
                 util.writeAddImmInst(@bitCast(value), code);
             },
-
             .TLSLE_ADD_TPREL_LO12_NC => {
                 const value: i12 = @truncate(S + A - TP);
                 util.writeAddImmInst(@bitCast(value), code);
             },
-
             .TLSIE_ADR_GOTTPREL_PAGE21 => {
                 const S_ = target.gotTpAddress(elf_file);
                 relocs_log.debug("      [{x} => {x}]", .{ P, S_ + A });
                 util.writeAdrInst(try util.calcNumberOfPages(P, S_ + A), code);
             },
-
             .TLSIE_LD64_GOTTPREL_LO12_NC => {
                 const S_ = target.gotTpAddress(elf_file);
                 relocs_log.debug("      [{x} => {x}]", .{ P, S_ + A });
                 const off: u12 = try math.divExact(u12, @truncate(@as(u64, @bitCast(S_ + A))), 8);
                 util.writeLoadStoreRegInst(off, code);
             },
-
             .TLSGD_ADR_PAGE21 => {
                 const S_ = target.tlsGdAddress(elf_file);
                 relocs_log.debug("      [{x} => {x}]", .{ P, S_ + A });
                 util.writeAdrInst(try util.calcNumberOfPages(P, S_ + A), code);
             },
-
             .TLSGD_ADD_LO12_NC => {
                 const S_ = target.tlsGdAddress(elf_file);
                 relocs_log.debug("      [{x} => {x}]", .{ P, S_ + A });
                 const off: u12 = @truncate(@as(u64, @bitCast(S_ + A)));
                 util.writeAddImmInst(off, code);
             },
-
             .TLSDESC_ADR_PAGE21 => {
                 if (target.flags.has_tlsdesc) {
                     const S_ = target.tlsDescAddress(elf_file);
@@ -1722,7 +1701,6 @@ const aarch64 = struct {
                     util.encoding.Instruction.nop().write(code);
                 }
             },
-
             .TLSDESC_LD64_LO12 => {
                 if (target.flags.has_tlsdesc) {
                     const S_ = target.tlsDescAddress(elf_file);
@@ -1734,7 +1712,6 @@ const aarch64 = struct {
                     util.encoding.Instruction.nop().write(code);
                 }
             },
-
             .TLSDESC_ADD_LO12 => {
                 if (target.flags.has_tlsdesc) {
                     const S_ = target.tlsDescAddress(elf_file);
@@ -1747,13 +1724,11 @@ const aarch64 = struct {
                     util.encoding.Instruction.movz(.x0, value, .{ .lsl = .@"16" }).write(code);
                 }
             },
-
             .TLSDESC_CALL => if (!target.flags.has_tlsdesc) {
                 relocs_log.debug("      relaxing br => movk(x0, {x})", .{S + A - TP});
                 const value: u16 = @bitCast(@as(i16, @truncate(S + A - TP)));
                 util.encoding.Instruction.movk(.x0, value, .{}).write(code);
             },
-
             else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
     }

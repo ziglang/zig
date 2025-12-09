@@ -653,24 +653,27 @@ typedef __char32_t char32_t;
 #    define _DECLARE_C99_LDBL_MATH 1
 #  endif
 
+/* zig patch: compiler defines _LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION in some cases */
+#  if !defined(_LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION)
 // If we are getting operator new from the MSVC CRT, then allocation overloads
 // for align_val_t were added in 19.12, aka VS 2017 version 15.3.
-#  if defined(_LIBCPP_MSVCRT) && defined(_MSC_VER) && _MSC_VER < 1912
-#    define _LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION 0
-#  elif defined(_LIBCPP_ABI_VCRUNTIME) && !defined(__cpp_aligned_new)
+#    if defined(_LIBCPP_MSVCRT) && defined(_MSC_VER) && _MSC_VER < 1912
+#      define _LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION 0
+#    elif defined(_LIBCPP_ABI_VCRUNTIME) && !defined(__cpp_aligned_new)
 // We're deferring to Microsoft's STL to provide aligned new et al. We don't
 // have it unless the language feature test macro is defined.
-#    define _LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION 0
-#  elif defined(__MVS__)
-#    define _LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION 0
-#  else
-#    define _LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION 1
-#  endif
+#      define _LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION 0
+#    elif defined(__MVS__)
+#      define _LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION 0
+#    else
+#      define _LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION 1
+#    endif
 
-#  if !_LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION || (!defined(__cpp_aligned_new) || __cpp_aligned_new < 201606)
-#    define _LIBCPP_HAS_ALIGNED_ALLOCATION 0
-#  else
-#    define _LIBCPP_HAS_ALIGNED_ALLOCATION 1
+#    if !_LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION || (!defined(__cpp_aligned_new) || __cpp_aligned_new < 201606)
+#      define _LIBCPP_HAS_ALIGNED_ALLOCATION 0
+#    else
+#      define _LIBCPP_HAS_ALIGNED_ALLOCATION 1
+#    endif
 #  endif
 
 // It is not yet possible to use aligned_alloc() on all Apple platforms since

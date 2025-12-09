@@ -20,7 +20,7 @@
 
 /*
  * Format of a boot sector.  This is the first sector on a DOS floppy disk
- * or the fist sector of a partition on a hard disk.  But, it is not the
+ * or the first sector of a partition on a hard disk.  But, it is not the
  * first sector of a partitioned hard disk.
  */
 struct bootsector33 {

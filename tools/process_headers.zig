@@ -81,7 +81,6 @@ const musl_targets = [_]LibCTarget{
 const freebsd_targets = [_]LibCTarget{
     .{ .arch = .arm, .abi = .eabihf },
     .{ .arch = .aarch64, .abi = .none },
-    .{ .arch = .powerpc, .abi = .eabihf },
     .{ .arch = .powerpc64, .abi = .none },
     .{ .arch = .riscv64, .abi = .none },
     .{ .arch = .x86, .abi = .none },

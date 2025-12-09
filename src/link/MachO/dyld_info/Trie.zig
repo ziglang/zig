@@ -31,9 +31,9 @@
 
 /// The root node of the trie.
 root: ?Node.Index = null,
-buffer: std.ArrayListUnmanaged(u8) = .empty,
+buffer: std.ArrayList(u8) = .empty,
 nodes: std.MultiArrayList(Node) = .{},
-edges: std.ArrayListUnmanaged(Edge) = .empty,
+edges: std.ArrayList(Edge) = .empty,
 
 /// Insert a symbol into the trie, updating the prefixes in the process.
 /// This operation may change the layout of the trie by splicing edges in
@@ -139,7 +139,7 @@ fn finalize(self: *Trie, allocator: Allocator) !void {
     try ordered_nodes.ensureTotalCapacityPrecise(self.nodes.items(.is_terminal).len);
 
     {
-        var fifo: std.ArrayListUnmanaged(Node.Index) = .empty;
+        var fifo: std.ArrayList(Node.Index) = .empty;
         defer fifo.deinit(allocator);
 
         try fifo.append(allocator, self.root.?);
@@ -328,7 +328,7 @@ const Node = struct {
     trie_offset: u32 = 0,
 
     /// List of all edges originating from this node.
-    edges: std.ArrayListUnmanaged(Edge.Index) = .empty,
+    edges: std.ArrayList(Edge.Index) = .empty,
 
     const Index = u32;
 };

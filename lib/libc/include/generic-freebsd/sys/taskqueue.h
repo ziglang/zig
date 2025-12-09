@@ -215,4 +215,10 @@ struct taskqueue *taskqueue_create_fast(const char *name, int mflags,
 				    taskqueue_enqueue_fn enqueue,
 				    void *context);
 
+/*
+ * This queue is used to process asynchronous device events such as
+ * hot plug insertion and removal of devices.
+ */
+TASKQUEUE_DECLARE(bus);
+
 #endif /* !_SYS_TASKQUEUE_H_ */

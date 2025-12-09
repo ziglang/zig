@@ -45,7 +45,7 @@ ninja install
 
 # No -fqemu and -fwasmtime here as they're covered by the x86_64-linux scripts.
 stage3-release/bin/zig build test docs \
-  --maxrss 60129542144 \
+  --maxrss ${ZSF_MAX_RSS:-0} \
   -Dstatic-llvm \
   -Dskip-non-native \
   -Dtarget=native-native-musl \

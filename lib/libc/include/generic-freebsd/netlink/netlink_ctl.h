@@ -47,8 +47,8 @@ MALLOC_DECLARE(M_NETLINK);
 
 #define NLA_ALIGN_SIZE          sizeof(uint32_t)
 #define NLA_ALIGN(_len)         _roundup2(_len, NLA_ALIGN_SIZE)
-#define	NLA_HDRLEN		((int)sizeof(struct nlattr))
-#define	NLA_DATA_LEN(_nla)	((int)((_nla)->nla_len - NLA_HDRLEN))
+#define	NLA_HDRLEN		((uint16_t)sizeof(struct nlattr))
+#define	NLA_DATA_LEN(_nla)	((_nla)->nla_len - NLA_HDRLEN)
 #define	NLA_DATA(_nla)		NL_ITEM_DATA(_nla, NLA_HDRLEN)
 #define	NLA_DATA_CONST(_nla)	NL_ITEM_DATA_CONST(_nla, NLA_HDRLEN)
 #define	NLA_TYPE(_nla)		((_nla)->nla_type & 0x3FFF)
@@ -65,8 +65,6 @@ MALLOC_DECLARE(M_NETLINK);
 		((char *)NLA_NEXT(_attr) <= (char *)_end);	\
 		_attr = (_len -= NLA_ALIGN(_attr->nla_len), NLA_NEXT(_attr)))
 
-#define	NL_ARRAY_LEN(_a)	(sizeof(_a) / sizeof((_a)[0]))
-
 #include <netlink/netlink_message_writer.h>
 #include <netlink/netlink_message_parser.h>
 
@@ -79,7 +77,6 @@ bool netlink_register_proto(int proto, const char *proto_name, nl_handler_f hand
 bool netlink_unregister_proto(int proto);
 
 /* Common helpers */
-bool nl_has_listeners(int netlink_family, uint32_t groups_mask);
 bool nlp_has_priv(struct nlpcb *nlp, int priv);
 struct ucred *nlp_get_cred(struct nlpcb *nlp);
 uint32_t nlp_get_pid(const struct nlpcb *nlp);
@@ -94,18 +91,16 @@ struct genl_cmd {
 	uint32_t	cmd_num;
 };
 
-uint32_t genl_register_family(const char *family_name, size_t hdrsize,
-    int family_version, int max_attr_idx);
-bool genl_unregister_family(const char *family_name);
-bool genl_register_cmds(const char *family_name, const struct genl_cmd *cmds,
-    int count);
-uint32_t genl_register_group(const char *family_name, const char *group_name);
+uint16_t genl_register_family(const char *family_name, size_t hdrsize,
+    uint16_t family_version, uint16_t max_attr_idx);
+void genl_unregister_family(uint16_t family);
+bool genl_register_cmds(uint16_t family, const struct genl_cmd *cmds,
+    u_int count);
+uint32_t genl_register_group(uint16_t family, const char *group_name);
+void genl_unregister_group(uint16_t family, uint32_t group);
 
-struct genl_family;
-const char *genl_get_family_name(const struct genl_family *gf);
-uint32_t genl_get_family_id(const struct genl_family *gf);
-
-typedef void (*genl_family_event_handler_t)(void *arg, const struct genl_family *gf, int action);
+typedef void (*genl_family_event_handler_t)(void *arg, const char *family_name,
+    uint16_t family_id, u_int action);
 EVENTHANDLER_DECLARE(genl_family_event, genl_family_event_handler_t);
 
 struct thread;

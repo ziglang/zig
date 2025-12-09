@@ -39,6 +39,15 @@
 #ifndef _MACHINE_SYSARCH_H_
 #define	_MACHINE_SYSARCH_H_
 
+#include <sys/cdefs.h>
+
+#define	ARM64_GUARD_PAGE	0x100
+
+struct arm64_guard_page_args {
+	__uintptr_t	addr;
+	__size_t	len;
+};
+
 #define	ARM64_GET_SVE_VL	0x200
 /* Reserved ARM64_SET_SVE_VL	0x201 */
 

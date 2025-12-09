@@ -119,8 +119,7 @@ int	exec_map_stack(struct image_params *);
 int	exec_new_vmspace(struct image_params *, struct sysentvec *);
 void	exec_setregs(struct thread *, struct image_params *, uintptr_t);
 int	exec_shell_imgact(struct image_params *);
-int	exec_copyin_args(struct image_args *, const char *, enum uio_seg,
-	char **, char **);
+int	exec_copyin_args(struct image_args *, const char *, char **, char **);
 int	pre_execve(struct thread *td, struct vmspace **oldvmspace);
 void	post_execve(struct thread *td, int error, struct vmspace *oldvmspace);
 #endif

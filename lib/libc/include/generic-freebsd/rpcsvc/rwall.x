@@ -31,8 +31,6 @@
 %/*
 % * Copyright (c) 1984, 1990 by Sun Microsystems, Inc.
 % */
-%
-%/* from @(#)rwall.x	1.6 91/03/11 TIRPC 1.0 */
 
 #ifdef RPC_HDR
 %

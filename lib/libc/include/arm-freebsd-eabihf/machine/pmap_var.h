@@ -161,7 +161,7 @@ pte1_clear_bit(pt1_entry_t *pte1p, uint32_t bit)
 	pte1_sync(pte1p);
 }
 
-static __inline boolean_t
+static __inline bool
 pte1_is_link(pt1_entry_t pte1)
 {
 
@@ -175,21 +175,21 @@ pte1_is_section(pt1_entry_t pte1)
 	return ((pte1 & L1_TYPE_MASK) == L1_TYPE_S);
 }
 
-static __inline boolean_t
+static __inline bool
 pte1_is_dirty(pt1_entry_t pte1)
 {
 
 	return ((pte1 & (PTE1_NM | PTE1_RO)) == 0);
 }
 
-static __inline boolean_t
+static __inline bool
 pte1_is_global(pt1_entry_t pte1)
 {
 
 	return ((pte1 & PTE1_NG) == 0);
 }
 
-static __inline boolean_t
+static __inline bool
 pte1_is_valid(pt1_entry_t pte1)
 {
 	int l1_type;
@@ -198,7 +198,7 @@ pte1_is_valid(pt1_entry_t pte1)
 	return ((l1_type == L1_TYPE_C) || (l1_type == L1_TYPE_S));
 }
 
-static __inline boolean_t
+static __inline bool
 pte1_is_wired(pt1_entry_t pte1)
 {
 
@@ -301,28 +301,28 @@ pte2_clear_bit(pt2_entry_t *pte2p, uint32_t bit)
 	pte2_sync(pte2p);
 }
 
-static __inline boolean_t
+static __inline bool
 pte2_is_dirty(pt2_entry_t pte2)
 {
 
 	return ((pte2 & (PTE2_NM | PTE2_RO)) == 0);
 }
 
-static __inline boolean_t
+static __inline bool
 pte2_is_global(pt2_entry_t pte2)
 {
 
 	return ((pte2 & PTE2_NG) == 0);
 }
 
-static __inline boolean_t
+static __inline bool
 pte2_is_valid(pt2_entry_t pte2)
 {
 
 	return (pte2 & PTE2_V);
 }
 
-static __inline boolean_t
+static __inline bool
 pte2_is_wired(pt2_entry_t pte2)
 {
 
@@ -358,7 +358,7 @@ pte2_set_bit(pt2_entry_t *pte2p, uint32_t bit)
 }
 
 static __inline void
-pte2_set_wired(pt2_entry_t *pte2p, boolean_t wired)
+pte2_set_wired(pt2_entry_t *pte2p, bool wired)
 {
 
 	/*

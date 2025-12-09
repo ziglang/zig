@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)uio.h	8.5 (Berkeley) 2/22/94
  */
 
 #ifndef _SYS_UIO_H_
@@ -86,12 +84,14 @@ int	copyiniov(const struct iovec *iovp, u_int iovcnt, struct iovec **iov,
 int	copyinuio(const struct iovec *iovp, u_int iovcnt, struct uio **uiop);
 int	copyout_map(struct thread *td, vm_offset_t *addr, size_t sz);
 int	copyout_unmap(struct thread *td, vm_offset_t addr, size_t sz);
+void	exterr_copyout(struct thread *td);
 int	physcopyin(void *src, vm_paddr_t dst, size_t len);
 int	physcopyout(vm_paddr_t src, void *dst, size_t len);
 int	physcopyin_vlist(struct bus_dma_segment *src, off_t offset,
 	    vm_paddr_t dst, size_t len);
 int	physcopyout_vlist(vm_paddr_t src, struct bus_dma_segment *dst,
 	    off_t offset, size_t len);
+void	uioadvance(struct uio *, size_t);
 int	uiomove(void *cp, int n, struct uio *uio);
 int	uiomove_frombuf(void *buf, int buflen, struct uio *uio);
 int	uiomove_fromphys(struct vm_page *ma[], vm_offset_t offset, int n,
@@ -100,6 +100,10 @@ int	uiomove_nofault(void *cp, int n, struct uio *uio);
 int	uiomove_object(struct vm_object *obj, off_t obj_size, struct uio *uio);
 
 #else /* !_KERNEL */
+
+#if defined(_FORTIFY_SOURCE) && _FORTIFY_SOURCE > 0
+#include <ssp/uio.h>
+#endif
 
 __BEGIN_DECLS
 ssize_t	readv(int, const struct iovec *, int);

@@ -69,4 +69,9 @@
 	li	tmp, SSTATUS_SUM;					\
 	csrc	sstatus, tmp
 
+#define	SBI_CALL(ext, func)						\
+	li	a7, ext;						\
+	li	a6, func;						\
+	ecall
+
 #endif /* _MACHINE_ASM_H_ */

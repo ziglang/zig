@@ -1028,7 +1028,7 @@ struct mfi_evt_detail {
 		} pd_prog;
 
 		struct {
-			struct mfi_evt_pd	ld;
+			struct mfi_evt_pd	pd;
 			uint32_t		prev_state;
 			uint32_t		new_state;
 		} pd_state;

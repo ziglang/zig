@@ -68,10 +68,11 @@ struct nfsv4node {
  * These flag bits are used for the argument to nfscl_fillsattr() to
  * indicate special handling of the attributes.
  */
-#define	NFSSATTR_FULL		0x1
-#define	NFSSATTR_SIZE0		0x2
-#define	NFSSATTR_SIZENEG1	0x4
-#define	NFSSATTR_SIZERDEV	0x8
+#define	NFSSATTR_FULL		0x01
+#define	NFSSATTR_SIZE0		0x02
+#define	NFSSATTR_SIZENEG1	0x04
+#define	NFSSATTR_SIZERDEV	0x08
+#define	NFSSATTR_NEWFILE	0x10
 
 /* Use this macro for debug printfs. */
 #define	NFSCL_DEBUG(level, ...)	do {					\

@@ -32,8 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)callout.h	8.2 (Berkeley) 1/21/94
  */
 
 #ifndef _SYS_CALLOUT_H_
@@ -41,7 +39,7 @@
 
 #include <sys/_callout.h>
 
-#define	CALLOUT_LOCAL_ALLOC	0x0001 /* was allocated from callfree */
+#define	CALLOUT_TRYLOCK		0x0001 /* try semantic in softclock_call_cc */
 #define	CALLOUT_ACTIVE		0x0002 /* callout is currently active */
 #define	CALLOUT_PENDING		0x0004 /* callout is waiting for timeout */
 #define	CALLOUT_MPSAFE		0x0008 /* deprecated */
@@ -83,18 +81,15 @@
  */
 #define	callout_active(c)	((c)->c_flags & CALLOUT_ACTIVE)
 #define	callout_deactivate(c)	((c)->c_flags &= ~CALLOUT_ACTIVE)
-#define	callout_drain(c)	_callout_stop_safe(c, CS_DRAIN, NULL)
+#define	callout_drain(c)	_callout_stop_safe(c, CS_DRAIN)
 void	callout_init(struct callout *, int);
 void	_callout_init_lock(struct callout *, struct lock_object *, int);
 #define	callout_init_mtx(c, mtx, flags)					\
-	_callout_init_lock((c), ((mtx) != NULL) ? &(mtx)->lock_object :	\
-	    NULL, (flags))
+	_callout_init_lock((c), &(mtx)->lock_object, (flags))
 #define	callout_init_rm(c, rm, flags)					\
-	_callout_init_lock((c), ((rm) != NULL) ? &(rm)->lock_object : 	\
-	    NULL, (flags))
+	_callout_init_lock((c), &(rm)->lock_object, (flags))
 #define	callout_init_rw(c, rw, flags)					\
-	_callout_init_lock((c), ((rw) != NULL) ? &(rw)->lock_object :	\
-	   NULL, (flags))
+	_callout_init_lock((c), &(rw)->lock_object, (flags))
 #define	callout_pending(c)	((c)->c_iflags & CALLOUT_PENDING)
 int	callout_reset_sbt_on(struct callout *, sbintime_t, sbintime_t,
 	    void (*)(void *), void *, int, int);
@@ -121,11 +116,9 @@ int	callout_schedule(struct callout *, int);
 int	callout_schedule_on(struct callout *, int, int);
 #define	callout_schedule_curcpu(c, on_tick)				\
     callout_schedule_on((c), (on_tick), PCPU_GET(cpuid))
-#define	callout_stop(c)		_callout_stop_safe(c, 0, NULL)
-int	_callout_stop_safe(struct callout *, int, void (*)(void *));
+#define	callout_stop(c)		_callout_stop_safe(c, 0)
+int	_callout_stop_safe(struct callout *, int);
 void	callout_process(sbintime_t now);
-#define callout_async_drain(c, d)					\
-    _callout_stop_safe(c, 0, d)
 void callout_when(sbintime_t sbt, sbintime_t precision, int flags,
     sbintime_t *sbt_res, sbintime_t *prec_res);
 #endif

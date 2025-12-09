@@ -27,6 +27,7 @@
 
 #ifndef _NETLINK_LINUX_VAR_H_
 #define _NETLINK_LINUX_VAR_H_
+#ifdef _KERNEL
 
 /*
  * The file contains headers for the bridge interface between
@@ -34,16 +35,13 @@
  */
 struct nlpcb;
 struct nl_pstate;
+struct nl_writer;
 
-typedef struct mbuf *mbufs_to_linux_cb_t(int netlink_family, struct mbuf *m,
-    struct nlpcb *nlp);
-typedef struct mbuf *msgs_to_linux_cb_t(int netlink_family, char *buf, int data_length,
-    struct nlpcb *nlp);
-typedef struct nlmsghdr *msg_from_linux_cb_t(int netlink_family, struct nlmsghdr *hdr,
+typedef struct nl_buf * msgs_to_linux_cb_t(struct nl_buf *, struct nlpcb *);
+typedef int msg_from_linux_cb_t(int netlink_family, struct nlmsghdr **hdr,
     struct nl_pstate *npt);
 
 struct linux_netlink_provider {
-	mbufs_to_linux_cb_t	*mbufs_to_linux;
 	msgs_to_linux_cb_t	*msgs_to_linux;
 	msg_from_linux_cb_t	*msg_from_linux;
 
@@ -51,4 +49,5 @@ struct linux_netlink_provider {
 
 extern struct linux_netlink_provider *linux_netlink_p;
 
+#endif
 #endif

@@ -42,7 +42,7 @@ pub fn int(input: anytype) @TypeOf(input) {
     const info = @typeInfo(@TypeOf(input)).int;
     const bits = info.bits;
     // Convert input to unsigned integer (easier to deal with)
-    const Uint = @Type(.{ .int = .{ .bits = bits, .signedness = .unsigned } });
+    const Uint = @Int(.unsigned, bits);
     const u_input: Uint = @bitCast(input);
     if (bits > 256) @compileError("bit widths > 256 are unsupported, use std.hash.autoHash functionality.");
     // For bit widths that don't have a dedicated function, use a heuristic

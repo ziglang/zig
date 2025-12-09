@@ -44,9 +44,6 @@
  * map the page tables using the pagetables themselves. This is done to
  * reduce the impact on kernel virtual memory for lots of sparse address
  * space, and to reduce the cost of memory to each process.
- *
- *	from: hp300: @(#)pmap.h	7.2 (Berkeley) 12/16/90
- *	from: @(#)pmap.h	7.4 (Berkeley) 5/12/91
  */
 
 #ifndef _MACHINE_PMAP_PAE_H

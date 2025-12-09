@@ -108,6 +108,36 @@ test "expand 128-bit key" {
     }
 }
 
+test "invMixColumns" {
+    const key = [_]u8{ 0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c };
+    const enc_ctx = Aes128.initEnc(key);
+    const dec_ctx = Aes128.initDec(key);
+
+    for (1..10) |i| {
+        const enc_rk = enc_ctx.key_schedule.round_keys[10 - i];
+        const dec_rk = dec_ctx.key_schedule.round_keys[i];
+        const computed = enc_rk.invMixColumns();
+        try testing.expectEqualSlices(u8, &dec_rk.toBytes(), &computed.toBytes());
+    }
+}
+
+test "BlockVec invMixColumns" {
+    const input = [_]u8{
+        0x5f, 0x57, 0xf7, 0x1d, 0x72, 0xf5, 0xbe, 0xb9, 0x64, 0xbc, 0x3b, 0xf9, 0x15, 0x92, 0x29, 0x1a,
+        0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c,
+    };
+
+    const vec2 = BlockVec(2).fromBytes(&input);
+    const result_vec = vec2.invMixColumns();
+    const result_bytes = result_vec.toBytes();
+
+    for (0..2) |i| {
+        const block = Block.fromBytes(input[i * 16 ..][0..16]);
+        const expected = block.invMixColumns().toBytes();
+        try testing.expectEqualSlices(u8, &expected, result_bytes[i * 16 ..][0..16]);
+    }
+}
+
 test "expand 256-bit key" {
     const key = [_]u8{
         0x60, 0x3d, 0xeb, 0x10,

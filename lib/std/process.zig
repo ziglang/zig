@@ -22,16 +22,17 @@ pub const GetCwdError = posix.GetCwdError;
 /// The result is a slice of `out_buffer`, from index `0`.
 /// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
-pub fn getCwd(out_buffer: []u8) ![]u8 {
+pub fn getCwd(out_buffer: []u8) GetCwdError![]u8 {
     return posix.getcwd(out_buffer);
 }
 
-pub const GetCwdAllocError = Allocator.Error || posix.GetCwdError;
+// Same as GetCwdError, minus error.NameTooLong + Allocator.Error
+pub const GetCwdAllocError = Allocator.Error || error{CurrentWorkingDirectoryUnlinked} || posix.UnexpectedError;
 
 /// Caller must free the returned memory.
 /// On Windows, the result is encoded as [WTF-8](https://wtf-8.codeberg.page/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
-pub fn getCwdAlloc(allocator: Allocator) ![]u8 {
+pub fn getCwdAlloc(allocator: Allocator) GetCwdAllocError![]u8 {
     // The use of max_path_bytes here is just a heuristic: most paths will fit
     // in stack_buf, avoiding an extra allocation in the common case.
     var stack_buf: [fs.max_path_bytes]u8 = undefined;
@@ -204,6 +205,22 @@ pub const EnvMap = struct {
     /// Returns an iterator over entries in the map.
     pub fn iterator(self: *const EnvMap) HashMap.Iterator {
         return self.hash_map.iterator();
+    }
+
+    /// Returns a full copy of `em` allocated with `gpa`, which is not necessarily
+    /// the same allocator used to allocate `em`.
+    pub fn clone(em: *const EnvMap, gpa: Allocator) Allocator.Error!EnvMap {
+        var new: EnvMap = .init(gpa);
+        errdefer new.deinit();
+        // Since we need to dupe the keys and values, the only way for error handling to not be a
+        // nightmare is to add keys to an empty map one-by-one. This could be avoided if this
+        // abstraction were a bit less... OOP-esque.
+        try new.hash_map.ensureUnusedCapacity(em.hash_map.count());
+        var it = em.hash_map.iterator();
+        while (it.next()) |entry| {
+            try new.put(entry.key_ptr.*, entry.value_ptr.*);
+        }
+        return new;
     }
 
     fn free(self: EnvMap, value: []const u8) void {
@@ -513,6 +530,7 @@ pub fn hasNonEmptyEnvVar(allocator: Allocator, key: []const u8) HasEnvVarError!b
 }
 
 /// Windows-only. Get an environment variable with a null-terminated, WTF-16 encoded name.
+/// The returned slice points to memory in the PEB.
 ///
 /// This function performs a Unicode-aware case-insensitive lookup using RtlEqualUnicodeString.
 ///
@@ -548,7 +566,7 @@ pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
         };
 
         const this_key = key_value[0..equal_index];
-        if (windows.eqlIgnoreCaseWTF16(key_slice, this_key)) {
+        if (windows.eqlIgnoreCaseWtf16(key_slice, this_key)) {
             return key_value[equal_index + 1 ..];
         }
 
@@ -672,6 +690,9 @@ pub const ArgIteratorWasi = struct {
 
     /// Call to free the internal buffer of the iterator.
     pub fn deinit(self: *ArgIteratorWasi) void {
+        // Nothing is allocated when there are no args
+        if (self.args.len == 0) return;
+
         const last_item = self.args[self.args.len - 1];
         const last_byte_addr = @intFromPtr(last_item.ptr) + last_item.len + 1; // null terminated
         const first_item_ptr = self.args[0].ptr;
@@ -1530,11 +1551,13 @@ pub const UserInfo = struct {
 pub fn getUserInfo(name: []const u8) !UserInfo {
     return switch (native_os) {
         .linux,
-        .macos,
-        .watchos,
-        .visionos,
-        .tvos,
+        .driverkit,
         .ios,
+        .maccatalyst,
+        .macos,
+        .tvos,
+        .visionos,
+        .watchos,
         .freebsd,
         .netbsd,
         .openbsd,
@@ -1658,15 +1681,15 @@ fn posixGetUserInfoPasswdStream(name: []const u8, reader: *std.Io.Reader) !UserI
 pub fn getBaseAddress() usize {
     switch (native_os) {
         .linux => {
-            const getauxval = if (builtin.link_libc) std.c.getauxval else std.os.linux.getauxval;
-            const base = getauxval(std.elf.AT_BASE);
-            if (base != 0) {
-                return base;
-            }
-            const phdr = getauxval(std.elf.AT_PHDR);
-            return phdr - @sizeOf(std.elf.Ehdr);
+            const phdrs = std.posix.getSelfPhdrs();
+            var base: usize = 0;
+            for (phdrs) |phdr| switch (phdr.type) {
+                .LOAD => return base + phdr.vaddr,
+                .PHDR => base = @intFromPtr(phdrs.ptr) - phdr.vaddr,
+                else => {},
+            } else unreachable;
         },
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             return @intFromPtr(&std.c._mh_execute_header);
         },
         .windows => return @intFromPtr(windows.kernel32.GetModuleHandleW(null)),
@@ -1682,7 +1705,7 @@ pub const can_execv = switch (native_os) {
 
 /// Tells whether spawning child processes is supported (e.g. via Child)
 pub const can_spawn = switch (native_os) {
-    .wasi, .watchos, .tvos, .visionos => false,
+    .wasi, .ios, .tvos, .visionos, .watchos => false,
     else => true,
 };
 
@@ -1754,7 +1777,7 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
         .linux => {
             var info: std.os.linux.Sysinfo = undefined;
             const result: usize = std.os.linux.sysinfo(&info);
-            if (std.os.linux.E.init(result) != .SUCCESS) {
+            if (std.os.linux.errno(result) != .SUCCESS) {
                 return error.UnknownTotalSystemMemory;
             }
             // Promote to u64 to avoid overflow on systems where info.totalram is a 32-bit usize
@@ -1770,7 +1793,7 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
             return @as(u64, @intCast(physmem));
         },
         // whole Darwin family
-        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             // "hw.memsize" returns uint64_t
             var physmem: u64 = undefined;
             var len: usize = @sizeOf(u64);

@@ -78,14 +78,14 @@ static __inline seqc_t
 seqc_read_any(const seqc_t *seqcp)
 {
 
-	return (atomic_load_acq_int(__DECONST(seqc_t *, seqcp)));
+	return (atomic_load_acq_int(seqcp));
 }
 
 static __inline seqc_t
 seqc_read_notmodify(const seqc_t *seqcp)
 {
 
-	return (atomic_load_acq_int(__DECONST(seqc_t *, seqcp)) & ~SEQC_MOD);
+	return (atomic_load_acq_int(seqcp) & ~SEQC_MOD);
 }
 
 static __inline seqc_t

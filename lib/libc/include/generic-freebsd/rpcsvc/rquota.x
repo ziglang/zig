@@ -1,14 +1,7 @@
-/* @(#)rquota.x	2.1 88/08/01 4.0 RPCSRC */
-/* @(#)rquota.x 1.2 87/09/20 Copyr 1987 Sun Micro */
-
 /*
  * Remote quota protocol
  * Requires unix authentication
  */
-
-#ifndef RPC_HDR
-%#include <sys/cdefs.h>
-#endif
 
 const RQ_PATHLEN = 1024;
 

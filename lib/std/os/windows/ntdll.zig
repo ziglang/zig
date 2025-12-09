@@ -37,6 +37,10 @@ const PROCESSINFOCLASS = windows.PROCESSINFOCLASS;
 const LPVOID = windows.LPVOID;
 const LPCVOID = windows.LPCVOID;
 const SECTION_INHERIT = windows.SECTION_INHERIT;
+const VECTORED_EXCEPTION_HANDLER = windows.VECTORED_EXCEPTION_HANDLER;
+const CRITICAL_SECTION = windows.CRITICAL_SECTION;
+const SRWLOCK = windows.SRWLOCK;
+const CONDITION_VARIABLE = windows.CONDITION_VARIABLE;
 
 pub extern "ntdll" fn NtQueryInformationProcess(
     ProcessHandle: HANDLE,
@@ -375,3 +379,53 @@ pub extern "ntdll" fn NtFreeVirtualMemory(
     RegionSize: *SIZE_T,
     FreeType: ULONG,
 ) callconv(.winapi) NTSTATUS;
+
+pub extern "ntdll" fn RtlAddVectoredExceptionHandler(
+    First: ULONG,
+    Handler: ?VECTORED_EXCEPTION_HANDLER,
+) callconv(.winapi) ?LPVOID;
+pub extern "ntdll" fn RtlRemoveVectoredExceptionHandler(
+    Handle: HANDLE,
+) callconv(.winapi) ULONG;
+
+pub extern "ntdll" fn RtlInitializeCriticalSection(
+    lpCriticalSection: *CRITICAL_SECTION,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn RtlEnterCriticalSection(
+    lpCriticalSection: *CRITICAL_SECTION,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn RtlLeaveCriticalSection(
+    lpCriticalSection: *CRITICAL_SECTION,
+) callconv(.winapi) NTSTATUS;
+pub extern "ntdll" fn RtlDeleteCriticalSection(
+    lpCriticalSection: *CRITICAL_SECTION,
+) callconv(.winapi) NTSTATUS;
+
+pub extern "ntdll" fn RtlTryAcquireSRWLockExclusive(
+    SRWLock: *SRWLOCK,
+) callconv(.winapi) BOOLEAN;
+pub extern "ntdll" fn RtlAcquireSRWLockExclusive(
+    SRWLock: *SRWLOCK,
+) callconv(.winapi) void;
+pub extern "ntdll" fn RtlReleaseSRWLockExclusive(
+    SRWLock: *SRWLOCK,
+) callconv(.winapi) void;
+
+pub extern "ntdll" fn RtlWakeConditionVariable(
+    ConditionVariable: *CONDITION_VARIABLE,
+) callconv(.winapi) void;
+pub extern "ntdll" fn RtlWakeAllConditionVariable(
+    ConditionVariable: *CONDITION_VARIABLE,
+) callconv(.winapi) void;
+
+pub extern "ntdll" fn RtlReAllocateHeap(
+    HeapHandle: HANDLE,
+    Flags: ULONG,
+    BaseAddress: PVOID,
+    Size: SIZE_T,
+) callconv(.winapi) ?PVOID;
+pub extern "ntdll" fn RtlAllocateHeap(
+    HeapHandle: HANDLE,
+    Flags: ULONG,
+    Size: SIZE_T,
+) callconv(.winapi) ?PVOID;

@@ -380,11 +380,14 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         /// Asserts that the new length is less than or equal to the previous length.
         pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
             assert(new_len <= self.items.len);
+            @memset(self.items[new_len..], undefined);
             self.items.len = new_len;
         }
 
+        /// Reduce length to 0.
         /// Invalidates all element pointers.
         pub fn clearRetainingCapacity(self: *Self) void {
+            @memset(self.items, undefined);
             self.items.len = 0;
         }
 
@@ -1138,11 +1141,14 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Asserts that the new length is less than or equal to the previous length.
         pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
             assert(new_len <= self.items.len);
+            @memset(self.items[new_len..], undefined);
             self.items.len = new_len;
         }
 
+        /// Reduce length to 0.
         /// Invalidates all element pointers.
         pub fn clearRetainingCapacity(self: *Self) void {
+            @memset(self.items, undefined);
             self.items.len = 0;
         }
 

@@ -32,8 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)cd9660_node.h	8.6 (Berkeley) 5/14/95
  */
 
 /*
@@ -58,7 +56,7 @@ typedef	struct	{
 
 struct iso_node {
 	struct	vnode *i_vnode;	/* vnode associated with this inode */
-	cd_ino_t	i_number;	/* the identity of the inode */
+	ino_t	i_number;	/* the identity of the inode */
 				/* we use the actual starting block of the file */
 	struct	iso_mnt *i_mnt;	/* filesystem associated with this inode */
 	struct	lockf *i_lockf;	/* head of byte-level lock list */

@@ -13,10 +13,12 @@
 #define MAX_ALLOWED_SEQ_RANGE (SEQ_BUCKET_SIZE * (MAX_HASH_ENTRIES-1))
 
 struct tailq_hash {
-	struct rack_head ht[MAX_HASH_ENTRIES];
 	uint32_t min;
 	uint32_t max;
 	uint32_t count;
+	struct rack_sendmap *rsm_min;
+	struct rack_sendmap *rsm_max;
+	struct rack_head ht[MAX_HASH_ENTRIES];
 };
 
 struct rack_sendmap *
@@ -52,6 +54,10 @@ tqhash_init(struct tailq_hash *hs);
 
 int
 tqhash_trim(struct tailq_hash *hs, uint32_t th_ack);
+
+void
+tqhash_update_end(struct tailq_hash *hs, struct rack_sendmap *rsm,
+    uint32_t th_ack);
 
 
 #define	TQHASH_FOREACH(var, head) \

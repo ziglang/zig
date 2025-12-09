@@ -1,19 +1,18 @@
 /*-
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Copyright (c) 2005-2009 Apple Inc.
- * Copyright (c) 2016 Robert N. M. Watson
+ * Copyright (c) 1999-2005 Apple Inc.
+ * Copyright (c) 2016-2018 Robert N. M. Watson
  * All rights reserved.
  *
- * Portions of this software were developed by BAE Systems, the University of
- * Cambridge Computer Laboratory, and Memorial University under DARPA/AFRL
- * contract FA8650-15-C-7558 ("CADETS"), as part of the DARPA Transparent
- * Computing (TC) research program.
+ * This software was developed by BAE Systems, the University of Cambridge
+ * Computer Laboratory, and Memorial University under DARPA/AFRL contract
+ * FA8650-15-C-7558 ("CADETS"), as part of the DARPA Transparent Computing
+ * (TC) research program.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
- *
  * 1.  Redistributions of source code must retain the above copyright
  *     notice, this list of conditions and the following disclaimer.
  * 2.  Redistributions in binary form must reproduce the above copyright
@@ -23,323 +22,460 @@
  *     its contributors may be used to endorse or promote products derived
  *     from this software without specific prior written permission.
  *
- * THIS SOFTWARE IS PROVIDED BY APPLE AND ITS CONTRIBUTORS "AS IS" AND ANY
- * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL APPLE OR ITS CONTRIBUTORS BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * THIS SOFTWARE IS PROVIDED BY APPLE AND ITS CONTRIBUTORS "AS IS" AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL APPLE OR ITS CONTRIBUTORS BE LIABLE FOR
+ * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
+ * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
  */
-
-#ifndef	_BSM_AUDIT_H
-#define	_BSM_AUDIT_H
-
-#include <sys/param.h>
-#include <sys/types.h>
-
-#define	AUDIT_RECORD_MAGIC	0x828a0f1b
-#define	MAX_AUDIT_RECORDS	20
-#define	MAXAUDITDATA		(0x8000 - 1)
-#define	MAX_AUDIT_RECORD_SIZE	MAXAUDITDATA
-#define	MIN_AUDIT_FILE_SIZE	(512 * 1024)
 
 /*
- * Minimum noumber of free blocks on the filesystem containing the audit
- * log necessary to avoid a hard log rotation. DO NOT SET THIS VALUE TO 0
- * as the kernel does an unsigned compare, plus we want to leave a few blocks
- * free so userspace can terminate the log, etc.
+ * This header includes function prototypes and type definitions that are
+ * necessary for the kernel as a whole to interact with the audit subsystem.
  */
-#define	AUDIT_HARD_LIMIT_FREE_BLOCKS	4
+
+#ifndef _SECURITY_AUDIT_KERNEL_H_
+#define	_SECURITY_AUDIT_KERNEL_H_
+
+#ifndef _KERNEL
+#error "no user-serviceable parts inside"
+#endif
+
+#include <bsm/audit.h>
+
+#include <sys/file.h>
+#include <sys/sysctl.h>
 
 /*
- * Triggers for the audit daemon.
+ * Audit subsystem condition flags.  The audit_trail_enabled flag is set and
+ * removed automatically as a result of configuring log files, and can be
+ * observed but should not be directly manipulated.  The audit suspension
+ * flag permits audit to be temporarily disabled without reconfiguring the
+ * audit target.
+ *
+ * As DTrace can also request system-call auditing, a further
+ * audit_syscalls_enabled flag tracks whether newly entering system calls
+ * should be considered for auditing or not.
+ *
+ * XXXRW: Move trail flags to audit_private.h, as they no longer need to be
+ * visible outside the audit code...?
  */
-#define	AUDIT_TRIGGER_MIN		1
-#define	AUDIT_TRIGGER_LOW_SPACE		1	/* Below low watermark. */
-#define	AUDIT_TRIGGER_ROTATE_KERNEL	2	/* Kernel requests rotate. */
-#define	AUDIT_TRIGGER_READ_FILE		3	/* Re-read config file. */
-#define	AUDIT_TRIGGER_CLOSE_AND_DIE	4	/* Terminate audit. */
-#define	AUDIT_TRIGGER_NO_SPACE		5	/* Below min free space. */
-#define	AUDIT_TRIGGER_ROTATE_USER	6	/* User requests rotate. */
-#define	AUDIT_TRIGGER_INITIALIZE	7	/* User initialize of auditd. */
-#define	AUDIT_TRIGGER_EXPIRE_TRAILS	8	/* User expiration of trails. */
-#define	AUDIT_TRIGGER_MAX		8
+extern u_int	audit_dtrace_enabled;
+extern int	audit_trail_enabled;
+extern int	audit_trail_suspended;
+extern bool	audit_syscalls_enabled;
+
+void	 audit_syscall_enter(unsigned short code, struct thread *td);
+void	 audit_syscall_exit(int error, struct thread *td);
 
 /*
- * The special device filename (FreeBSD).
+ * The remaining kernel functions are conditionally compiled in as they are
+ * wrapped by a macro, and the macro should be the only place in the source
+ * tree where these functions are referenced.
  */
-#define	AUDITDEV_FILENAME	"audit"
-#define	AUDIT_TRIGGER_FILE	("/dev/" AUDITDEV_FILENAME)
+#ifdef AUDIT
+struct ipc_perm;
+struct sockaddr;
+union auditon_udata;
+void	 audit_arg_addr(void * addr);
+void	 audit_arg_exit(int status, int retval);
+void	 audit_arg_len(int len);
+void	 audit_arg_atfd1(int atfd);
+void	 audit_arg_atfd2(int atfd);
+void	 audit_arg_fd(int fd);
+void	 audit_arg_fflags(int fflags);
+void	 audit_arg_gid(gid_t gid);
+void	 audit_arg_uid(uid_t uid);
+void	 audit_arg_egid(gid_t egid);
+void	 audit_arg_euid(uid_t euid);
+void	 audit_arg_rgid(gid_t rgid);
+void	 audit_arg_ruid(uid_t ruid);
+void	 audit_arg_sgid(gid_t sgid);
+void	 audit_arg_suid(uid_t suid);
+void	 audit_arg_groupset(gid_t *gidset, int gidset_size);
+void	 audit_arg_login(char *login);
+void	 audit_arg_ctlname(int *name, int namelen);
+void	 audit_arg_mask(int mask);
+void	 audit_arg_mode(mode_t mode);
+void	 audit_arg_dev(int dev);
+void	 audit_arg_value(long value);
+void	 audit_arg_owner(uid_t uid, gid_t gid);
+void	 audit_arg_pid(pid_t pid);
+void	 audit_arg_process(struct proc *p);
+void	 audit_arg_signum(u_int signum);
+void	 audit_arg_socket(int sodomain, int sotype, int soprotocol);
+void	 audit_arg_sockaddr(struct thread *td, int dirfd, struct sockaddr *sa);
+void	 audit_arg_auid(uid_t auid);
+void	 audit_arg_auditinfo(struct auditinfo *au_info);
+void	 audit_arg_auditinfo_addr(struct auditinfo_addr *au_info);
+void	 audit_arg_upath1(struct thread *td, int dirfd, char *upath);
+void	 audit_arg_upath1_canon(char *upath);
+void	 audit_arg_upath2(struct thread *td, int dirfd, char *upath);
+void	 audit_arg_upath2_canon(char *upath);
+void	 audit_arg_upath1_vp(struct thread *td, struct vnode *rdir,
+	    struct vnode *cdir, char *upath);
+void	 audit_arg_upath2_vp(struct thread *td, struct vnode *rdir,
+	    struct vnode *cdir, char *upath);
+void	 audit_arg_vnode1(struct vnode *vp);
+void	 audit_arg_vnode2(struct vnode *vp);
+void	 audit_arg_text(const char *text);
+void	 audit_arg_cmd(int cmd);
+void	 audit_arg_svipc_cmd(int cmd);
+void	 audit_arg_svipc_perm(struct ipc_perm *perm);
+void	 audit_arg_svipc_id(int id);
+void	 audit_arg_svipc_addr(void *addr);
+void	 audit_arg_svipc_which(int which);
+void	 audit_arg_posix_ipc_perm(uid_t uid, gid_t gid, mode_t mode);
+void	 audit_arg_auditon(union auditon_udata *udata);
+void	 audit_arg_file(struct proc *p, struct file *fp);
+void	 audit_arg_argv(char *argv, int argc, int length);
+void	 audit_arg_envv(char *envv, int envc, int length);
+void	 audit_arg_rights(cap_rights_t *rightsp);
+void	 audit_arg_fcntl_rights(uint32_t fcntlrights);
+void	 audit_sysclose(struct thread *td, int fd, struct file *fp);
+void	 audit_cred_copy(struct ucred *src, struct ucred *dest);
+void	 audit_cred_destroy(struct ucred *cred);
+void	 audit_cred_init(struct ucred *cred);
+void	 audit_cred_kproc0(struct ucred *cred);
+void	 audit_cred_proc1(struct ucred *cred);
+void	 audit_proc_coredump(struct thread *td, char *path, int errcode);
+void	 audit_thread_alloc(struct thread *td);
+void	 audit_thread_free(struct thread *td);
 
 /*
- * Pre-defined audit IDs
+ * Define macros to wrap the audit_arg_* calls by checking the global
+ * audit_syscalls_enabled flag before performing the actual call.
  */
-#define	AU_DEFAUDITID	(uid_t)(-1)
-#define	AU_DEFAUDITSID	 0
-#define	AU_ASSIGN_ASID	-1
+#define	AUDITING_TD(td)		(__predict_false((td)->td_pflags & TDP_AUDITREC))
+
+#define	AUDIT_ARG_ADDR(addr) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_addr((addr));					\
+} while (0)
+
+#define	AUDIT_ARG_ARGV(argv, argc, length) do {				\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_argv((argv), (argc), (length));		\
+} while (0)
+
+#define	AUDIT_ARG_ATFD1(atfd) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_atfd1((atfd));				\
+} while (0)
+
+#define	AUDIT_ARG_ATFD2(atfd) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_atfd2((atfd));				\
+} while (0)
+
+#define	AUDIT_ARG_AUDITON(udata) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_auditon((udata));				\
+} while (0)
+
+#define	AUDIT_ARG_CMD(cmd) do {						\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_cmd((cmd));					\
+} while (0)
+
+#define	AUDIT_ARG_DEV(dev) do {						\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_dev((dev));					\
+} while (0)
+
+#define	AUDIT_ARG_EGID(egid) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_egid((egid));					\
+} while (0)
+
+#define	AUDIT_ARG_ENVV(envv, envc, length) do {				\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_envv((envv), (envc), (length));		\
+} while (0)
+
+#define	AUDIT_ARG_EXIT(status, retval) do {				\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_exit((status), (retval));			\
+} while (0)
+
+#define	AUDIT_ARG_EUID(euid) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_euid((euid));					\
+} while (0)
+
+#define	AUDIT_ARG_FD(fd) do {						\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_fd((fd));					\
+} while (0)
+
+#define	AUDIT_ARG_FILE(p, fp) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_file((p), (fp));				\
+} while (0)
+
+#define	AUDIT_ARG_FFLAGS(fflags) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_fflags((fflags));				\
+} while (0)
+
+#define	AUDIT_ARG_GID(gid) do {						\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_gid((gid));					\
+} while (0)
+
+#define	AUDIT_ARG_GROUPSET(gidset, gidset_size) do {			\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_groupset((gidset), (gidset_size));		\
+} while (0)
+
+#define	AUDIT_ARG_LOGIN(login) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_login((login));				\
+} while (0)
+
+#define	AUDIT_ARG_MODE(mode) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_mode((mode));					\
+} while (0)
+
+#define	AUDIT_ARG_OWNER(uid, gid) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_owner((uid), (gid));				\
+} while (0)
+
+#define	AUDIT_ARG_PID(pid) do {						\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_pid((pid));					\
+} while (0)
+
+#define	AUDIT_ARG_POSIX_IPC_PERM(uid, gid, mode) do {			\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_posix_ipc_perm((uid), (gid), (mod));		\
+} while (0)
+
+#define	AUDIT_ARG_PROCESS(p) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_process((p));					\
+} while (0)
+
+#define	AUDIT_ARG_RGID(rgid) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_rgid((rgid));					\
+} while (0)
+
+#define	AUDIT_ARG_RIGHTS(rights) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_rights((rights));				\
+} while (0)
+
+#define	AUDIT_ARG_FCNTL_RIGHTS(fcntlrights) do {			\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_fcntl_rights((fcntlrights));			\
+} while (0)
+
+#define	AUDIT_ARG_RUID(ruid) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_ruid((ruid));					\
+} while (0)
+
+#define	AUDIT_ARG_SIGNUM(signum) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_signum((signum));				\
+} while (0)
+
+#define	AUDIT_ARG_SGID(sgid) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_sgid((sgid));					\
+} while (0)
+
+#define	AUDIT_ARG_SOCKET(sodomain, sotype, soprotocol) do {		\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_socket((sodomain), (sotype), (soprotocol));	\
+} while (0)
+
+#define	AUDIT_ARG_SOCKADDR(td, dirfd, sa) do {				\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_sockaddr((td), (dirfd), (sa));		\
+} while (0)
+
+#define	AUDIT_ARG_SUID(suid) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_suid((suid));					\
+} while (0)
+
+#define	AUDIT_ARG_SVIPC_CMD(cmd) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_svipc_cmd((cmd));				\
+} while (0)
+
+#define	AUDIT_ARG_SVIPC_PERM(perm) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_svipc_perm((perm));				\
+} while (0)
+
+#define	AUDIT_ARG_SVIPC_ID(id) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_svipc_id((id));				\
+} while (0)
+
+#define	AUDIT_ARG_SVIPC_ADDR(addr) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_svipc_addr((addr));				\
+} while (0)
+
+#define	AUDIT_ARG_SVIPC_WHICH(which) do {				\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_svipc_which((which));				\
+} while (0)
+
+#define	AUDIT_ARG_TEXT(text) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_text((text));					\
+} while (0)
+
+#define	AUDIT_ARG_UID(uid) do {						\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_uid((uid));					\
+} while (0)
+
+#define	AUDIT_ARG_UPATH1(td, dirfd, upath) do {				\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_upath1((td), (dirfd), (upath));		\
+} while (0)
+
+#define	AUDIT_ARG_UPATH1_CANON(upath) do {				\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_upath1_canon((upath));			\
+} while (0)
+
+#define	AUDIT_ARG_UPATH2(td, dirfd, upath) do {				\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_upath2((td), (dirfd), (upath));		\
+} while (0)
+
+#define	AUDIT_ARG_UPATH2_CANON(upath) do {				\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_upath2_canon((upath));			\
+} while (0)
+
+#define	AUDIT_ARG_UPATH1_VP(td, rdir, cdir, upath) do {			\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_upath1_vp((td), (rdir), (cdir), (upath));	\
+} while (0)
+
+#define	AUDIT_ARG_UPATH2_VP(td, rdir, cdir, upath) do {			\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_upath2_vp((td), (rdir), (cdir), (upath));	\
+} while (0)
+
+#define	AUDIT_ARG_VALUE(value) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_value((value));				\
+} while (0)
+
+#define	AUDIT_ARG_VNODE1(vp) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_vnode1((vp));					\
+} while (0)
+
+#define	AUDIT_ARG_VNODE2(vp) do {					\
+	if (AUDITING_TD(curthread))					\
+		audit_arg_vnode2((vp));					\
+} while (0)
+
+#define	AUDIT_SYSCALL_ENABLED()	audit_syscalls_enabled
+
+#define	AUDIT_SYSCALL_ENTER(code, td)	({				\
+	bool _audit_entered = false;					\
+	if (audit_syscalls_enabled) {					\
+		audit_syscall_enter(code, td);				\
+		_audit_entered = true;					\
+	}								\
+	_audit_entered;							\
+})
 
 /*
- * IPC types.
+ * Wrap the audit_syscall_exit() function so that it is called only when
+ * we have a audit record on the thread.  Audit records can persist after
+ * auditing is disabled, so we don't just check audit_syscalls_enabled here.
  */
-#define	AT_IPC_MSG	((u_char)1)	/* Message IPC id. */
-#define	AT_IPC_SEM	((u_char)2)	/* Semaphore IPC id. */
-#define	AT_IPC_SHM	((u_char)3)	/* Shared mem IPC id. */
+#define	AUDIT_SYSCALL_EXIT(error, td)	do {				\
+	if (AUDITING_TD(td))						\
+		audit_syscall_exit(error, td);				\
+} while (0)
 
 /*
- * Audit conditions.
+ * A Macro to wrap the audit_sysclose() function.
  */
-#define	AUC_UNSET		0
-#define	AUC_AUDITING		1
-#define	AUC_NOAUDIT		2
-#define	AUC_DISABLED		-1
+#define	AUDIT_SYSCLOSE(td, fd)	do {					\
+	if (AUDITING_TD(td))						\
+		audit_sysclose(td, fd);					\
+} while (0)
 
-/*
- * auditon(2) commands.
- */
-#define	A_OLDGETPOLICY	2
-#define	A_OLDSETPOLICY	3
-#define	A_GETKMASK	4
-#define	A_SETKMASK	5
-#define	A_OLDGETQCTRL	6
-#define	A_OLDSETQCTRL	7
-#define	A_GETCWD	8
-#define	A_GETCAR	9
-#define	A_GETSTAT	12
-#define	A_SETSTAT	13
-#define	A_SETUMASK	14
-#define	A_SETSMASK	15
-#define	A_OLDGETCOND	20
-#define	A_OLDSETCOND	21
-#define	A_GETCLASS	22
-#define	A_SETCLASS	23
-#define	A_GETPINFO	24
-#define	A_SETPMASK	25
-#define	A_SETFSIZE	26
-#define	A_GETFSIZE	27
-#define	A_GETPINFO_ADDR	28
-#define	A_GETKAUDIT	29
-#define	A_SETKAUDIT	30
-#define	A_SENDTRIGGER	31
-#define	A_GETSINFO_ADDR	32
-#define	A_GETPOLICY	33
-#define	A_SETPOLICY	34
-#define	A_GETQCTRL	35
-#define	A_SETQCTRL	36
-#define	A_GETCOND	37
-#define	A_SETCOND	38
-#define	A_GETEVENT	39	/* Get audit event-to-name mapping. */
-#define	A_SETEVENT	40	/* Set audit event-to-name mapping. */
+#else /* !AUDIT */
 
-/*
- * Audit policy controls.
- */
-#define	AUDIT_CNT	0x0001
-#define	AUDIT_AHLT	0x0002
-#define	AUDIT_ARGV	0x0004
-#define	AUDIT_ARGE	0x0008
-#define	AUDIT_SEQ	0x0010
-#define	AUDIT_WINDATA	0x0020
-#define	AUDIT_USER	0x0040
-#define	AUDIT_GROUP	0x0080
-#define	AUDIT_TRAIL	0x0100
-#define	AUDIT_PATH	0x0200
-#define	AUDIT_SCNT	0x0400
-#define	AUDIT_PUBLIC	0x0800
-#define	AUDIT_ZONENAME	0x1000
-#define	AUDIT_PERZONE	0x2000
+#define	AUDIT_ARG_ADDR(addr)
+#define	AUDIT_ARG_ARGV(argv, argc, length)
+#define	AUDIT_ARG_ATFD1(atfd)
+#define	AUDIT_ARG_ATFD2(atfd)
+#define	AUDIT_ARG_AUDITON(udata)
+#define	AUDIT_ARG_CMD(cmd)
+#define	AUDIT_ARG_DEV(dev)
+#define	AUDIT_ARG_EGID(egid)
+#define	AUDIT_ARG_ENVV(envv, envc, length)
+#define	AUDIT_ARG_EXIT(status, retval)
+#define	AUDIT_ARG_EUID(euid)
+#define	AUDIT_ARG_FD(fd)
+#define	AUDIT_ARG_FILE(p, fp)
+#define	AUDIT_ARG_FFLAGS(fflags)
+#define	AUDIT_ARG_GID(gid)
+#define	AUDIT_ARG_GROUPSET(gidset, gidset_size)
+#define	AUDIT_ARG_LOGIN(login)
+#define	AUDIT_ARG_MODE(mode)
+#define	AUDIT_ARG_OWNER(uid, gid)
+#define	AUDIT_ARG_PID(pid)
+#define	AUDIT_ARG_POSIX_IPC_PERM(uid, gid, mode)
+#define	AUDIT_ARG_PROCESS(p)
+#define	AUDIT_ARG_RGID(rgid)
+#define	AUDIT_ARG_RIGHTS(rights)
+#define	AUDIT_ARG_FCNTL_RIGHTS(fcntlrights)
+#define	AUDIT_ARG_RUID(ruid)
+#define	AUDIT_ARG_SIGNUM(signum)
+#define	AUDIT_ARG_SGID(sgid)
+#define	AUDIT_ARG_SOCKET(sodomain, sotype, soprotocol)
+#define	AUDIT_ARG_SOCKADDR(td, dirfd, sa)
+#define	AUDIT_ARG_SUID(suid)
+#define	AUDIT_ARG_SVIPC_CMD(cmd)
+#define	AUDIT_ARG_SVIPC_PERM(perm)
+#define	AUDIT_ARG_SVIPC_ID(id)
+#define	AUDIT_ARG_SVIPC_ADDR(addr)
+#define	AUDIT_ARG_SVIPC_WHICH(which)
+#define	AUDIT_ARG_TEXT(text)
+#define	AUDIT_ARG_UID(uid)
+#define	AUDIT_ARG_UPATH1(td, dirfd, upath)
+#define	AUDIT_ARG_UPATH1_CANON(upath)
+#define	AUDIT_ARG_UPATH2(td, dirfd, upath)
+#define	AUDIT_ARG_UPATH2_CANON(upath)
+#define	AUDIT_ARG_UPATH1_VP(td, rdir, cdir, upath)
+#define	AUDIT_ARG_UPATH2_VP(td, rdir, cdir, upath)
+#define	AUDIT_ARG_VALUE(value)
+#define	AUDIT_ARG_VNODE1(vp)
+#define	AUDIT_ARG_VNODE2(vp)
 
-/*
- * Default audit queue control parameters.
- */
-#define	AQ_HIWATER	100
-#define	AQ_MAXHIGH	10000
-#define	AQ_LOWATER	10
-#define	AQ_BUFSZ	MAXAUDITDATA
-#define	AQ_MAXBUFSZ	1048576
+#define	AUDITING_TD(td)		0
 
-/*
- * Default minimum percentage free space on file system.
- */
-#define	AU_FS_MINFREE	20
+#define	AUDIT_SYSCALL_ENABLED()	0
+#define	AUDIT_SYSCALL_ENTER(code, td)	0
+#define	AUDIT_SYSCALL_EXIT(error, td)
 
-/*
- * Type definitions used indicating the length of variable length addresses
- * in tokens containing addresses, such as header fields.
- */
-#define	AU_IPv4		4
-#define	AU_IPv6		16
+#define	AUDIT_SYSCLOSE(p, fd)
 
-__BEGIN_DECLS
+#endif /* AUDIT */
 
-typedef	uid_t		au_id_t;
-typedef	pid_t		au_asid_t;
-typedef	u_int16_t	au_event_t;
-typedef	u_int16_t	au_emod_t;
-typedef	u_int32_t	au_class_t;
-typedef	u_int64_t	au_asflgs_t __attribute__ ((aligned (8)));
-
-struct au_tid {
-	u_int32_t	port;		/* XXX dev_t compatibility */
-	u_int32_t	machine;
-};
-typedef	struct au_tid	au_tid_t;
-
-struct au_tid_addr {
-	u_int32_t	at_port;	/* XXX dev_t compatibility */
-	u_int32_t	at_type;
-	u_int32_t	at_addr[4];
-};
-typedef	struct au_tid_addr	au_tid_addr_t;
-
-struct au_mask {
-	unsigned int    am_success;     /* Success bits. */
-	unsigned int    am_failure;     /* Failure bits. */
-};
-typedef	struct au_mask	au_mask_t;
-
-struct auditinfo {
-	au_id_t		ai_auid;	/* Audit user ID. */
-	au_mask_t	ai_mask;	/* Audit masks. */
-	au_tid_t	ai_termid;	/* Terminal ID. */
-	au_asid_t	ai_asid;	/* Audit session ID. */
-};
-typedef	struct auditinfo	auditinfo_t;
-
-struct auditinfo_addr {
-	au_id_t		ai_auid;	/* Audit user ID. */
-	au_mask_t	ai_mask;	/* Audit masks. */
-	au_tid_addr_t	ai_termid;	/* Terminal ID. */
-	au_asid_t	ai_asid;	/* Audit session ID. */
-	au_asflgs_t	ai_flags;	/* Audit session flags. */
-};
-typedef	struct auditinfo_addr	auditinfo_addr_t;
-
-struct auditpinfo {
-	pid_t		ap_pid;		/* ID of target process. */
-	au_id_t		ap_auid;	/* Audit user ID. */
-	au_mask_t	ap_mask;	/* Audit masks. */
-	au_tid_t	ap_termid;	/* Terminal ID. */
-	au_asid_t	ap_asid;	/* Audit session ID. */
-};
-typedef	struct auditpinfo	auditpinfo_t;
-
-struct auditpinfo_addr {
-	pid_t		ap_pid;		/* ID of target process. */
-	au_id_t		ap_auid;	/* Audit user ID. */
-	au_mask_t	ap_mask;	/* Audit masks. */
-	au_tid_addr_t	ap_termid;	/* Terminal ID. */
-	au_asid_t	ap_asid;	/* Audit session ID. */
-	au_asflgs_t	ap_flags;	/* Audit session flags. */
-};
-typedef	struct auditpinfo_addr	auditpinfo_addr_t;
-
-struct au_session {
-	auditinfo_addr_t	*as_aia_p;	/* Ptr to full audit info. */
-	au_mask_t		 as_mask;	/* Process Audit Masks. */
-};
-typedef struct au_session       au_session_t;
-
-/*
- * Contents of token_t are opaque outside of libbsm.
- */
-typedef	struct au_token	token_t;
-
-/*
- * Kernel audit queue control parameters:
- * 			Default:		Maximum:
- * 	aq_hiwater:	AQ_HIWATER (100)	AQ_MAXHIGH (10000) 
- * 	aq_lowater:	AQ_LOWATER (10)		<aq_hiwater
- * 	aq_bufsz:	AQ_BUFSZ (32767)	AQ_MAXBUFSZ (1048576)
- * 	aq_delay:	20			20000 (not used) 
- */
-struct au_qctrl {
-	int	aq_hiwater;	/* Max # of audit recs in queue when */
-				/* threads with new ARs get blocked. */ 
-
-	int	aq_lowater;	/* # of audit recs in queue when */
-				/* blocked threads get unblocked. */
-
-	int	aq_bufsz;	/* Max size of audit record for audit(2). */
-	int	aq_delay;	/* Queue delay (not used). */
-	int	aq_minfree;	/* Minimum filesystem percent free space. */
-};
-typedef	struct au_qctrl	au_qctrl_t;
-
-/*
- * Structure for the audit statistics.
- */
-struct audit_stat {
-	unsigned int	as_version;
-	unsigned int	as_numevent;
-	int		as_generated;
-	int		as_nonattrib;
-	int		as_kernel;
-	int		as_audit;
-	int		as_auditctl;
-	int		as_enqueue;
-	int		as_written;
-	int		as_wblocked;
-	int		as_rblocked;
-	int		as_dropped;
-	int		as_totalsize;
-	unsigned int	as_memused;
-};
-typedef	struct audit_stat	au_stat_t;
-
-/*
- * Structure for the audit file statistics.
- */
-struct audit_fstat {
-	u_int64_t	af_filesz;
-	u_int64_t	af_currsz;
-};
-typedef	struct audit_fstat	au_fstat_t;
-
-/*
- * Audit to event class mapping.
- */
-struct au_evclass_map {
-	au_event_t	ec_number;
-	au_class_t	ec_class;
-};
-typedef	struct au_evclass_map	au_evclass_map_t;
-
-/*
- * Event-to-name mapping.
- */
-#define	EVNAMEMAP_NAME_SIZE	64
-struct au_evname_map {
-	au_event_t	en_number;
-	char		en_name[EVNAMEMAP_NAME_SIZE];
-};
-typedef struct au_evname_map	au_evname_map_t;
-
-/*
- * Audit system calls.
- */
-#if !defined(_KERNEL) && !defined(KERNEL)
-int	audit(const void *, int);
-int	auditon(int, void *, int);
-int	auditctl(const char *);
-int	getauid(au_id_t *);
-int	setauid(const au_id_t *);
-int	getaudit(struct auditinfo *);
-int	setaudit(const struct auditinfo *);
-int	getaudit_addr(struct auditinfo_addr *, int);
-int	setaudit_addr(const struct auditinfo_addr *, int);
-
-#ifdef __APPLE_API_PRIVATE
-#include <mach/port.h>
-mach_port_name_t audit_session_self(void);
-au_asid_t	 audit_session_join(mach_port_name_t port);
-#endif /* __APPLE_API_PRIVATE */
-
-#endif /* defined(_KERNEL) || defined(KERNEL) */
-
-__END_DECLS
-
-#endif /* !_BSM_AUDIT_H */
+#endif /* !_SECURITY_AUDIT_KERNEL_H_ */

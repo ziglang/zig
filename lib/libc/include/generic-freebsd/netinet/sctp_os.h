@@ -39,9 +39,6 @@
  * General kernel memory allocation:
  *  SCTP_MALLOC(element, type, size, name)
  *  SCTP_FREE(element)
- * Kernel memory allocation for "soname"- memory must be zeroed.
- *  SCTP_MALLOC_SONAME(name, type, size)
- *  SCTP_FREE_SONAME(name)
  */
 
 /*

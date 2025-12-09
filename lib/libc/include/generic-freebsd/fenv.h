@@ -29,66 +29,66 @@
 #ifndef	_FENV_H_
 #define	_FENV_H_
 
+#include <sys/cdefs.h>
 #include <sys/_types.h>
-#include <machine/endian.h>
+#include <ieeefp.h>
 
 #ifndef	__fenv_static
 #define	__fenv_static	static
 #endif
 
-typedef	__uint32_t	fenv_t;
-typedef	__uint32_t	fexcept_t;
+typedef	__uint16_t	fexcept_t;
 
 /* Exception flags */
-#ifdef __SPE__
-#define FE_OVERFLOW	0x00000100
-#define FE_UNDERFLOW	0x00000200
-#define FE_DIVBYZERO	0x00000400
-#define FE_INVALID	0x00000800
-#define FE_INEXACT	0x00001000
-
-#define	FE_ALL_INVALID	FE_INVALID
-
-#define	_FPUSW_SHIFT	6
-#else
-#define	FE_INEXACT	0x02000000
-#define	FE_DIVBYZERO	0x04000000
-#define	FE_UNDERFLOW	0x08000000
-#define	FE_OVERFLOW	0x10000000
-#define	FE_INVALID	0x20000000	/* all types of invalid FP ops */
-
-/*
- * The PowerPC architecture has extra invalid flags that indicate the
- * specific type of invalid operation occurred.  These flags may be
- * tested, set, and cleared---but not masked---separately.  All of
- * these bits are cleared when FE_INVALID is cleared, but only
- * FE_VXSOFT is set when FE_INVALID is explicitly set in software.
- */
-#define	FE_VXCVI	0x00000100	/* invalid integer convert */
-#define	FE_VXSQRT	0x00000200	/* square root of a negative */
-#define	FE_VXSOFT	0x00000400	/* software-requested exception */
-#define	FE_VXVC		0x00080000	/* ordered comparison involving NaN */
-#define	FE_VXIMZ	0x00100000	/* inf * 0 */
-#define	FE_VXZDZ	0x00200000	/* 0 / 0 */
-#define	FE_VXIDI	0x00400000	/* inf / inf */
-#define	FE_VXISI	0x00800000	/* inf - inf */
-#define	FE_VXSNAN	0x01000000	/* operation on a signalling NaN */
-#define	FE_ALL_INVALID	(FE_VXCVI | FE_VXSQRT | FE_VXSOFT | FE_VXVC | \
-			 FE_VXIMZ | FE_VXZDZ | FE_VXIDI | FE_VXISI | \
-			 FE_VXSNAN | FE_INVALID)
-
-#define	_FPUSW_SHIFT	22
-#endif
-#define	FE_ALL_EXCEPT	(FE_DIVBYZERO | FE_INEXACT | \
-			 FE_ALL_INVALID | FE_OVERFLOW | FE_UNDERFLOW)
+#define	FE_INVALID	0x01
+#define	FE_DENORMAL	0x02
+#define	FE_DIVBYZERO	0x04
+#define	FE_OVERFLOW	0x08
+#define	FE_UNDERFLOW	0x10
+#define	FE_INEXACT	0x20
+#define	FE_ALL_EXCEPT	(FE_DIVBYZERO | FE_DENORMAL | FE_INEXACT | \
+			 FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW)
 
 /* Rounding modes */
 #define	FE_TONEAREST	0x0000
-#define	FE_TOWARDZERO	0x0001
-#define	FE_UPWARD	0x0002
-#define	FE_DOWNWARD	0x0003
+#define	FE_DOWNWARD	0x0400
+#define	FE_UPWARD	0x0800
+#define	FE_TOWARDZERO	0x0c00
 #define	_ROUND_MASK	(FE_TONEAREST | FE_DOWNWARD | \
 			 FE_UPWARD | FE_TOWARDZERO)
+
+/*
+ * As compared to the x87 control word, the SSE unit's control word
+ * has the rounding control bits offset by 3 and the exception mask
+ * bits offset by 7.
+ */
+#define	_SSE_ROUND_SHIFT	3
+#define	_SSE_EMASK_SHIFT	7
+
+#ifdef __i386__
+/*
+ * To preserve binary compatibility with FreeBSD 5.3, we pack the
+ * mxcsr into some reserved fields, rather than changing sizeof(fenv_t).
+ */
+typedef struct {
+	__uint16_t	__control;
+	__uint16_t      __mxcsr_hi;
+	__uint16_t	__status;
+	__uint16_t      __mxcsr_lo;
+	__uint32_t	__tag;
+	char		__other[16];
+} fenv_t;
+#else /* __amd64__ */
+typedef struct {
+	struct {
+		__uint32_t	__control;
+		__uint32_t	__status;
+		__uint32_t	__tag;
+		char		__other[16];
+	} __x87;
+	__uint32_t		__mxcsr;
+} fenv_t;
+#endif /* __i386__ */
 
 __BEGIN_DECLS
 
@@ -96,209 +96,252 @@ __BEGIN_DECLS
 extern const fenv_t	__fe_dfl_env;
 #define	FE_DFL_ENV	(&__fe_dfl_env)
 
-/* We need to be able to map status flag positions to mask flag positions */
-#define	_ENABLE_MASK	((FE_DIVBYZERO | FE_INEXACT | FE_INVALID | \
-			 FE_OVERFLOW | FE_UNDERFLOW) >> _FPUSW_SHIFT)
+#define	__fldenvx(__env)	__asm __volatile("fldenv %0" : : "m" (__env)  \
+				: "st", "st(1)", "st(2)", "st(3)", "st(4)",   \
+				"st(5)", "st(6)", "st(7)")
+#define	__fwait()		__asm __volatile("fwait")
 
-#ifndef _SOFT_FLOAT
-#ifdef __SPE__
-#define	__mffs(__env) \
-	__asm __volatile("mfspr %0, 512" : "=r" ((__env)->__bits.__reg))
-#define	__mtfsf(__env) \
-	__asm __volatile("mtspr 512,%0;isync" :: "r" ((__env).__bits.__reg))
+int fegetenv(fenv_t *__envp);
+int feholdexcept(fenv_t *__envp);
+int fesetexceptflag(const fexcept_t *__flagp, int __excepts);
+int feraiseexcept(int __excepts);
+int feupdateenv(const fenv_t *__envp);
+
+__fenv_static inline int
+fegetround(void)
+{
+	__uint16_t __control;
+
+	/*
+	 * We assume that the x87 and the SSE unit agree on the
+	 * rounding mode.  Reading the control word on the x87 turns
+	 * out to be about 5 times faster than reading it on the SSE
+	 * unit on an Opteron 244.
+	 */
+	__fnstcw(&__control);
+	return (__control & _ROUND_MASK);
+}
+
+#if __BSD_VISIBLE
+
+int feenableexcept(int __mask);
+int fedisableexcept(int __mask);
+
+/* We currently provide no external definition of fegetexcept(). */
+static inline int
+fegetexcept(void)
+{
+	__uint16_t __control;
+
+	/*
+	 * We assume that the masks for the x87 and the SSE unit are
+	 * the same.
+	 */
+	__fnstcw(&__control);
+	return (~__control & FE_ALL_EXCEPT);
+}
+
+#endif /* __BSD_VISIBLE */
+
+#ifdef __i386__
+
+/* After testing for SSE support once, we cache the result in __has_sse. */
+enum __sse_support { __SSE_YES, __SSE_NO, __SSE_UNK };
+extern enum __sse_support __has_sse;
+int __test_sse(void);
+#ifdef __SSE__
+#define	__HAS_SSE()	1
 #else
-#define	__mffs(__env) \
-	__asm __volatile("mffs %0" : "=f" ((__env)->__d))
-#define	__mtfsf(__env) \
-	__asm __volatile("mtfsf 255,%0" :: "f" ((__env).__d))
-#endif
-#else
-#define	__mffs(__env)
-#define	__mtfsf(__env)
+#define	__HAS_SSE()	(__has_sse == __SSE_YES ||			\
+			 (__has_sse == __SSE_UNK && __test_sse()))
 #endif
 
-union __fpscr {
-	double __d;
-	struct {
-#if _BYTE_ORDER == _LITTLE_ENDIAN
-		fenv_t __reg;
-		__uint32_t __junk;
-#else
-		__uint32_t __junk;
-		fenv_t __reg;
-#endif
-	} __bits;
-};
+#define	__get_mxcsr(env)	(((env).__mxcsr_hi << 16) |	\
+				 ((env).__mxcsr_lo))
+#define	__set_mxcsr(env, x)	do {				\
+	(env).__mxcsr_hi = (__uint32_t)(x) >> 16;		\
+	(env).__mxcsr_lo = (__uint16_t)(x);			\
+} while (0)
 
 __fenv_static inline int
 feclearexcept(int __excepts)
 {
-	union __fpscr __r;
+	fenv_t __env;
+	__uint32_t __mxcsr;
 
-	if (__excepts & FE_INVALID)
-		__excepts |= FE_ALL_INVALID;
-	__mffs(&__r);
-	__r.__bits.__reg &= ~__excepts;
-	__mtfsf(__r);
+	if (__excepts == FE_ALL_EXCEPT) {
+		__fnclex();
+	} else {
+		__fnstenv(&__env);
+		__env.__status &= ~__excepts;
+		__fldenv(&__env);
+	}
+	if (__HAS_SSE()) {
+		__stmxcsr(&__mxcsr);
+		__mxcsr &= ~__excepts;
+		__ldmxcsr(&__mxcsr);
+	}
 	return (0);
 }
 
 __fenv_static inline int
 fegetexceptflag(fexcept_t *__flagp, int __excepts)
 {
-	union __fpscr __r;
+	__uint32_t __mxcsr;
+	__uint16_t __status;
 
-	__mffs(&__r);
-	*__flagp = __r.__bits.__reg & __excepts;
+	__fnstsw(&__status);
+	if (__HAS_SSE())
+		__stmxcsr(&__mxcsr);
+	else
+		__mxcsr = 0;
+	*__flagp = (__mxcsr | __status) & __excepts;
 	return (0);
 }
-
-__fenv_static inline int
-fesetexceptflag(const fexcept_t *__flagp, int __excepts)
-{
-	union __fpscr __r;
-
-	if (__excepts & FE_INVALID)
-		__excepts |= FE_ALL_INVALID;
-	__mffs(&__r);
-	__r.__bits.__reg &= ~__excepts;
-	__r.__bits.__reg |= *__flagp & __excepts;
-	__mtfsf(__r);
-	return (0);
-}
-
-#ifdef __SPE__
-extern int	feraiseexcept(int __excepts);
-#else
-__fenv_static inline int
-feraiseexcept(int __excepts)
-{
-	union __fpscr __r;
-
-	if (__excepts & FE_INVALID)
-		__excepts |= FE_VXSOFT;
-	__mffs(&__r);
-	__r.__bits.__reg |= __excepts;
-	__mtfsf(__r);
-	return (0);
-}
-#endif
 
 __fenv_static inline int
 fetestexcept(int __excepts)
 {
-	union __fpscr __r;
+	__uint32_t __mxcsr;
+	__uint16_t __status;
 
-	__mffs(&__r);
-	return (__r.__bits.__reg & __excepts);
-}
-
-__fenv_static inline int
-fegetround(void)
-{
-	union __fpscr __r;
-
-	__mffs(&__r);
-	return (__r.__bits.__reg & _ROUND_MASK);
+	__fnstsw(&__status);
+	if (__HAS_SSE())
+		__stmxcsr(&__mxcsr);
+	else
+		__mxcsr = 0;
+	return ((__status | __mxcsr) & __excepts);
 }
 
 __fenv_static inline int
 fesetround(int __round)
 {
-	union __fpscr __r;
+	__uint32_t __mxcsr;
+	__uint16_t __control;
 
 	if (__round & ~_ROUND_MASK)
 		return (-1);
-	__mffs(&__r);
-	__r.__bits.__reg &= ~_ROUND_MASK;
-	__r.__bits.__reg |= __round;
-	__mtfsf(__r);
-	return (0);
-}
 
-__fenv_static inline int
-fegetenv(fenv_t *__envp)
-{
-	union __fpscr __r;
+	__fnstcw(&__control);
+	__control &= ~_ROUND_MASK;
+	__control |= __round;
+	__fldcw(&__control);
 
-	__mffs(&__r);
-	*__envp = __r.__bits.__reg;
-	return (0);
-}
+	if (__HAS_SSE()) {
+		__stmxcsr(&__mxcsr);
+		__mxcsr &= ~(_ROUND_MASK << _SSE_ROUND_SHIFT);
+		__mxcsr |= __round << _SSE_ROUND_SHIFT;
+		__ldmxcsr(&__mxcsr);
+	}
 
-__fenv_static inline int
-feholdexcept(fenv_t *__envp)
-{
-	union __fpscr __r;
-
-	__mffs(&__r);
-	*__envp = __r.__bits.__reg;
-	__r.__bits.__reg &= ~(FE_ALL_EXCEPT | _ENABLE_MASK);
-	__mtfsf(__r);
 	return (0);
 }
 
 __fenv_static inline int
 fesetenv(const fenv_t *__envp)
 {
-	union __fpscr __r;
+	fenv_t __env = *__envp;
+	__uint32_t __mxcsr;
 
-	__r.__bits.__reg = *__envp;
-	__mtfsf(__r);
+	__mxcsr = __get_mxcsr(__env);
+	__set_mxcsr(__env, 0xffffffff);
+	/*
+	 * XXX Using fldenvx() instead of fldenv() tells the compiler that this
+	 * instruction clobbers the i387 register stack.  This happens because
+	 * we restore the tag word from the saved environment.  Normally, this
+	 * would happen anyway and we wouldn't care, because the ABI allows
+	 * function calls to clobber the i387 regs.  However, fesetenv() is
+	 * inlined, so we need to be more careful.
+	 */
+	__fldenvx(__env);
+	if (__HAS_SSE())
+		__ldmxcsr(&__mxcsr);
+	return (0);
+}
+
+#else /* __amd64__ */
+
+__fenv_static inline int
+feclearexcept(int __excepts)
+{
+	fenv_t __env;
+
+	if (__excepts == FE_ALL_EXCEPT) {
+		__fnclex();
+	} else {
+		__fnstenv(&__env.__x87);
+		__env.__x87.__status &= ~__excepts;
+		__fldenv(&__env.__x87);
+	}
+	__stmxcsr(&__env.__mxcsr);
+	__env.__mxcsr &= ~__excepts;
+	__ldmxcsr(&__env.__mxcsr);
 	return (0);
 }
 
 __fenv_static inline int
-feupdateenv(const fenv_t *__envp)
+fegetexceptflag(fexcept_t *__flagp, int __excepts)
 {
-	union __fpscr __r;
+	__uint32_t __mxcsr;
+	__uint16_t __status;
 
-	__mffs(&__r);
-	__r.__bits.__reg &= FE_ALL_EXCEPT;
-	__r.__bits.__reg |= *__envp;
-	__mtfsf(__r);
+	__stmxcsr(&__mxcsr);
+	__fnstsw(&__status);
+	*__flagp = (__mxcsr | __status) & __excepts;
 	return (0);
 }
 
-#if __BSD_VISIBLE
-
 __fenv_static inline int
-feenableexcept(int __mask)
+fetestexcept(int __excepts)
 {
-	union __fpscr __r;
-	fenv_t __oldmask;
+	__uint32_t __mxcsr;
+	__uint16_t __status;
 
-	__mffs(&__r);
-	__oldmask = __r.__bits.__reg;
-	__r.__bits.__reg |= (__mask & FE_ALL_EXCEPT) >> _FPUSW_SHIFT;
-	__mtfsf(__r);
-	return ((__oldmask & _ENABLE_MASK) << _FPUSW_SHIFT);
+	__stmxcsr(&__mxcsr);
+	__fnstsw(&__status);
+	return ((__status | __mxcsr) & __excepts);
 }
 
 __fenv_static inline int
-fedisableexcept(int __mask)
+fesetround(int __round)
 {
-	union __fpscr __r;
-	fenv_t __oldmask;
+	__uint32_t __mxcsr;
+	__uint16_t __control;
 
-	__mffs(&__r);
-	__oldmask = __r.__bits.__reg;
-	__r.__bits.__reg &= ~((__mask & FE_ALL_EXCEPT) >> _FPUSW_SHIFT);
-	__mtfsf(__r);
-	return ((__oldmask & _ENABLE_MASK) << _FPUSW_SHIFT);
+	if (__round & ~_ROUND_MASK)
+		return (-1);
+
+	__fnstcw(&__control);
+	__control &= ~_ROUND_MASK;
+	__control |= __round;
+	__fldcw(&__control);
+
+	__stmxcsr(&__mxcsr);
+	__mxcsr &= ~(_ROUND_MASK << _SSE_ROUND_SHIFT);
+	__mxcsr |= __round << _SSE_ROUND_SHIFT;
+	__ldmxcsr(&__mxcsr);
+
+	return (0);
 }
 
-/* We currently provide no external definition of fegetexcept(). */
-static inline int
-fegetexcept(void)
+__fenv_static inline int
+fesetenv(const fenv_t *__envp)
 {
-	union __fpscr __r;
 
-	__mffs(&__r);
-	return ((__r.__bits.__reg & _ENABLE_MASK) << _FPUSW_SHIFT);
+	/*
+	 * XXX Using fldenvx() instead of fldenv() tells the compiler that this
+	 * instruction clobbers the i387 register stack.  This happens because
+	 * we restore the tag word from the saved environment.  Normally, this
+	 * would happen anyway and we wouldn't care, because the ABI allows
+	 * function calls to clobber the i387 regs.  However, fesetenv() is
+	 * inlined, so we need to be more careful.
+	 */
+	__fldenvx(__envp->__x87);
+	__ldmxcsr(&__envp->__mxcsr);
+	return (0);
 }
 
-#endif /* __BSD_VISIBLE */
+#endif /* __i386__ */
 
 __END_DECLS
 

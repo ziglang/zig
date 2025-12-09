@@ -38,6 +38,7 @@ struct usb_process;
 struct usb_proc_msg;
 struct usb_mbuf;
 struct usb_fs_privdata;
+struct usb_device_info;
 struct mbuf;
 
 typedef enum {	/* keep in sync with usb_errstr_table */
@@ -525,6 +526,8 @@ struct usb_proc_msg {
 	usb_size_t pm_num;
 };
 
+#define	USB_PROC_MSG_ENQUEUED(msg)	((msg)->pm_qentry.tqe_prev != NULL)
+
 #define	USB_FIFO_TX 0
 #define	USB_FIFO_RX 1
 
@@ -585,6 +588,8 @@ usb_error_t	usbd_set_endpoint_mode(struct usb_device *udev,
 			struct usb_endpoint *ep, uint8_t ep_mode);
 uint8_t		usbd_get_endpoint_mode(struct usb_device *udev,
 			struct usb_endpoint *ep);
+int		usbd_fill_deviceinfo(struct usb_device *udev,
+			struct usb_device_info *di);
 
 const struct usb_device_id *usbd_lookup_id_by_info(
 	    const struct usb_device_id *id, usb_size_t sizeof_id,

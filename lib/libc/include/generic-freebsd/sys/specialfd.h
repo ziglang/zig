@@ -30,10 +30,15 @@
 
 enum specialfd_type {
 	SPECIALFD_EVENTFD	  = 1,
+	SPECIALFD_INOTIFY	  = 2,
 };
 
 struct specialfd_eventfd {
 	unsigned int initval;
+	int flags;
+};
+
+struct specialfd_inotify {
 	int flags;
 };
 

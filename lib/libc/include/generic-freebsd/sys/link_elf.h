@@ -93,10 +93,12 @@ struct dl_phdr_info
 __BEGIN_DECLS
 
 typedef int (*__dl_iterate_hdr_callback)(struct dl_phdr_info *, size_t, void *);
-extern int dl_iterate_phdr(__dl_iterate_hdr_callback, void *);
+int dl_iterate_phdr(__dl_iterate_hdr_callback, void *);
 int _rtld_addr_phdr(const void *, struct dl_phdr_info *);
 int _rtld_get_stack_prot(void);
 int _rtld_is_dlopened(void *);
+const char *rtld_get_var(const char *name);
+int rtld_set_var(const char *name, const char *val);
 
 #ifdef __ARM_EABI__
 void * dl_unwind_find_exidx(const void *, int *);

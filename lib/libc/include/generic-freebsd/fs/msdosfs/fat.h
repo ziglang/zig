@@ -81,7 +81,7 @@
 
 #define	MSDOSFSEOF(pmp, cn)	((((cn) | ~(pmp)->pm_fatmask) & CLUST_EOFS) == CLUST_EOFS)
 
-#if defined (_KERNEL) || defined(MAKEFS)
+#if defined (_KERNEL) || defined(_WANT_MSDOSFS_INTERNALS)
 /*
  * These are the values for the function argument to the function
  * fatentry().
@@ -110,5 +110,5 @@ markvoldirty(struct msdosfsmount *pmp, bool dirty)
 	return (markvoldirty_upgrade(pmp, dirty, false));
 }
 
-#endif	/* _KERNEL || MAKEFS */
+#endif	/* _KERNEL || _WANT_MSDOSFS_INTERNALS */
 #endif	/* !_FS_MSDOSFS_FAT_H_ */

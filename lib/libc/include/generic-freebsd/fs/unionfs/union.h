@@ -33,8 +33,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)union.h	8.9 (Berkeley) 12/10/94
  */
 
 #ifdef _KERNEL
@@ -99,15 +97,17 @@ struct unionfs_node {
 
 	char           *un_path;		/* path */
 	int		un_pathlen;		/* strlen of path */
-	int		un_flag;		/* unionfs node flag */
-};
 
-/*
- * unionfs node flags
- * It needs the vnode with exclusive lock, when changing the un_flag variable.
- */
-#define UNIONFS_OPENEXTL	0x01	/* openextattr (lower) */
-#define UNIONFS_OPENEXTU	0x02	/* openextattr (upper) */
+	/*
+	 * unionfs node flags
+	 * Changing these flags requires the vnode to be locked exclusive.
+	 */
+	#define UNIONFS_OPENEXTL		0x01	/* openextattr (lower) */
+	#define UNIONFS_OPENEXTU		0x02	/* openextattr (upper) */
+	#define UNIONFS_COPY_IN_PROGRESS	0x04	/* copy/dir shadow in progres */
+	#define UNIONFS_LOOKUP_IN_PROGRESS	0x08
+	unsigned int	un_flag;		/* unionfs node flag */
+};
 
 extern struct vop_vector unionfs_vnodeops;
 
@@ -133,34 +133,32 @@ int	unionfs_uninit(struct vfsconf *);
 int	unionfs_nodeget(struct mount *, struct vnode *, struct vnode *,
 	    struct vnode *, struct vnode **, struct componentname *);
 void	unionfs_noderem(struct vnode *);
+struct unionfs_node_status *	unionfs_find_node_status(struct unionfs_node *,
+	    struct thread *td);
 void	unionfs_get_node_status(struct unionfs_node *, struct thread *,
 	    struct unionfs_node_status **);
 void	unionfs_tryrem_node_status(struct unionfs_node *,
 	    struct unionfs_node_status *);
 int	unionfs_check_rmdir(struct vnode *, struct ucred *, struct thread *td);
-int	unionfs_copyfile(struct unionfs_node *, int, struct ucred *,
+int	unionfs_copyfile(struct vnode *, int, struct ucred *,
 	    struct thread *);
 void	unionfs_create_uppervattr_core(struct unionfs_mount *, struct vattr *,
 	    struct vattr *, struct thread *);
 int	unionfs_create_uppervattr(struct unionfs_mount *, struct vnode *,
 	    struct vattr *, struct ucred *, struct thread *);
-int	unionfs_mkshadowdir(struct unionfs_mount *, struct vnode *,
-	    struct unionfs_node *, struct componentname *, struct thread *);
+int	unionfs_mkshadowdir(struct vnode *, struct vnode *,
+	    struct componentname *, struct thread *);
 int	unionfs_mkwhiteout(struct vnode *, struct vnode *,
 	    struct componentname *, struct thread *, char *, int);
 int	unionfs_relookup(struct vnode *, struct vnode **,
 	    struct componentname *, struct componentname *, struct thread *,
 	    char *, int, u_long);
-int	unionfs_relookup_for_create(struct vnode *, struct componentname *,
-	    struct thread *);
-int	unionfs_relookup_for_delete(struct vnode *, struct componentname *,
-	    struct thread *);
-int	unionfs_relookup_for_rename(struct vnode *, struct componentname *,
-	    struct thread *);
 void	unionfs_forward_vop_start_pair(struct vnode *, int *,
 	    struct vnode *, int *);
 bool	unionfs_forward_vop_finish_pair(struct vnode *, struct vnode *, int,
 	    struct vnode *, struct vnode *, int);
+int	unionfs_set_in_progress_flag(struct vnode *, unsigned int);
+void	unionfs_clear_in_progress_flag(struct vnode *, unsigned int);
 
 static inline void
 unionfs_forward_vop_start(struct vnode *basevp, int *lkflags)

@@ -33,7 +33,7 @@
  * cache.
  *
  * This used to be vnodes, but we need non-vnode code to be able
- * to use the buffer cache as well, specifically geom classes like gbde,
+ * to use the buffer cache as well, specifically geom classes like
  * raid3 and raid5.
  *
  * All vnodes will contain a bufobj initially, but down the road we may
@@ -116,6 +116,7 @@ struct bufobj {
 #define	BO_WWAIT	(1 << 1)	/* Wait for output to complete */
 #define	BO_DEAD		(1 << 2)	/* Dead; only with INVARIANTS */
 #define	BO_NOBUFS	(1 << 3)	/* No bufs allowed */
+#define	BO_NONSTERILE	(1 << 4)	/* Ever called reassignbuf() */
 
 #define	BO_LOCKPTR(bo)		(&(bo)->bo_lock)
 #define	BO_LOCK(bo)		rw_wlock(BO_LOCKPTR((bo)))

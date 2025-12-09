@@ -50,6 +50,7 @@ extern vm_paddr_t intel_graphics_stolen_base;
 extern vm_paddr_t intel_graphics_stolen_size;
 
 extern int la57;
+extern int prefer_uva_la48;
 
 extern vm_paddr_t kernphys;
 extern vm_paddr_t KERNend;
@@ -97,6 +98,10 @@ void	get_fpcontext(struct thread *td, struct __mcontext *mcp,
 	    char **xfpusave, size_t *xfpusave_len);
 int	set_fpcontext(struct thread *td, struct __mcontext *mcp,
 	    char *xfpustate, size_t xfpustate_len);
+
+void	wrmsr_early_safe_start(void);
+void	wrmsr_early_safe_end(void);
+int	wrmsr_early_safe(u_int msr, uint64_t data);
 
 #endif /* !_MACHINE_MD_VAR_H_ */
 

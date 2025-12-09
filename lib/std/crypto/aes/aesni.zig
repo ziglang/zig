@@ -96,6 +96,17 @@ pub const Block = struct {
         return Block{ .repr = block1.repr | block2.repr };
     }
 
+    /// Apply the inverse MixColumns operation to a block.
+    pub fn invMixColumns(block: Block) Block {
+        return Block{
+            .repr = asm (
+                \\ vaesimc %[in], %[out]
+                : [out] "=x" (-> Repr),
+                : [in] "x" (block.repr),
+            ),
+        };
+    }
+
     /// Perform operations on multiple blocks in parallel.
     pub const parallel = struct {
         const cpu = std.Target.x86.cpu;
@@ -307,6 +318,17 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
                 out.repr[i] = block_vec1.repr[i] | block_vec2.repr[i];
             }
             return out;
+        }
+
+        /// Apply the inverse MixColumns operation to each block in the vector.
+        pub fn invMixColumns(block_vec: Self) Self {
+            var out_bytes: [blocks_count * 16]u8 = undefined;
+            const in_bytes = block_vec.toBytes();
+            inline for (0..blocks_count) |i| {
+                const block = Block.fromBytes(in_bytes[i * 16 ..][0..16]);
+                out_bytes[i * 16 ..][0..16].* = block.invMixColumns().toBytes();
+            }
+            return fromBytes(&out_bytes);
         }
     };
 }

@@ -35,12 +35,6 @@
  *	All Rights Reserved.
  */
 
-/* From: %#pragma ident	"@(#)nis_cache.x	1.11	94/05/03 SMI" */
-
-#ifndef RPC_HDR
-%#include <sys/cdefs.h>
-#endif
-
 #ifdef RPC_HDR
 %#include <rpc/types.h>
 %#include <rpcsvc/nis.h>

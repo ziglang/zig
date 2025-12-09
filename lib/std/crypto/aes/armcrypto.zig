@@ -99,6 +99,17 @@ pub const Block = struct {
         return Block{ .repr = block1.repr | block2.repr };
     }
 
+    /// Apply the inverse MixColumns operation to a block.
+    pub fn invMixColumns(block: Block) Block {
+        return Block{
+            .repr = asm (
+                \\ aesimc %[out].16b, %[in].16b
+                : [out] "=x" (-> Repr),
+                : [in] "x" (block.repr),
+            ),
+        };
+    }
+
     /// Perform operations on multiple blocks in parallel.
     pub const parallel = struct {
         /// The recommended number of AES encryption/decryption to perform in parallel for the chosen implementation.
@@ -272,6 +283,15 @@ pub fn BlockVec(comptime blocks_count: comptime_int) type {
             var out: Self = undefined;
             inline for (0..native_words) |i| {
                 out.repr[i] = block_vec1.repr[i].orBlocks(block_vec2.repr[i]);
+            }
+            return out;
+        }
+
+        /// Apply the inverse MixColumns operation to each block in the vector.
+        pub fn invMixColumns(block_vec: Self) Self {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = block_vec.repr[i].invMixColumns();
             }
             return out;
         }

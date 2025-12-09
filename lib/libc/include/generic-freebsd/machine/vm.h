@@ -1,7 +1,8 @@
 /*-
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * Copyright (c) 2009 Alan L. Cox <alc@cs.rice.edu>
+ * Copyright (c) 2009 Hudson River Trading LLC
+ * Written by: John H. Baldwin <jhb@FreeBSD.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,17 +30,17 @@
 #ifndef _MACHINE_VM_H_
 #define	_MACHINE_VM_H_
 
-#include <machine/pte.h>
+#include <machine/specialreg.h>
 
 /* Memory attributes. */
-#define	VM_MEMATTR_DEFAULT		0
-#define	VM_MEMATTR_UNCACHEABLE		0x01
-#define	VM_MEMATTR_CACHEABLE		0x02
-#define	VM_MEMATTR_WRITE_COMBINING	0x04
-#define	VM_MEMATTR_WRITE_BACK		0x08
-#define	VM_MEMATTR_WRITE_THROUGH	0x10
-#define	VM_MEMATTR_PREFETCHABLE		0x20
+#define	VM_MEMATTR_UNCACHEABLE		((vm_memattr_t)PAT_UNCACHEABLE)
+#define	VM_MEMATTR_WRITE_COMBINING	((vm_memattr_t)PAT_WRITE_COMBINING)
+#define	VM_MEMATTR_WRITE_THROUGH	((vm_memattr_t)PAT_WRITE_THROUGH)
+#define	VM_MEMATTR_WRITE_PROTECTED	((vm_memattr_t)PAT_WRITE_PROTECTED)
+#define	VM_MEMATTR_WRITE_BACK		((vm_memattr_t)PAT_WRITE_BACK)
+#define	VM_MEMATTR_WEAK_UNCACHEABLE	((vm_memattr_t)PAT_UNCACHED)
 
-#define	VM_MEMATTR_DEVICE		VM_MEMATTR_DEFAULT
+#define	VM_MEMATTR_DEFAULT		VM_MEMATTR_WRITE_BACK
+#define	VM_MEMATTR_DEVICE		VM_MEMATTR_UNCACHEABLE
 
 #endif /* !_MACHINE_VM_H_ */

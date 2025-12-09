@@ -1,18 +1,12 @@
-/*-
- * Largely written by Julian Elischer (julian@tfs.com)
- * for TRW Financial Systems.
+/*
+ * Copyright (c) 1997-2017 Kenneth D. Merry <ken@FreeBSD.org>
+ * Copyright (c) 2012-2020 Alexander Motin <mav@FreeBSD.org>
+ * Copyright (c) 1997-2011 Justin T. Gibbs <gibbs@FreeBSD.org>
  *
- * TRW Financial Systems, in accordance with their agreement with Carnegie
- * Mellon University, makes this software available to CMU to distribute
- * or use in any manner that they see fit as long as this message is kept with
- * the software. For this reason TFS also grants any other persons or
- * organisations permission to use or modify this software.
+ * SPDX-License-Identifier: BSD-2-Clause
  *
- * TFS supplies this software to be publicly redistributed
- * on the understanding that TFS is not responsible for the correct
- * functioning of this software in any circumstances.
- *
- * Ported to run under 386BSD by Julian Elischer (julian@tfs.com) Sept 1992
+ * Original scsi_all.h from 386BSD was by Julian Elischer at TRW Financial
+ * Services has been transformed into a new work by subsequent contributors.
  */
 
 /*
@@ -22,10 +16,9 @@
 #ifndef	_SCSI_SCSI_ALL_H
 #define	_SCSI_SCSI_ALL_H 1
 
-#include <sys/cdefs.h>
 #ifdef _KERNEL
 #include <sys/malloc.h>
-#include <machine/stdarg.h>
+#include <sys/stdarg.h>
 #else
 #include <stdarg.h>
 #endif

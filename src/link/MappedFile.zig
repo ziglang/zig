@@ -1,4 +1,4 @@
-file: std.fs.File,
+file: std.Io.File,
 flags: packed struct {
     block_size: std.mem.Alignment,
     copy_file_range_unsupported: bool,
@@ -16,13 +16,15 @@ writers: std.SinglyLinkedList,
 
 pub const growth_factor = 4;
 
-pub const Error = std.posix.MMapError ||
-    std.posix.MRemapError ||
-    std.fs.File.SetEndPosError ||
-    std.fs.File.CopyRangeError ||
-    error{NotFile};
+pub const Error = std.posix.MMapError || std.posix.MRemapError || std.fs.File.SetEndPosError || error{
+    NotFile,
+    SystemResources,
+    IsDir,
+    Unseekable,
+    NoSpaceLeft,
+};
 
-pub fn init(file: std.fs.File, gpa: std.mem.Allocator) !MappedFile {
+pub fn init(file: std.Io.File, gpa: std.mem.Allocator) !MappedFile {
     var mf: MappedFile = .{
         .file = file,
         .flags = undefined,
@@ -106,10 +108,7 @@ pub const Node = extern struct {
         has_content: bool,
         /// Whether a moved event on this node bubbles down to children.
         bubbles_moved: bool,
-        unused: @Type(.{ .int = .{
-            .signedness = .unsigned,
-            .bits = 32 - @bitSizeOf(std.mem.Alignment) - 6,
-        } }) = 0,
+        unused: @Int(.unsigned, 32 - @bitSizeOf(std.mem.Alignment) - 6) = 0,
     };
 
     pub const Location = union(enum(u1)) {
@@ -120,25 +119,29 @@ pub const Node = extern struct {
         },
         large: extern struct {
             index: usize,
-            unused: @Type(.{ .int = .{
-                .signedness = .unsigned,
-                .bits = 64 - @bitSizeOf(usize),
-            } }) = 0,
+            unused: @Int(.unsigned, 64 - @bitSizeOf(usize)) = 0,
         },
 
         pub const Tag = @typeInfo(Location).@"union".tag_type.?;
-        pub const Payload = @Type(.{ .@"union" = .{
-            .layout = .@"extern",
-            .tag_type = null,
-            .fields = @typeInfo(Location).@"union".fields,
-            .decls = &.{},
-        } });
+        pub const Payload = extern union {
+            small: @FieldType(Location, "small"),
+            large: @FieldType(Location, "large"),
+        };
 
         pub fn resolve(loc: Location, mf: *const MappedFile) [2]u64 {
             return switch (loc) {
                 .small => |small| .{ small.offset, small.size },
                 .large => |large| mf.large.items[large.index..][0..2].*,
             };
+        }
+    };
+
+    pub const FileLocation = struct {
+        offset: u64,
+        size: u64,
+
+        pub fn end(fl: FileLocation) u64 {
+            return fl.offset + fl.size;
         }
     };
 
@@ -202,7 +205,7 @@ pub const Node = extern struct {
             defer node_moved.* = false;
             return node_moved.*;
         }
-        fn movedAssumeCapacity(ni: Node.Index, mf: *MappedFile) void {
+        pub fn movedAssumeCapacity(ni: Node.Index, mf: *MappedFile) void {
             if (ni.hasMoved(mf)) return;
             const node = ni.get(mf);
             node.flags.moved = true;
@@ -223,7 +226,7 @@ pub const Node = extern struct {
             defer node_resized.* = false;
             return node_resized.*;
         }
-        fn resizedAssumeCapacity(ni: Node.Index, mf: *MappedFile) void {
+        pub fn resizedAssumeCapacity(ni: Node.Index, mf: *MappedFile) void {
             const node = ni.get(mf);
             if (node.flags.resized) return;
             node.flags.resized = true;
@@ -273,7 +276,7 @@ pub const Node = extern struct {
             ni: Node.Index,
             mf: *const MappedFile,
             set_has_content: bool,
-        ) struct { offset: u64, size: u64 } {
+        ) FileLocation {
             var offset, const size = ni.location(mf).resolve(mf);
             var parent_ni = ni;
             while (true) {
@@ -384,7 +387,7 @@ pub const Node = extern struct {
 
         fn sendFile(
             interface: *std.Io.Writer,
-            file_reader: *std.fs.File.Reader,
+            file_reader: *std.Io.File.Reader,
             limit: std.Io.Limit,
         ) std.Io.Writer.FileError!usize {
             if (limit == .nothing) return 0;
@@ -395,13 +398,13 @@ pub const Node = extern struct {
             switch (file_reader.mode) {
                 .positional => {
                     const fr_buf = file_reader.interface.buffered();
-                    const buf_copy_size = interface.write(fr_buf) catch unreachable;
-                    file_reader.interface.toss(buf_copy_size);
-                    if (buf_copy_size < fr_buf.len) return buf_copy_size;
-                    assert(file_reader.logicalPos() == file_reader.pos);
-
+                    if (fr_buf.len > 0) {
+                        const n = interface.write(fr_buf) catch unreachable;
+                        file_reader.interface.toss(n);
+                        return n;
+                    }
                     const w: *Writer = @fieldParentPtr("interface", interface);
-                    const copy_size: usize = @intCast(w.mf.copyFileRange(
+                    const n: usize = @intCast(w.mf.copyFileRange(
                         file_reader.file,
                         file_reader.pos,
                         w.ni.fileLocation(w.mf, true).offset + interface.end,
@@ -410,8 +413,10 @@ pub const Node = extern struct {
                         w.err = err;
                         return error.WriteFailed;
                     });
-                    interface.end += copy_size;
-                    return copy_size;
+                    if (n == 0) return error.Unimplemented;
+                    file_reader.pos += n;
+                    interface.end += n;
+                    return n;
                 },
                 .streaming,
                 .streaming_reading,
@@ -473,6 +478,14 @@ fn addNode(mf: *MappedFile, gpa: std.mem.Allocator, opts: struct {
             break :free .{ free_ni, free_node };
         },
     };
+    switch (opts.prev) {
+        .none => opts.parent.get(mf).first = free_ni,
+        else => |prev_ni| prev_ni.get(mf).next = free_ni,
+    }
+    switch (opts.next) {
+        .none => opts.parent.get(mf).last = free_ni,
+        else => |next_ni| next_ni.get(mf).prev = free_ni,
+    }
     free_node.* = .{
         .parent = opts.parent,
         .prev = opts.prev,
@@ -522,13 +535,10 @@ pub fn addOnlyChildNode(
     try mf.nodes.ensureUnusedCapacity(gpa, 1);
     const parent = parent_ni.get(mf);
     assert(parent.first == .none and parent.last == .none);
-    const ni = try mf.addNode(gpa, .{
+    return mf.addNode(gpa, .{
         .parent = parent_ni,
         .add_node = opts,
     });
-    parent.first = ni;
-    parent.last = ni;
-    return ni;
 }
 
 pub fn addFirstChildNode(
@@ -539,17 +549,11 @@ pub fn addFirstChildNode(
 ) !Node.Index {
     try mf.nodes.ensureUnusedCapacity(gpa, 1);
     const parent = parent_ni.get(mf);
-    const ni = try mf.addNode(gpa, .{
+    return mf.addNode(gpa, .{
         .parent = parent_ni,
         .next = parent.first,
         .add_node = opts,
     });
-    switch (parent.first) {
-        .none => parent.last = ni,
-        else => |first_ni| first_ni.get(mf).prev = ni,
-    }
-    parent.first = ni;
-    return ni;
 }
 
 pub fn addLastChildNode(
@@ -560,7 +564,7 @@ pub fn addLastChildNode(
 ) !Node.Index {
     try mf.nodes.ensureUnusedCapacity(gpa, 1);
     const parent = parent_ni.get(mf);
-    const ni = try mf.addNode(gpa, .{
+    return mf.addNode(gpa, .{
         .parent = parent_ni,
         .prev = parent.last,
         .offset = offset: switch (parent.last) {
@@ -572,12 +576,6 @@ pub fn addLastChildNode(
         },
         .add_node = opts,
     });
-    switch (parent.last) {
-        .none => parent.first = ni,
-        else => |last_ni| last_ni.get(mf).next = ni,
-    }
-    parent.last = ni;
-    return ni;
 }
 
 pub fn addNodeAfter(
@@ -590,19 +588,13 @@ pub fn addNodeAfter(
     try mf.nodes.ensureUnusedCapacity(gpa, 1);
     const prev = prev_ni.get(mf);
     const prev_offset, const prev_size = prev.location().resolve(mf);
-    const ni = try mf.addNode(gpa, .{
+    return mf.addNode(gpa, .{
         .parent = prev.parent,
         .prev = prev_ni,
         .next = prev.next,
         .offset = prev_offset + prev_size,
         .add_node = opts,
     });
-    switch (prev.next) {
-        .none => prev.parent.get(mf).last = ni,
-        else => |next_ni| next_ni.get(mf).prev = ni,
-    }
-    prev.next = ni;
-    return ni;
 }
 
 fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested_size: u64) !void {
@@ -612,7 +604,7 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
     // Resize the entire file
     if (ni == Node.Index.root) {
         try mf.ensureCapacityForSetLocation(gpa);
-        try mf.file.setEndPos(new_size);
+        try std.fs.File.adaptFromNewApi(mf.file).setEndPos(new_size);
         try mf.ensureTotalCapacity(@intCast(new_size));
         ni.setLocationAssumeCapacity(mf, old_offset, new_size);
         return;
@@ -645,7 +637,7 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
             @intCast(requested_size +| requested_size / growth_factor),
         ) - old_size;
         _, const file_size = Node.Index.root.location(mf).resolve(mf);
-        while (true) switch (linux.E.init(switch (std.math.order(range_file_offset, file_size)) {
+        while (true) switch (linux.errno(switch (std.math.order(range_file_offset, file_size)) {
             .lt => linux.fallocate(
                 mf.file.handle,
                 linux.FALLOC.FL_INSERT_RANGE,
@@ -858,7 +850,7 @@ fn moveRange(mf: *MappedFile, old_file_offset: u64, new_file_offset: u64, size: 
     // delete the copy of this node at the old location
     if (is_linux and !mf.flags.fallocate_punch_hole_unsupported and
         size >= mf.flags.block_size.toByteUnits() * 2 - 1) while (true)
-        switch (linux.E.init(linux.fallocate(
+        switch (linux.errno(linux.fallocate(
             mf.file.handle,
             linux.FALLOC.FL_PUNCH_HOLE | linux.FALLOC.FL_KEEP_SIZE,
             @intCast(old_file_offset),
@@ -892,7 +884,7 @@ fn copyRange(mf: *MappedFile, old_file_offset: u64, new_file_offset: u64, size: 
 
 fn copyFileRange(
     mf: *MappedFile,
-    old_file: std.fs.File,
+    old_file: std.Io.File,
     old_file_offset: u64,
     new_file_offset: u64,
     size: u64,
@@ -910,7 +902,7 @@ fn copyFileRange(
                 @intCast(remaining_size),
                 0,
             );
-            switch (linux.E.init(copy_len)) {
+            switch (linux.errno(copy_len)) {
                 .SUCCESS => {
                     if (copy_len == 0) break;
                     remaining_size -= copy_len;

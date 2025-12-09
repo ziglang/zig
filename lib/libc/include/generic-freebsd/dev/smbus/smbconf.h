@@ -30,7 +30,7 @@
 
 #include <sys/queue.h>
 
-#define SMBPRI (PZERO+8)		/* XXX sleep/wakeup queue priority */
+#define SMBPRI (PWAIT)		/* XXX sleep/wakeup queue priority */
 
 #define n(flags) (~(flags) & (flags))
 

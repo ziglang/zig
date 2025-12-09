@@ -1,9 +1,11 @@
 const Step = @This();
+const builtin = @import("builtin");
+
 const std = @import("../std.zig");
+const Io = std.Io;
 const Build = std.Build;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const builtin = @import("builtin");
 const Cache = Build.Cache;
 const Path = Cache.Path;
 const ArrayList = std.ArrayList;
@@ -108,7 +110,6 @@ pub const TestResults = struct {
 
 pub const MakeOptions = struct {
     progress_node: std.Progress.Node,
-    thread_pool: *std.Thread.Pool,
     watch: bool,
     web_server: switch (builtin.target.cpu.arch) {
         else => ?*Build.WebServer,
@@ -116,6 +117,7 @@ pub const MakeOptions = struct {
         // it currently breaks because `std.net.Address` doesn't work there. Work around for now.
         .wasm32 => void,
     },
+    ttyconf: std.Io.tty.Config,
     /// If set, this is a timeout to enforce on all individual unit tests, in nanoseconds.
     unit_test_timeout_ns: ?u64,
     /// Not to be confused with `Build.allocator`, which is an alias of `Build.graph.arena`.
@@ -327,7 +329,7 @@ pub fn cast(step: *Step, comptime T: type) ?*T {
 }
 
 /// For debugging purposes, prints identifying information about this Step.
-pub fn dump(step: *Step, w: *std.Io.Writer, tty_config: std.Io.tty.Config) void {
+pub fn dump(step: *Step, w: *Io.Writer, tty_config: Io.tty.Config) void {
     if (step.debug_stack_trace.instruction_addresses.len > 0) {
         w.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
         std.debug.writeStackTrace(&step.debug_stack_trace, w, tty_config) catch {};
@@ -360,7 +362,7 @@ pub fn captureChildProcess(
         .allocator = arena,
         .argv = argv,
         .progress_node = progress_node,
-    }) catch |err| return s.fail("failed to run {s}: {s}", .{ argv[0], @errorName(err) });
+    }) catch |err| return s.fail("failed to run {s}: {t}", .{ argv[0], err });
 
     if (result.stderr.len > 0) {
         try s.result_error_msgs.append(arena, result.stderr);
@@ -382,7 +384,7 @@ pub fn addError(step: *Step, comptime fmt: []const u8, args: anytype) error{OutO
 
 pub const ZigProcess = struct {
     child: std.process.Child,
-    poller: std.Io.Poller(StreamEnum),
+    poller: Io.Poller(StreamEnum),
     progress_ipc_fd: if (std.Progress.have_ipc) ?std.posix.fd_t else void,
 
     pub const StreamEnum = enum { stdout, stderr };
@@ -410,7 +412,7 @@ pub fn evalZigProcess(
             error.BrokenPipe => {
                 // Process restart required.
                 const term = zp.child.wait() catch |e| {
-                    return s.fail("unable to wait for {s}: {s}", .{ argv[0], @errorName(e) });
+                    return s.fail("unable to wait for {s}: {t}", .{ argv[0], e });
                 };
                 _ = term;
                 s.clearZigProcess(gpa);
@@ -426,7 +428,7 @@ pub fn evalZigProcess(
         if (s.result_error_msgs.items.len > 0 and result == null) {
             // Crash detected.
             const term = zp.child.wait() catch |e| {
-                return s.fail("unable to wait for {s}: {s}", .{ argv[0], @errorName(e) });
+                return s.fail("unable to wait for {s}: {t}", .{ argv[0], e });
             };
             s.result_peak_rss = zp.child.resource_usage_statistics.getMaxRss() orelse 0;
             s.clearZigProcess(gpa);
@@ -451,14 +453,12 @@ pub fn evalZigProcess(
     child.request_resource_usage_statistics = true;
     child.progress_node = prog_node;
 
-    child.spawn() catch |err| return s.fail("failed to spawn zig compiler {s}: {s}", .{
-        argv[0], @errorName(err),
-    });
+    child.spawn() catch |err| return s.fail("failed to spawn zig compiler {s}: {t}", .{ argv[0], err });
 
     const zp = try gpa.create(ZigProcess);
     zp.* = .{
         .child = child,
-        .poller = std.Io.poll(gpa, ZigProcess.StreamEnum, .{
+        .poller = Io.poll(gpa, ZigProcess.StreamEnum, .{
             .stdout = child.stdout.?,
             .stderr = child.stderr.?,
         }),
@@ -478,7 +478,7 @@ pub fn evalZigProcess(
         zp.child.stdin = null;
 
         const term = zp.child.wait() catch |err| {
-            return s.fail("unable to wait for {s}: {s}", .{ argv[0], @errorName(err) });
+            return s.fail("unable to wait for {s}: {t}", .{ argv[0], err });
         };
         s.result_peak_rss = zp.child.resource_usage_statistics.getMaxRss() orelse 0;
 
@@ -505,13 +505,14 @@ pub fn evalZigProcess(
 }
 
 /// Wrapper around `std.fs.Dir.updateFile` that handles verbose and error output.
-pub fn installFile(s: *Step, src_lazy_path: Build.LazyPath, dest_path: []const u8) !std.fs.Dir.PrevStatus {
+pub fn installFile(s: *Step, src_lazy_path: Build.LazyPath, dest_path: []const u8) !Io.Dir.PrevStatus {
     const b = s.owner;
+    const io = b.graph.io;
     const src_path = src_lazy_path.getPath3(b, s);
     try handleVerbose(b, null, &.{ "install", "-C", b.fmt("{f}", .{src_path}), dest_path });
-    return src_path.root_dir.handle.updateFile(src_path.sub_path, std.fs.cwd(), dest_path, .{}) catch |err| {
-        return s.fail("unable to update file from '{f}' to '{s}': {s}", .{
-            src_path, dest_path, @errorName(err),
+    return Io.Dir.updateFile(src_path.root_dir.handle.adaptToNewApi(), io, src_path.sub_path, .cwd(), dest_path, .{}) catch |err| {
+        return s.fail("unable to update file from '{f}' to '{s}': {t}", .{
+            src_path, dest_path, err,
         });
     };
 }
@@ -521,9 +522,7 @@ pub fn installDir(s: *Step, dest_path: []const u8) !std.fs.Dir.MakePathStatus {
     const b = s.owner;
     try handleVerbose(b, null, &.{ "install", "-d", dest_path });
     return std.fs.cwd().makePathStatus(dest_path) catch |err| {
-        return s.fail("unable to create dir '{s}': {s}", .{
-            dest_path, @errorName(err),
-        });
+        return s.fail("unable to create dir '{s}': {t}", .{ dest_path, err });
     };
 }
 
@@ -676,7 +675,10 @@ fn sendMessage(file: std.fs.File, tag: std.zig.Client.Message.Tag) !void {
         .tag = tag,
         .bytes_len = 0,
     };
-    try file.writeAll(std.mem.asBytes(&header));
+    var w = file.writer(&.{});
+    w.interface.writeStruct(header, .little) catch |err| switch (err) {
+        error.WriteFailed => return w.err.?,
+    };
 }
 
 pub fn handleVerbose(
@@ -738,7 +740,7 @@ pub fn allocPrintCmd2(
     argv: []const []const u8,
 ) Allocator.Error![]u8 {
     const shell = struct {
-        fn escape(writer: *std.Io.Writer, string: []const u8, is_argv0: bool) !void {
+        fn escape(writer: *Io.Writer, string: []const u8, is_argv0: bool) !void {
             for (string) |c| {
                 if (switch (c) {
                     else => true,
@@ -772,7 +774,7 @@ pub fn allocPrintCmd2(
         }
     };
 
-    var aw: std.Io.Writer.Allocating = .init(gpa);
+    var aw: Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
     const writer = &aw.writer;
     if (opt_cwd) |cwd| writer.print("cd {s} && ", .{cwd}) catch return error.OutOfMemory;
@@ -819,22 +821,27 @@ pub fn cacheHitAndWatch(s: *Step, man: *Build.Cache.Manifest) !bool {
     return is_hit;
 }
 
-fn failWithCacheError(s: *Step, man: *const Build.Cache.Manifest, err: Build.Cache.Manifest.HitError) error{ OutOfMemory, MakeFailed } {
+fn failWithCacheError(
+    s: *Step,
+    man: *const Build.Cache.Manifest,
+    err: Build.Cache.Manifest.HitError,
+) error{ OutOfMemory, Canceled, MakeFailed } {
     switch (err) {
         error.CacheCheckFailed => switch (man.diagnostic) {
             .none => unreachable,
-            .manifest_create, .manifest_read, .manifest_lock => |e| return s.fail("failed to check cache: {s} {s}", .{
-                @tagName(man.diagnostic), @errorName(e),
+            .manifest_create, .manifest_read, .manifest_lock => |e| return s.fail("failed to check cache: {t} {t}", .{
+                man.diagnostic, e,
             }),
             .file_open, .file_stat, .file_read, .file_hash => |op| {
                 const pp = man.files.keys()[op.file_index].prefixed_path;
                 const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
-                return s.fail("failed to check cache: '{s}{c}{s}' {s} {s}", .{
-                    prefix, std.fs.path.sep, pp.sub_path, @tagName(man.diagnostic), @errorName(op.err),
+                return s.fail("failed to check cache: '{s}{c}{s}' {t} {t}", .{
+                    prefix, std.fs.path.sep, pp.sub_path, man.diagnostic, op.err,
                 });
             },
         },
         error.OutOfMemory => return error.OutOfMemory,
+        error.Canceled => return error.Canceled,
         error.InvalidFormat => return s.fail("failed to check cache: invalid manifest file format", .{}),
     }
 }
@@ -844,7 +851,7 @@ fn failWithCacheError(s: *Step, man: *const Build.Cache.Manifest, err: Build.Cac
 pub fn writeManifest(s: *Step, man: *Build.Cache.Manifest) !void {
     if (s.test_results.isSuccess()) {
         man.writeManifest() catch |err| {
-            try s.addError("unable to write cache manifest: {s}", .{@errorName(err)});
+            try s.addError("unable to write cache manifest: {t}", .{err});
         };
     }
 }

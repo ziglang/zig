@@ -9,6 +9,7 @@ const expectEqual = std.testing.expectEqual;
 test "implicit cast vector to array - bool" {
     if (builtin.cpu.arch == .aarch64_be and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -32,6 +33,7 @@ test "implicit cast vector to array - bool" {
 
 test "implicit cast array to vector - bool" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {

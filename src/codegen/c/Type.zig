@@ -971,11 +971,11 @@ pub const Info = union(enum) {
 pub const Pool = struct {
     map: Map,
     items: std.MultiArrayList(Item),
-    extra: std.ArrayListUnmanaged(u32),
+    extra: std.ArrayList(u32),
 
     string_map: Map,
-    string_indices: std.ArrayListUnmanaged(u32),
-    string_bytes: std.ArrayListUnmanaged(u8),
+    string_indices: std.ArrayList(u32),
+    string_bytes: std.ArrayList(u8),
 
     const Map = std.AutoArrayHashMapUnmanaged(void, void);
 
@@ -1396,7 +1396,7 @@ pub const Pool = struct {
     pub fn fromType(
         pool: *Pool,
         allocator: std.mem.Allocator,
-        scratch: *std.ArrayListUnmanaged(u32),
+        scratch: *std.ArrayList(u32),
         ty: Type,
         pt: Zcu.PerThread,
         mod: *Module,
@@ -1416,6 +1416,9 @@ pub const Pool = struct {
             .null_type,
             .undefined_type,
             .enum_literal_type,
+            .optional_type_type,
+            .manyptr_const_type_type,
+            .slice_const_type_type,
             => return .void,
             .u1_type, .u8_type => return .u8,
             .i8_type => return .i8,
@@ -1510,6 +1513,73 @@ pub const Pool = struct {
                         .name = .{ .index = .ptr },
                         .ctype = try pool.getPointer(allocator, .{
                             .elem_ctype = .u8,
+                            .@"const" = true,
+                        }),
+                        .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target)),
+                    },
+                    .{
+                        .name = .{ .index = .len },
+                        .ctype = .usize,
+                        .alignas = AlignAs.fromAbiAlignment(
+                            .fromByteUnits(std.zig.target.intAlignment(target, target.ptrBitWidth())),
+                        ),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+
+            .manyptr_const_slice_const_u8_type => {
+                const target = &mod.resolved_target.result;
+                var fields: [2]Info.Field = .{
+                    .{
+                        .name = .{ .index = .ptr },
+                        .ctype = try pool.getPointer(allocator, .{
+                            .elem_ctype = .u8,
+                            .@"const" = true,
+                            .nonstring = true,
+                        }),
+                        .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target)),
+                    },
+                    .{
+                        .name = .{ .index = .len },
+                        .ctype = .usize,
+                        .alignas = AlignAs.fromAbiAlignment(
+                            .fromByteUnits(std.zig.target.intAlignment(target, target.ptrBitWidth())),
+                        ),
+                    },
+                };
+                const slice_const_u8 = try pool.fromFields(allocator, .@"struct", &fields, kind);
+                return pool.getPointer(allocator, .{
+                    .elem_ctype = slice_const_u8,
+                    .@"const" = true,
+                });
+            },
+            .slice_const_slice_const_u8_type => {
+                const target = &mod.resolved_target.result;
+                var fields: [2]Info.Field = .{
+                    .{
+                        .name = .{ .index = .ptr },
+                        .ctype = try pool.getPointer(allocator, .{
+                            .elem_ctype = .u8,
+                            .@"const" = true,
+                            .nonstring = true,
+                        }),
+                        .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target)),
+                    },
+                    .{
+                        .name = .{ .index = .len },
+                        .ctype = .usize,
+                        .alignas = AlignAs.fromAbiAlignment(
+                            .fromByteUnits(std.zig.target.intAlignment(target, target.ptrBitWidth())),
+                        ),
+                    },
+                };
+                const slice_const_u8 = try pool.fromFields(allocator, .@"struct", &fields, .forward);
+                fields = .{
+                    .{
+                        .name = .{ .index = .ptr },
+                        .ctype = try pool.getPointer(allocator, .{
+                            .elem_ctype = slice_const_u8,
                             .@"const" = true,
                         }),
                         .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target)),
@@ -2514,11 +2584,7 @@ pub const Pool = struct {
                                     kind.noParameter(),
                                 );
                                 if (field_ctype.index == .void) continue;
-                                const field_name = if (loaded_struct.fieldName(ip, field_index)
-                                    .unwrap()) |field_name|
-                                    try pool.string(allocator, field_name.toSlice(ip))
-                                else
-                                    String.fromUnnamed(@intCast(field_index));
+                                const field_name = try pool.string(allocator, loaded_struct.fieldName(ip, field_index).toSlice(ip));
                                 const field_alignas = AlignAs.fromAlignment(.{
                                     .@"align" = loaded_struct.fieldAlign(ip, field_index),
                                     .abi = field_type.abiAlignment(zcu),
@@ -3275,7 +3341,7 @@ pub const Pool = struct {
         addExtraAssumeCapacityTo(&pool.extra, Extra, extra);
     }
     fn addExtraAssumeCapacityTo(
-        array: *std.ArrayListUnmanaged(u32),
+        array: *std.ArrayList(u32),
         comptime Extra: type,
         extra: Extra,
     ) void {
@@ -3313,7 +3379,7 @@ pub const Pool = struct {
     }
     fn addHashedExtraAssumeCapacityTo(
         pool: *Pool,
-        array: *std.ArrayListUnmanaged(u32),
+        array: *std.ArrayList(u32),
         hasher: *Hasher,
         comptime Extra: type,
         extra: Extra,

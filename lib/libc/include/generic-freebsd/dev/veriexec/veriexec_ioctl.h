@@ -63,7 +63,7 @@ struct verified_exec_label_params  {
 #define VERIEXEC_DEBUG_OFF 	_IO('S', 0x6)	/* reset debug */
 #define VERIEXEC_GETSTATE 	_IOR('S', 0x7, int) /* get state */
 #define	VERIEXEC_SIGNED_LOAD32	_IOW('S', 0x8, struct verified_exec_params32)
-#define	VERIEXEC_VERIFIED_FILD	_IOW('S', 0x9, int) /* fd */
+#define	VERIEXEC_VERIFIED_FILE	_IOW('S', 0x9, int) /* fd */
 #define VERIEXEC_GETVERSION	_IOR('S', 0xa, int) /* get version */
 #define VERIEXEC_LABEL_LOAD	_IOW('S', 0xb, struct verified_exec_label_params)
 #define	VERIEXEC_SIGNED_LOAD	_IOW('S', 0xc, struct verified_exec_params)

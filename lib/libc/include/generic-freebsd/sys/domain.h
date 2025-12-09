@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)domain.h	8.1 (Berkeley) 6/2/93
  */
 
 #ifndef _SYS_DOMAIN_H_
@@ -54,10 +52,6 @@ struct domain {
 	char	*dom_name;
 	int	dom_flags;
 	int	(*dom_probe)(void);	/* check for support (optional) */
-	int	(*dom_externalize)	/* externalize access rights */
-		(struct mbuf *, struct mbuf **, int);
-	void	(*dom_dispose)		/* dispose of internalized rights */
-		(struct socket *);
 	struct rib_head *(*dom_rtattach)	/* initialize routing table */
 		(uint32_t);
 	void	(*dom_rtdetach)		/* clean up routing table */

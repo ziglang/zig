@@ -15,7 +15,7 @@ pub const std_options = std.Options{
 
 fn logOverride(
     comptime level: std.log.Level,
-    comptime scope: @Type(.enum_literal),
+    comptime scope: @EnumLiteral(),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -116,13 +116,18 @@ const Executable = struct {
                 "failed to init memory map for coverage file '{s}': {t}",
                 .{ &coverage_file_name, e },
             );
-            map.appendSliceAssumeCapacity(mem.asBytes(&abi.SeenPcsHeader{
+            map.appendSliceAssumeCapacity(@ptrCast(&abi.SeenPcsHeader{
                 .n_runs = 0,
                 .unique_runs = 0,
                 .pcs_len = pcs.len,
             }));
             map.appendNTimesAssumeCapacity(0, pc_bitset_usizes * @sizeOf(usize));
-            map.appendSliceAssumeCapacity(mem.sliceAsBytes(pcs));
+            // Relocations have been applied to `pcs` so it contains runtime addresses (with slide
+            // applied). We need to translate these to the virtual addresses as on disk.
+            for (pcs) |pc| {
+                const pc_vaddr = fuzzer_unslide_address(pc);
+                map.appendSliceAssumeCapacity(@ptrCast(&pc_vaddr));
+            }
             return map;
         } else {
             const size = coverage_file.getEndPos() catch |e| panic(
@@ -215,7 +220,16 @@ const Executable = struct {
             .{ self.pc_counters.len, pcs.len },
         );
 
-        self.pc_digest = std.hash.Wyhash.hash(0, mem.sliceAsBytes(pcs));
+        self.pc_digest = digest: {
+            // Relocations have been applied to `pcs` so it contains runtime addresses (with slide
+            // applied). We need to translate these to the virtual addresses as on disk.
+            var h: std.hash.Wyhash = .init(0);
+            for (pcs) |pc| {
+                const pc_vaddr = fuzzer_unslide_address(pc);
+                h.update(@ptrCast(&pc_vaddr));
+            }
+            break :digest h.final();
+        };
         self.shared_seen_pcs = getCoverageFile(cache_dir, pcs, self.pc_digest);
 
         return self;
@@ -266,10 +280,10 @@ const Instrumentation = struct {
     /// Values that have been constant operands in comparisons and switch cases.
     /// There may be duplicates in this array if they came from different addresses, which is
     /// fine as they are likely more important and hence more likely to be selected.
-    const_vals2: std.ArrayListUnmanaged(u16) = .empty,
-    const_vals4: std.ArrayListUnmanaged(u32) = .empty,
-    const_vals8: std.ArrayListUnmanaged(u64) = .empty,
-    const_vals16: std.ArrayListUnmanaged(u128) = .empty,
+    const_vals2: std.ArrayList(u16) = .empty,
+    const_vals4: std.ArrayList(u32) = .empty,
+    const_vals8: std.ArrayList(u64) = .empty,
+    const_vals16: std.ArrayList(u128) = .empty,
 
     /// A minimal state for this struct which instrumentation can function on.
     /// Used before this structure is initialized to avoid illegal behavior
@@ -370,11 +384,11 @@ const Fuzzer = struct {
     /// Minimized past inputs leading to new pc hits.
     /// These are randomly mutated in round-robin fashion
     /// Element zero is always an empty input. It is gauraunteed no other elements are empty.
-    corpus: std.ArrayListUnmanaged([]const u8),
+    corpus: std.ArrayList([]const u8),
     corpus_pos: usize,
     /// List of past mutations that have led to new inputs. This way, the mutations that are the
     /// most effective are the most likely to be selected again. Starts with one of each mutation.
-    mutations: std.ArrayListUnmanaged(Mutation) = .empty,
+    mutations: std.ArrayList(Mutation) = .empty,
 
     /// Filesystem directory containing found inputs for future runs
     corpus_dir: std.fs.Dir,
@@ -620,6 +634,14 @@ export fn fuzzer_main(limit_kind: abi.LimitKind, amount: u64) void {
         .forever => while (true) fuzzer.cycle(),
         .iterations => for (0..amount) |_| fuzzer.cycle(),
     }
+}
+
+export fn fuzzer_unslide_address(addr: usize) usize {
+    const si = std.debug.getSelfDebugInfo() catch @compileError("unsupported");
+    const slide = si.getModuleSlide(std.debug.getDebugInfoAllocator(), addr) catch |err| {
+        std.debug.panic("failed to find virtual address slide: {t}", .{err});
+    };
+    return addr - slide;
 }
 
 /// Helps determine run uniqueness in the face of recursion.
@@ -1185,13 +1207,13 @@ const Mutation = enum {
                         const j = rng.uintAtMostBiased(usize, corpus[splice_i].len - len);
                         out.appendSliceAssumeCapacity(corpus[splice_i][j..][0..len]);
                     },
-                    .@"const" => out.appendSliceAssumeCapacity(mem.asBytes(
+                    .@"const" => out.appendSliceAssumeCapacity(@ptrCast(
                         &data_ctx[rng.uintLessThanBiased(usize, data_ctx.len)],
                     )),
-                    .small => out.appendSliceAssumeCapacity(mem.asBytes(
+                    .small => out.appendSliceAssumeCapacity(@ptrCast(
                         &mem.nativeTo(data_ctx[0], rng.int(SmallValue), data_ctx[1]),
                     )),
-                    .few => out.appendSliceAssumeCapacity(mem.asBytes(
+                    .few => out.appendSliceAssumeCapacity(@ptrCast(
                         &fewValue(rng, data_ctx[0], data_ctx[1]),
                     )),
                 }
@@ -1286,7 +1308,7 @@ const Mutation = enum {
     }
 };
 
-/// Like `std.ArrayListUnmanaged(u8)` but backed by memory mapping.
+/// Like `std.ArrayList(u8)` but backed by memory mapping.
 pub const MemoryMappedList = struct {
     /// Contents of the list.
     ///

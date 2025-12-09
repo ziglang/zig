@@ -30,9 +30,15 @@ const hashes = [_]Crypto{
     Crypto{ .ty = crypto.hash.sha3.Shake256, .name = "shake-256" },
     Crypto{ .ty = crypto.hash.sha3.TurboShake128(null), .name = "turboshake-128" },
     Crypto{ .ty = crypto.hash.sha3.TurboShake256(null), .name = "turboshake-256" },
+    Crypto{ .ty = crypto.hash.sha3.KT128, .name = "kt128" },
     Crypto{ .ty = crypto.hash.blake2.Blake2s256, .name = "blake2s" },
     Crypto{ .ty = crypto.hash.blake2.Blake2b512, .name = "blake2b" },
     Crypto{ .ty = crypto.hash.Blake3, .name = "blake3" },
+};
+
+const parallel_hashes = [_]Crypto{
+    Crypto{ .ty = crypto.hash.Blake3, .name = "blake3-parallel" },
+    Crypto{ .ty = crypto.hash.sha3.KT128, .name = "kt128-parallel" },
 };
 
 const block_size: usize = 8 * 8192;
@@ -51,6 +57,25 @@ pub fn benchmarkHash(comptime Hash: anytype, comptime bytes: comptime_int) !u64 
     }
     var final: [Hash.digest_length]u8 = undefined;
     h.final(&final);
+    std.mem.doNotOptimizeAway(final);
+
+    const end = timer.read();
+
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = @as(u64, @intFromFloat(bytes / elapsed_s));
+
+    return throughput;
+}
+
+pub fn benchmarkHashParallel(comptime Hash: anytype, comptime bytes: comptime_int, allocator: mem.Allocator, io: std.Io) !u64 {
+    const data: []u8 = try allocator.alloc(u8, bytes);
+    defer allocator.free(data);
+    random.bytes(data);
+
+    var timer = try Timer.start();
+    const start = timer.lap();
+    var final: [Hash.digest_length]u8 = undefined;
+    try Hash.hashParallel(data, &final, .{}, allocator, io);
     std.mem.doNotOptimizeAway(final);
 
     const end = timer.read();
@@ -141,6 +166,9 @@ const signatures = [_]Crypto{
     Crypto{ .ty = crypto.sign.ecdsa.EcdsaP256Sha256, .name = "ecdsa-p256" },
     Crypto{ .ty = crypto.sign.ecdsa.EcdsaP384Sha384, .name = "ecdsa-p384" },
     Crypto{ .ty = crypto.sign.ecdsa.EcdsaSecp256k1Sha256, .name = "ecdsa-secp256k1" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA44, .name = "ml-dsa-44" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA65, .name = "ml-dsa-65" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA87, .name = "ml-dsa-87" },
 };
 
 pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
@@ -164,7 +192,12 @@ pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count
     return throughput;
 }
 
-const signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed25519, .name = "ed25519" }};
+const signature_verifications = [_]Crypto{
+    Crypto{ .ty = crypto.sign.Ed25519, .name = "ed25519" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA44, .name = "ml-dsa-44" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA65, .name = "ml-dsa-65" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA87, .name = "ml-dsa-87" },
+};
 
 pub fn benchmarkSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
     const msg = [_]u8{0} ** 64;
@@ -417,6 +450,7 @@ fn benchmarkPwhash(
     comptime ty: anytype,
     comptime params: *const anyopaque,
     comptime count: comptime_int,
+    io: std.Io,
 ) !f64 {
     const password = "testpass" ** 2;
     const opts = ty.HashOptions{
@@ -426,12 +460,20 @@ fn benchmarkPwhash(
     };
     var buf: [256]u8 = undefined;
 
+    const strHash = ty.strHash;
+    const strHashFnInfo = @typeInfo(@TypeOf(strHash)).@"fn";
+    const needs_io = strHashFnInfo.params.len == 4;
+
     var timer = try Timer.start();
     const start = timer.lap();
     {
         var i: usize = 0;
         while (i < count) : (i += 1) {
-            _ = try ty.strHash(password, opts, &buf);
+            if (needs_io) {
+                _ = try strHash(password, opts, &buf, io);
+            } else {
+                _ = try strHash(password, opts, &buf);
+            }
             mem.doNotOptimizeAway(&buf);
         }
     }
@@ -512,6 +554,18 @@ pub fn main() !void {
         }
     }
 
+    var io_threaded = std.Io.Threaded.init(arena_allocator);
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    inline for (parallel_hashes) |H| {
+        if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
+            const throughput = try benchmarkHashParallel(H.ty, mode(128 * MiB), arena_allocator, io);
+            try stdout.print("{s:>17}: {:10} MiB/s\n", .{ H.name, throughput / (1 * MiB) });
+            try stdout.flush();
+        }
+    }
+
     inline for (macs) |M| {
         if (filter == null or std.mem.indexOf(u8, M.name, filter.?) != null) {
             const throughput = try benchmarkMac(M.ty, mode(128 * MiB));
@@ -578,7 +632,7 @@ pub fn main() !void {
 
     inline for (pwhashes) |H| {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
-            const throughput = try benchmarkPwhash(arena_allocator, H.ty, H.params, mode(64));
+            const throughput = try benchmarkPwhash(arena_allocator, H.ty, H.params, mode(64), io);
             try stdout.print("{s:>17}: {d:10.3} s/ops\n", .{ H.name, throughput });
             try stdout.flush();
         }

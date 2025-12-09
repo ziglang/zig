@@ -55,7 +55,7 @@ int	atomic_fcmpset_64(volatile u_int64_t *, u_int64_t *, u_int64_t);
 
 u_int64_t atomic_fetchadd_64(volatile u_int64_t *, u_int64_t);
 
-u_int64_t	atomic_load_64(volatile u_int64_t *);
+u_int64_t	atomic_load_64(const volatile u_int64_t *);
 #define	atomic_load_acq_64	atomic_load_64
 
 void	atomic_readandclear_64(volatile u_int64_t *);

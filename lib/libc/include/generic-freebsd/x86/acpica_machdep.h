@@ -84,6 +84,8 @@ void	madt_parse_interrupt_values(void *entry,
 extern int madt_found_sci_override;
 extern int (*apei_nmi)(void);
 
+void	acpi_set_root(vm_paddr_t addr);
+
 #endif /* _KERNEL */
 
 #endif /* __ACPICA_MACHDEP_H__ */

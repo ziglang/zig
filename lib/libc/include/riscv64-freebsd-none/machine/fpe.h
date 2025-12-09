@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2016 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2016-2024 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -33,5 +33,15 @@
 
 void fpe_state_save(struct thread *td);
 void fpe_state_clear(void);
+
+struct fpreg *fpu_save_area_alloc(void);
+void fpu_save_area_free(struct fpreg *fsa);
+void fpu_save_area_reset(struct fpreg *fsa);
+
+void fpe_enable(void);
+void fpe_disable(void);
+
+void fpe_store(struct fpreg *state);
+void fpe_restore(struct fpreg *state);
 
 #endif /* !_MACHINE_FPE_H_ */

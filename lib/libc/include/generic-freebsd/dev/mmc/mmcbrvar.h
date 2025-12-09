@@ -60,6 +60,7 @@
 #include "mmcbr_if.h"
 
 enum mmcbr_device_ivars {
+    MMCBR_IVAR_BUS_TYPE,
     MMCBR_IVAR_BUS_MODE,
     MMCBR_IVAR_BUS_WIDTH,
     MMCBR_IVAR_CHIP_SELECT,
@@ -110,6 +111,17 @@ mmcbr_get_retune_req(device_t dev)
 	if (__predict_false(BUS_READ_IVAR(device_get_parent(dev), dev,
 	    MMCBR_IVAR_RETUNE_REQ, &v) != 0))
 		return (retune_req_none);
+	return ((int)v);
+}
+
+static int __inline
+mmcbr_get_bus_type(device_t dev)
+{
+	uintptr_t v;
+
+	if (__predict_false(BUS_READ_IVAR(device_get_parent(dev), dev,
+	    MMCBR_IVAR_BUS_TYPE, &v) != 0))
+		return (bus_type_default);
 	return ((int)v);
 }
 

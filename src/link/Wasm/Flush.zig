@@ -933,6 +933,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         var segment_offset: u32 = 0;
         var group_start_addr: u32 = data_vaddr;
         var group_end_addr = f.data_segment_groups.items[group_index].end_addr;
+        var first_segment_in_group = true;
         for (segment_ids, segment_vaddrs) |segment_id, segment_vaddr| {
             if (segment_vaddr >= group_end_addr) {
                 try binary_bytes.appendNTimes(gpa, 0, group_end_addr - group_start_addr - segment_offset);
@@ -944,8 +945,10 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 group_start_addr = group_end_addr;
                 group_end_addr = f.data_segment_groups.items[group_index].end_addr;
                 segment_offset = 0;
+                first_segment_in_group = true;
             }
-            if (segment_offset == 0) {
+            if (first_segment_in_group) {
+                first_segment_in_group = false;
                 const group_size = group_end_addr - group_start_addr;
                 log.debug("emit data section group, {d} bytes", .{group_size});
                 const flags: Object.DataSegmentFlags = if (segment_id.isPassive(wasm)) .passive else .active;
@@ -1064,9 +1067,14 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     }
 
     // Finally, write the entire binary into the file.
-    const file = wasm.base.file.?;
-    try file.pwriteAll(binary_bytes.items, 0);
-    try file.setEndPos(binary_bytes.items.len);
+    var file_writer = wasm.base.file.?.writer(&.{});
+    file_writer.interface.writeAll(binary_bytes.items) catch |err| switch (err) {
+        error.WriteFailed => return file_writer.err.?,
+    };
+    file_writer.end() catch |err| switch (err) {
+        error.WriteFailed => return file_writer.err.?,
+        else => |e| return e,
+    };
 }
 
 const VirtualAddrs = struct {

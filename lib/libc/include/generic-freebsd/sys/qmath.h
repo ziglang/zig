@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2018 Netflix, Inc.
+ * Copyright (c) 2018-2024 Netflix, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -378,15 +378,18 @@ typedef	u64q_t		umaxq_t;
 #define	Q_QMINQ(a, b)	(Q_LT(a, b) ? (a) : (b))
 
 /*
- * Test if 'a' can be represented by 'b' with full accuracy (T) or not (F).
- * The type casting has to be done to a's type so that any truncation caused by
- * the casts will not affect the logic.
+ * Test if 'a' can be represented by 'b' with full accuracy (0) or not
+ * (EOVERFLOW). If 'b' has fewer integer and/or fractional bits than 'a',
+ * the integer and fractional values stored in 'a' must fit in the available
+ * number of integer and fractional bits in 'b'.
  */
-#define	Q_QCANREPQ(a, b) \
-    ((((Q_LTZ(a) && Q_SIGNED(b)) || !Q_LTZ(a)) && \
-    Q_GIABSVAL(a) <= Q_TC(a, Q_IMAXVAL(b)) && \
-    Q_GFABSVAL(a) <= Q_TC(a, Q_FMAXVAL(b))) ? \
-    0 : EOVERFLOW)
+#define	Q_QCANREPQ(a, b) (( \
+    (!Q_LTZ(a) || Q_SIGNED(b)) \
+ && (   Q_NIBITS(a) <= Q_NIBITS(b) \
+     || 0 == (Q_GIABSVAL(a) & (~Q_TC(a, 0) << Q_NIBITS(b)))) \
+ && (   Q_NFBITS(a) <= Q_NFBITS(b) \
+     || 0 == (Q_GFABSVAL(a) & ~(~Q_TC(a, 0) << (Q_NFBITS(a) - Q_NFBITS(b))))) \
+    ) ? 0 : EOVERFLOW)
 
 /* Test if raw integer value 'i' can be represented by 'q' (T) or not (F). */
 #define	Q_QCANREPI(q, i) \

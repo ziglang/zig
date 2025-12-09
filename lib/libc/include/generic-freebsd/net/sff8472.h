@@ -26,6 +26,9 @@
  * SUCH DAMAGE.
  */
 
+#ifndef _NET_SFF8472_H_
+#define _NET_SFF8472_H_
+
 /*
  * The following set of constants are from Document SFF-8472
  * "Diagnostic Monitoring Interface for Optical Transceivers" revision
@@ -415,6 +418,7 @@ enum {
 	SFF_8024_ID_LAST	= SFF_8024_ID_QSFP_CMIS
 };
 
+#if defined(_WANT_SFF_8024_ID) || defined(_WANT_SFF_8472_ID)
 static const char *sff_8024_id[SFF_8024_ID_LAST + 1] = {
 	"Unknown",
 	"GBIC",
@@ -448,6 +452,7 @@ static const char *sff_8024_id[SFF_8024_ID_LAST + 1] = {
 	"x8MiniLink",
 	"QSFP+(CIMS)"
 };
+#endif
 
 /* Keep compatibility with old definitions */
 #define	SFF_8472_ID_UNKNOWN	SFF_8024_ID_UNKNOWN
@@ -524,3 +529,5 @@ static const char *sff_8024_id[SFF_8024_ID_LAST + 1] = {
  */
 
 #define SFF_8472_POWER_FACTOR 10000.0
+
+#endif

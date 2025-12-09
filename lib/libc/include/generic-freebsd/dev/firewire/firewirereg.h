@@ -293,7 +293,7 @@ extern int firewire_debug;
 extern devclass_t firewire_devclass;
 extern int firewire_phydma_enable;
 
-#define	FWPRI		((PZERO + 8) | PCATCH)
+#define	FWPRI		(PWAIT | PCATCH)
 
 #define CALLOUT_INIT(x) callout_init(x, 1 /* mpsafe */)
 

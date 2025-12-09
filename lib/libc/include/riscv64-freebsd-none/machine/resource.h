@@ -40,8 +40,6 @@
 #define	SYS_RES_MEMORY	3	/* i/o memory */
 #define	SYS_RES_IOPORT	4	/* i/o ports */
 #define	SYS_RES_GPIO	5	/* general purpose i/o */
-#ifdef NEW_PCIB
 #define	PCI_RES_BUS	6	/* PCI bus numbers */
-#endif
 
 #endif /* !_MACHINE_RESOURCE_H_ */

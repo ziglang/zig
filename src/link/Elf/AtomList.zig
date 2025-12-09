@@ -2,7 +2,7 @@ value: i64 = 0,
 size: u64 = 0,
 alignment: Atom.Alignment = .@"1",
 output_section_index: u32 = 0,
-// atoms: std.ArrayListUnmanaged(Elf.Ref) = .empty,
+// atoms: std.ArrayList(Elf.Ref) = .empty,
 atoms: std.AutoArrayHashMapUnmanaged(Elf.Ref, void) = .empty,
 
 dirty: bool = true,

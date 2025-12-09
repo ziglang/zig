@@ -60,7 +60,7 @@ enum {
 struct sockaddr_ng {
 	unsigned char	sg_len;		/* total length */
 	sa_family_t	sg_family;	/* address family */
-	char		sg_data[14];	/* actually longer; address value */
+	char		sg_data[32];	/* see NG_NODESIZ in ng_message.h */
 };
 
 #endif /* _NETGRAPH_NG_SOCKET_H_ */

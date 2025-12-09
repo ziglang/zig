@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)signalvar.h	8.6 (Berkeley) 2/19/95
  */
 
 #ifndef _SYS_SIGNALVAR_H_
@@ -272,6 +270,7 @@ int __sys_sigfastblock(int cmd, void *ptr);
 
 #ifdef _KERNEL
 extern bool sigfastblock_fetch_always;
+extern bool pt_attach_transparent;
 
 /* Return nonzero if process p has an unmasked pending signal. */
 #define	SIGPENDING(td)							\
@@ -404,6 +403,7 @@ int	sigev_findtd(struct proc *p, struct sigevent *sigev, struct thread **);
 void	sigfastblock_clear(struct thread *td);
 void	sigfastblock_fetch(struct thread *td);
 int	sig_intr(void);
+bool	sig_do_core(int);
 void	siginit(struct proc *p);
 void	signotify(struct thread *td);
 void	sigqueue_delete(struct sigqueue *queue, int sig);

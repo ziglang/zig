@@ -30,14 +30,13 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)sysctl.h	8.1 (Berkeley) 6/2/93
  */
 
 #ifndef _SYS_SYSCTL_H_
 #define	_SYS_SYSCTL_H_
 
 #ifdef _KERNEL
+#include <sys/cdefs.h>
 #include <sys/queue.h>
 #include <sys/tree.h>
 #endif
@@ -866,7 +865,7 @@ TAILQ_HEAD(sysctl_ctx_list, sysctl_ctx_entry);
 /* OID expressing a sbintime_t as microseconds */
 #define	SYSCTL_SBINTIME_USEC(parent, nbr, name, access, ptr, descr)	\
 	SYSCTL_OID(parent, nbr, name,					\
-	    CTLTYPE_INT | CTLFLAG_MPSAFE | CTLFLAG_RD | (access),	\
+	    CTLTYPE_S64 | CTLFLAG_MPSAFE | CTLFLAG_RD | (access),	\
 	    (ptr), 0, sysctl_usec_to_sbintime, "Q", descr);		\
 	CTASSERT(((access) & CTLTYPE) == 0 ||				\
 	    ((access) & SYSCTL_CT_ASSERT_MASK) == CTLTYPE_S64)
@@ -876,7 +875,7 @@ TAILQ_HEAD(sysctl_ctx_list, sysctl_ctx_entry);
 	CTASSERT(((access) & CTLTYPE) == 0 ||				\
 	    ((access) & SYSCTL_CT_ASSERT_MASK) == CTLTYPE_S64);		\
 	sysctl_add_oid(ctx, parent, nbr, name,				\
-	    CTLTYPE_INT | CTLFLAG_MPSAFE | CTLFLAG_RD | (access),	\
+	    CTLTYPE_S64 | CTLFLAG_MPSAFE | CTLFLAG_RD | (access),	\
 	    __ptr, 0, sysctl_usec_to_sbintime, "Q", __DESCR(descr),	\
 	    NULL);							\
 })
@@ -884,7 +883,7 @@ TAILQ_HEAD(sysctl_ctx_list, sysctl_ctx_entry);
 /* OID expressing a sbintime_t as milliseconds */
 #define	SYSCTL_SBINTIME_MSEC(parent, nbr, name, access, ptr, descr)	\
 	SYSCTL_OID(parent, nbr, name,					\
-	    CTLTYPE_INT | CTLFLAG_MPSAFE | CTLFLAG_RD | (access),	\
+	    CTLTYPE_S64 | CTLFLAG_MPSAFE | CTLFLAG_RD | (access),	\
 	    (ptr), 0, sysctl_msec_to_sbintime, "Q", descr);		\
 	CTASSERT(((access) & CTLTYPE) == 0 ||				\
 	    ((access) & SYSCTL_CT_ASSERT_MASK) == CTLTYPE_S64)
@@ -894,7 +893,7 @@ TAILQ_HEAD(sysctl_ctx_list, sysctl_ctx_entry);
 	CTASSERT(((access) & CTLTYPE) == 0 ||				\
 	    ((access) & SYSCTL_CT_ASSERT_MASK) == CTLTYPE_S64);		\
 	sysctl_add_oid(ctx, parent, nbr, name,				\
-	    CTLTYPE_INT | CTLFLAG_MPSAFE | CTLFLAG_RD | (access),	\
+	    CTLTYPE_S64 | CTLFLAG_MPSAFE | CTLFLAG_RD | (access),	\
 	    __ptr, 0, sysctl_msec_to_sbintime, "Q", __DESCR(descr),	\
 	    NULL);							\
 })
@@ -933,6 +932,26 @@ TAILQ_HEAD(sysctl_ctx_list, sysctl_ctx_entry);
 	    OID_AUTO, name,						\
 	    CTLFLAG_RD | CTLFLAG_CAPRD | CTLTYPE_INT | CTLFLAG_MPSAFE,	\
 	    NULL, 1, sysctl_handle_int, "I", desc, "feature");
+
+/*
+ * Adding new leaves to the 'debug.sizeof' MIB tree for ad-hoc reasons is
+ * discouraged, and in particular for reporting to developers the size of some
+ * kernel structures, which can be obtained by the following alternative means:
+ * 1. In GDB, load a full kernel image and use 'print(sizeof(struct XXX))'.
+ *    Alternatively, use 'ptype/o struct XXX' to additionally get the offsets
+ *    and size of all structure's fields.
+ * 2. If the structure is allocated from UMA, then 'vmstat -z' reports its size
+ *    (the mapping between structure types and zones is usually
+ *    straightforward).
+ */
+/* Generates a read-only sysctl reporting the size of an object/structure. */
+#define SYSCTL_SIZEOF(name, expr)					\
+	SYSCTL_INT(_debug_sizeof, OID_AUTO, name, CTLFLAG_RD,		\
+	    SYSCTL_NULL_INT_PTR, sizeof(expr),				\
+	    "sizeof(" __STRING(expr) ")");
+/* Same, specialized for structures. */
+#define SYSCTL_SIZEOF_STRUCT(struct_name)				\
+	SYSCTL_SIZEOF(struct_name, struct struct_name)
 
 #endif /* _KERNEL */
 
@@ -1043,6 +1062,7 @@ TAILQ_HEAD(sysctl_ctx_list, sysctl_ctx_entry);
 #define	KERN_PROC_SIGFASTBLK	44	/* address of fastsigblk magic word */
 #define	KERN_PROC_VM_LAYOUT	45	/* virtual address space layout info */
 #define	KERN_PROC_RLIMIT_USAGE	46	/* array of rlim_t */
+#define	KERN_PROC_KQUEUE	47	/* array of struct kinfo_knote */
 
 /*
  * KERN_IPC identifiers

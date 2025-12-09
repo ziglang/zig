@@ -5,11 +5,6 @@ const process = std.process;
 const windows = std.os.windows;
 const native_os = builtin.os.tag;
 
-/// Deprecated in favor of `Config.detect`.
-pub fn detectConfig(file: File) Config {
-    return .detect(file);
-}
-
 pub const Color = enum {
     black,
     red,
@@ -37,7 +32,7 @@ pub const Color = enum {
 pub const Config = union(enum) {
     no_color,
     escape_codes,
-    windows_api: if (native_os == .windows) WindowsContext else void,
+    windows_api: if (native_os == .windows) WindowsContext else noreturn,
 
     /// Detect suitable TTY configuration options for the given file (commonly stdout/stderr).
     /// This includes feature checks for ANSI escape codes and the Windows console API, as well as
@@ -105,7 +100,7 @@ pub const Config = union(enum) {
                 };
                 try w.writeAll(color_string);
             },
-            .windows_api => |ctx| if (native_os == .windows) {
+            .windows_api => |ctx| {
                 const attributes = switch (color) {
                     .black => 0,
                     .red => windows.FOREGROUND_RED,
@@ -130,8 +125,6 @@ pub const Config = union(enum) {
                 };
                 try w.flush();
                 try windows.SetConsoleTextAttribute(ctx.handle, attributes);
-            } else {
-                unreachable;
             },
         };
     }

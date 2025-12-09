@@ -140,10 +140,6 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     .flags = acflags.items,
                 },
                 .{
-                    .path = "common" ++ path.sep_str ++ "crtend.c",
-                    .flags = cflags.items,
-                },
-                .{
                     .path = "common" ++ path.sep_str ++ "feature_note.S",
                     .flags = acflags.items,
                 },
@@ -257,6 +253,12 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 pub const Lib = struct {
     name: []const u8,
     sover: u8,
+    added_in: ?Version = null,
+
+    pub fn getSoVersion(lib: Lib, os: *const std.Target.Os) u8 {
+        if (std.mem.eql(u8, lib.name, "util") and os.version_range.semver.min.major >= 15) return 10;
+        return lib.sover;
+    }
 };
 
 pub const libs = [_]Lib{
@@ -269,6 +271,7 @@ pub const libs = [_]Lib{
     .{ .name = "ld", .sover = 1 },
     .{ .name = "util", .sover = 9 },
     .{ .name = "execinfo", .sover = 1 },
+    .{ .name = "sys", .sover = 7, .added_in = .{ .major = 15, .minor = 0, .patch = 0 } },
 };
 
 pub const ABI = struct {
@@ -426,6 +429,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     }
 
     const gpa = comp.gpa;
+    const io = comp.io;
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
@@ -433,11 +437,13 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
 
     const target = comp.getTarget();
     // FreeBSD 7 == FBSD_1.0, ..., FreeBSD 14 == FBSD_1.7
-    const target_version: Version = .{ .major = 1, .minor = target.os.version_range.semver.min.major - 7, .patch = 0 };
+    const target_os_version: Version = target.os.version_range.semver.min;
+    const target_libc_version: Version = .{ .major = 1, .minor = target_os_version.major - 7, .patch = 0 };
 
     // Use the global cache directory.
     var cache: Cache = .{
         .gpa = gpa,
+        .io = io,
         .manifest_dir = try comp.dirs.global_cache.handle.makeOpenPath("h", .{}),
     };
     cache.addPrefix(.{ .path = null, .handle = fs.cwd() });
@@ -450,7 +456,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     man.hash.addBytes(build_options.version);
     man.hash.add(target.cpu.arch);
     man.hash.add(target.abi);
-    man.hash.add(target_version);
+    man.hash.add(target_os_version);
 
     const full_abilists_path = try comp.dirs.zig_lib.join(arena, &.{abilists_path});
     const abilists_index = try man.addFile(full_abilists_path, abilists_max_size);
@@ -492,19 +498,19 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     };
 
     const target_ver_index = for (metadata.all_versions, 0..) |ver, i| {
-        switch (ver.order(target_version)) {
+        switch (ver.order(target_libc_version)) {
             .eq => break i,
             .lt => continue,
             .gt => {
                 // TODO Expose via compile error mechanism instead of log.
-                log.warn("invalid target FreeBSD libc version: {f}", .{target_version});
+                log.warn("invalid target FreeBSD libc version: {f}", .{target_libc_version});
                 return error.InvalidTargetLibCVersion;
             },
         }
     } else blk: {
         const latest_index = metadata.all_versions.len - 1;
         log.warn("zig cannot build new FreeBSD libc version {f}; providing instead {f}", .{
-            target_version, metadata.all_versions[latest_index],
+            target_libc_version, metadata.all_versions[latest_index],
         });
         break :blk latest_index;
     };
@@ -522,6 +528,11 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     defer stubs_asm.deinit();
 
     for (libs, 0..) |lib, lib_i| {
+        if (lib.added_in) |add_in| {
+            // Note: Compare OS version, not libc version.
+            if (target.os.version_range.semver.min.order(add_in) == .lt) continue;
+        }
+
         stubs_asm.shrinkRetainingCapacity(0);
 
         try stubs_asm.appendSlice(".text\n");
@@ -981,6 +992,9 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
 }
 
 fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
+    const target = comp.getTarget();
+    const target_os_version = target.os.version_range.semver.min;
+
     assert(comp.freebsd_so_files == null);
     comp.freebsd_so_files = so_files;
 
@@ -992,10 +1006,14 @@ fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
         defer comp.mutex.unlock();
 
         for (libs) |lib| {
+            if (lib.added_in) |add_in| {
+                if (target_os_version.order(add_in) == .lt) continue;
+            }
+
             const so_path: Path = .{
                 .root_dir = so_files.dir_path.root_dir,
                 .sub_path = std.fmt.allocPrint(comp.arena, "{s}{c}lib{s}.so.{d}", .{
-                    so_files.dir_path.sub_path, fs.path.sep, lib.name, lib.sover,
+                    so_files.dir_path.sub_path, fs.path.sep, lib.name, lib.getSoVersion(&target.os),
                 }) catch return comp.setAllocFailure(),
             };
             task_buffer[task_buffer_i] = .{ .load_dso = so_path };
@@ -1017,9 +1035,13 @@ fn buildSharedLib(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const basename = try std.fmt.allocPrint(arena, "lib{s}.so.{d}", .{ lib.name, lib.sover });
-    const version: Version = .{ .major = lib.sover, .minor = 0, .patch = 0 };
-    const ld_basename = path.basename(comp.getTarget().standardDynamicLinkerPath().get().?);
+    const target = comp.getTarget();
+
+    const io = comp.io;
+    const sover = lib.getSoVersion(&target.os);
+    const basename = try std.fmt.allocPrint(arena, "lib{s}.so.{d}", .{ lib.name, sover });
+    const version: Version = .{ .major = sover, .minor = 0, .patch = 0 };
+    const ld_basename = path.basename(target.standardDynamicLinkerPath().get().?);
     const soname = if (mem.eql(u8, lib.name, "ld")) ld_basename else basename;
     const map_file_path = try path.join(arena, &.{ bin_directory.path.?, all_map_basename });
 
@@ -1071,7 +1093,7 @@ fn buildSharedLib(
     const misc_task: Compilation.MiscTask = .@"freebsd libc shared object";
 
     var sub_create_diag: Compilation.CreateDiagnostic = undefined;
-    const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
+    const sub_compilation = Compilation.create(comp.gpa, arena, io, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .thread_pool = comp.thread_pool,
         .self_exe_path = comp.self_exe_path,

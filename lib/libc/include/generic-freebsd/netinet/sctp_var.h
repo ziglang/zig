@@ -331,17 +331,17 @@ void
 sctp_notify(struct sctp_inpcb *, struct sctp_tcb *, struct sctp_nets *,
     uint8_t, uint8_t, uint16_t, uint32_t);
 int sctp_flush(struct socket *, int);
-int sctp_shutdown(struct socket *);
+int sctp_shutdown(struct socket *, enum shutdown_how);
 int
 sctp_bindx(struct socket *, int, struct sockaddr_storage *,
     int, int, struct proc *);
 
 /* can't use sctp_assoc_t here */
 int sctp_peeloff(struct socket *, struct socket *, int, caddr_t, int *);
-int sctp_ingetaddr(struct socket *, struct sockaddr **);
-int sctp_peeraddr(struct socket *, struct sockaddr **);
+int sctp_ingetaddr(struct socket *, struct sockaddr *);
+int sctp_peeraddr(struct socket *, struct sockaddr *);
 int sctp_listen(struct socket *, int, struct thread *);
-int sctp_accept(struct socket *, struct sockaddr **);
+int sctp_accept(struct socket *, struct sockaddr *);
 
 #endif				/* _KERNEL */
 

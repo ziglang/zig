@@ -80,6 +80,7 @@ struct mmc_command {
 #define	MMC_CMD_BC	(2ul << 5)	/* Broadcast command, no response */
 #define	MMC_CMD_BCR	(3ul << 5)	/* Broadcast command with response */
 #define	MMC_CMD_MASK	(3ul << 5)
+#define	MMC_CMD_IS_APP  (1ul << 7)	/* Next cmd after MMC_APP_CMD */
 
 /* Possible response types defined in the standard: */
 #define	MMC_RSP_NONE	(0)

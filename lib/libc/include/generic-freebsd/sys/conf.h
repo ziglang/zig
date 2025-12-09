@@ -34,8 +34,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)conf.h	8.5 (Berkeley) 1/9/95
  */
 
 #ifndef _SYS_CONF_H_
@@ -46,6 +44,7 @@
 #else
 #include <sys/queue.h>
 #endif
+#include <sys/_timespec.h>
 
 struct snapdata;
 struct devfs_dirent;
@@ -160,6 +159,7 @@ typedef int dumper_hdr_t(struct dumperinfo *di, struct kerneldumpheader *kdh);
 #define		GID_RT_PRIO	47
 #define		GID_ID_PRIO	48
 #define		GID_DIALER	68
+#define		GID_U2F		116
 #define		GID_NOGROUP	65533
 #define		GID_NOBODY	65534
 
@@ -278,6 +278,7 @@ void	destroy_dev(struct cdev *_dev);
 int	destroy_dev_sched(struct cdev *dev);
 int	destroy_dev_sched_cb(struct cdev *dev, void (*cb)(void *), void *arg);
 void	destroy_dev_drain(struct cdevsw *csw);
+void	dev_copyname(struct cdev *dev, char *path, size_t len);
 struct cdevsw *dev_refthread(struct cdev *_dev, int *_ref);
 struct cdevsw *devvn_refthread(struct vnode *vp, struct cdev **devp, int *_ref);
 void	dev_relthread(struct cdev *_dev, int _ref);
@@ -360,6 +361,7 @@ struct dumperinfo {
 };
 
 extern int dumping;		/* system is dumping */
+extern bool dumped_core;	/* system successfully dumped kernel core */
 
 /*
  * Save registers for later extraction from a kernel dump.

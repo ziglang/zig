@@ -11,7 +11,7 @@ CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.16.0-dev.104+689461e31"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
-export PATH="$HOME/deps/wasmtime-v29.0.0-x86_64-linux:$HOME/deps/qemu-linux-x86_64-10.1.1.1/bin:$HOME/local/bin:$PATH"
+export PATH="$HOME/deps/wasmtime-v38.0.3-x86_64-linux:$HOME/deps/qemu-linux-x86_64-10.1.1.1/bin:$HOME/local/bin:$PATH"
 
 # Override the cache directories because they won't actually help other CI runs
 # which will be testing alternate versions of zig, and ultimately would just
@@ -33,7 +33,10 @@ cmake .. \
   -DZIG_TARGET_MCPU="$MCPU" \
   -DZIG_STATIC=ON \
   -DZIG_NO_LIB=ON \
-  -GNinja
+  -GNinja \
+  -DCMAKE_C_LINKER_DEPFILE_SUPPORTED=FALSE \
+  -DCMAKE_CXX_LINKER_DEPFILE_SUPPORTED=FALSE
+# https://github.com/ziglang/zig/issues/22213
 
 # Now cmake will use zig as the C/C++ compiler. We reset the environment variables
 # so that installation and testing do not get affected by them.
@@ -48,7 +51,7 @@ stage3-debug/bin/zig build \
   -Dno-lib
 
 stage3-debug/bin/zig build test docs \
-  --maxrss 21000000000 \
+  --maxrss ${ZSF_MAX_RSS:-0} \
   -Dlldb=$HOME/deps/lldb-zig/Debug-e0a42bb34/bin/lldb \
   -fqemu \
   -fwasmtime \
@@ -56,7 +59,7 @@ stage3-debug/bin/zig build test docs \
   -Dskip-freebsd \
   -Dskip-netbsd \
   -Dskip-windows \
-  -Dskip-macos \
+  -Dskip-darwin \
   -Dskip-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \

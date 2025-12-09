@@ -111,6 +111,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .hppa,
         .hppa64,
         .kalimba,
+        .kvx,
         .microblaze,
         .microblazeel,
         .or1k,
@@ -166,6 +167,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
             .{ .spe, "spe" },
         }),
         .spirv32, .spirv64 => subArchName(target, .spirv, .{
+            .{ .v1_6, "1.6" },
             .{ .v1_5, "1.5" },
             .{ .v1_4, "1.4" },
             .{ .v1_3, "1.3" },
@@ -181,6 +183,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
     try llvm_triple.appendSlice(switch (target.os.tag) {
         .driverkit,
         .ios,
+        .maccatalyst,
         .macos,
         .tvos,
         .visionos,
@@ -202,7 +205,6 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
     try llvm_triple.append('-');
 
     const llvm_os = switch (target.os.tag) {
-        .freestanding => "unknown",
         .dragonfly => "dragonfly",
         .freebsd => "freebsd",
         .fuchsia => "fuchsia",
@@ -216,11 +218,9 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .cuda => "cuda",
         .nvcl => "nvcl",
         .amdhsa => "amdhsa",
-        .opencl => "unknown", // https://llvm.org/docs/SPIRVUsage.html#target-triples
         .ps3 => "lv2",
         .ps4 => "ps4",
         .ps5 => "ps5",
-        .vita => "unknown", // LLVM doesn't know about this target
         .mesa3d => "mesa3d",
         .amdpal => "amdpal",
         .hermit => "hermit",
@@ -228,7 +228,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .wasi => "wasi",
         .emscripten => "emscripten",
         .macos => "macosx",
-        .ios => "ios",
+        .ios, .maccatalyst => "ios",
         .tvos => "tvos",
         .watchos => "watchos",
         .driverkit => "driverkit",
@@ -238,10 +238,13 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .managarm => "managarm",
 
         .@"3ds",
-        .opengl,
-        .plan9,
         .contiki,
+        .freestanding,
+        .opencl, // https://llvm.org/docs/SPIRVUsage.html#target-triples
+        .opengl,
         .other,
+        .plan9,
+        .vita,
         => "unknown",
     };
     try llvm_triple.appendSlice(llvm_os);
@@ -264,7 +267,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
     try llvm_triple.append('-');
 
     const llvm_abi = switch (target.abi) {
-        .none, .ilp32 => "unknown",
+        .none => if (target.os.tag == .maccatalyst) "macabi" else "unknown",
         .gnu => "gnu",
         .gnuabin32 => "gnuabin32",
         .gnuabi64 => "gnuabi64",
@@ -273,7 +276,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .gnuf32 => "gnuf32",
         .gnusf => "gnusf",
         .gnux32 => "gnux32",
-        .code16 => "code16",
+        .ilp32 => "unknown",
         .eabi => "eabi",
         .eabihf => "eabihf",
         .android => "android",
@@ -293,9 +296,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .muslx32 => "muslx32",
         .msvc => "msvc",
         .itanium => "itanium",
-        .cygnus => "cygnus",
         .simulator => "simulator",
-        .macabi => "macabi",
         .ohos, .ohoseabi => "ohos",
     };
     try llvm_triple.appendSlice(llvm_abi);
@@ -418,7 +419,6 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
         .sparc64 => "E-m:e-i64:64-i128:128-n32:64-S128",
         .s390x => "E-m:e-i1:8:16-i8:8:16-i64:64-f128:64-v128:64-a:8:16-n32:64",
         .x86 => if (target.os.tag == .windows or target.os.tag == .uefi) switch (target.abi) {
-            .cygnus => "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32",
             .gnu => if (target.ofmt == .coff)
                 "e-m:x-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:32-n8:16:32-a:0:32-S32"
             else
@@ -476,6 +476,7 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
         .hppa,
         .hppa64,
         .kalimba,
+        .kvx,
         .microblaze,
         .microblazeel,
         .or1k,
@@ -521,8 +522,8 @@ pub const Object = struct {
     debug_enums_fwd_ref: Builder.Metadata.Optional,
     debug_globals_fwd_ref: Builder.Metadata.Optional,
 
-    debug_enums: std.ArrayListUnmanaged(Builder.Metadata),
-    debug_globals: std.ArrayListUnmanaged(Builder.Metadata),
+    debug_enums: std.ArrayList(Builder.Metadata),
+    debug_globals: std.ArrayList(Builder.Metadata),
 
     debug_file_map: std.AutoHashMapUnmanaged(Zcu.File.Index, Builder.Metadata),
     debug_type_map: std.AutoHashMapUnmanaged(InternPool.Index, Builder.Metadata),
@@ -569,7 +570,7 @@ pub const Object = struct {
     struct_field_map: std.AutoHashMapUnmanaged(ZigStructField, c_uint),
 
     /// Values for `@llvm.used`.
-    used: std.ArrayListUnmanaged(Builder.Constant),
+    used: std.ArrayList(Builder.Constant),
 
     const ZigStructField = struct {
         struct_ty: InternPool.Index,
@@ -782,10 +783,10 @@ pub const Object = struct {
     pub const EmitOptions = struct {
         pre_ir_path: ?[]const u8,
         pre_bc_path: ?[]const u8,
-        bin_path: ?[*:0]const u8,
-        asm_path: ?[*:0]const u8,
-        post_ir_path: ?[*:0]const u8,
-        post_bc_path: ?[*:0]const u8,
+        bin_path: ?[:0]const u8,
+        asm_path: ?[:0]const u8,
+        post_ir_path: ?[:0]const u8,
+        post_bc_path: ?[]const u8,
 
         is_debug: bool,
         is_small: bool,
@@ -989,7 +990,7 @@ pub const Object = struct {
                 options.post_ir_path == null and options.post_bc_path == null) return;
 
             if (options.post_bc_path) |path| {
-                var file = std.fs.cwd().createFileZ(path, .{}) catch |err|
+                var file = std.fs.cwd().createFile(path, .{}) catch |err|
                     return diags.fail("failed to create '{s}': {s}", .{ path, @errorName(err) });
                 defer file.close();
 
@@ -1098,8 +1099,8 @@ pub const Object = struct {
             // though it's clearly not ready and produces multiple miscompilations in our std tests.
             .allow_machine_outliner = !comp.root_mod.resolved_target.result.cpu.arch.isRISCV(),
             .asm_filename = null,
-            .bin_filename = options.bin_path,
-            .llvm_ir_filename = options.post_ir_path,
+            .bin_filename = if (options.bin_path) |x| x.ptr else null,
+            .llvm_ir_filename = if (options.post_ir_path) |x| x.ptr else null,
             .bitcode_filename = null,
 
             // `.coverage` value is only used when `.sancov` is enabled.
@@ -1146,7 +1147,7 @@ pub const Object = struct {
             lowered_options.time_report_out = &time_report_c_str;
         }
 
-        lowered_options.asm_filename = options.asm_path;
+        lowered_options.asm_filename = if (options.asm_path) |x| x.ptr else null;
         if (target_machine.emitToFile(module, &error_message, &lowered_options)) {
             defer llvm.disposeMessage(error_message);
             return diags.fail("LLVM failed to emit asm={s} bin={s} ir={s} bc={s}: {s}", .{
@@ -1296,7 +1297,7 @@ pub const Object = struct {
         // instructions. Depending on the calling convention, this list is not necessarily
         // a bijection with the actual LLVM parameters of the function.
         const gpa = o.gpa;
-        var args: std.ArrayListUnmanaged(Builder.Value) = .empty;
+        var args: std.ArrayList(Builder.Value) = .empty;
         defer args.deinit(gpa);
 
         {
@@ -2316,7 +2317,7 @@ pub const Object = struct {
 
                 switch (ip.indexToKey(ty.toIntern())) {
                     .tuple_type => |tuple| {
-                        var fields: std.ArrayListUnmanaged(Builder.Metadata) = .empty;
+                        var fields: std.ArrayList(Builder.Metadata) = .empty;
                         defer fields.deinit(gpa);
 
                         try fields.ensureUnusedCapacity(gpa, tuple.types.len);
@@ -2390,7 +2391,7 @@ pub const Object = struct {
 
                 const struct_type = zcu.typeToStruct(ty).?;
 
-                var fields: std.ArrayListUnmanaged(Builder.Metadata) = .empty;
+                var fields: std.ArrayList(Builder.Metadata) = .empty;
                 defer fields.deinit(gpa);
 
                 try fields.ensureUnusedCapacity(gpa, struct_type.field_types.len);
@@ -2408,8 +2409,7 @@ pub const Object = struct {
                     const field_size = field_ty.abiSize(zcu);
                     const field_align = ty.fieldAlignment(field_index, zcu);
                     const field_offset = ty.structFieldOffset(field_index, zcu);
-                    const field_name = struct_type.fieldName(ip, field_index).unwrap() orelse
-                        try ip.getOrPutStringFmt(gpa, pt.tid, "{d}", .{field_index}, .no_embedded_nulls);
+                    const field_name = struct_type.fieldName(ip, field_index);
                     fields.appendAssumeCapacity(try o.builder.debugMemberType(
                         try o.builder.metadataString(field_name.toSlice(ip)),
                         null, // File
@@ -2483,7 +2483,7 @@ pub const Object = struct {
                     return debug_union_type;
                 }
 
-                var fields: std.ArrayListUnmanaged(Builder.Metadata) = .empty;
+                var fields: std.ArrayList(Builder.Metadata) = .empty;
                 defer fields.deinit(gpa);
 
                 try fields.ensureUnusedCapacity(gpa, union_type.loadTagType(ip).names.len);
@@ -2696,7 +2696,7 @@ pub const Object = struct {
     fn allocTypeName(o: *Object, pt: Zcu.PerThread, ty: Type) Allocator.Error![:0]const u8 {
         var aw: std.Io.Writer.Allocating = .init(o.gpa);
         defer aw.deinit();
-        ty.print(&aw.writer, pt) catch |err| switch (err) {
+        ty.print(&aw.writer, pt, null) catch |err| switch (err) {
             error.WriteFailed => return error.OutOfMemory,
         };
         return aw.toOwnedSliceSentinel(0);
@@ -3272,7 +3272,7 @@ pub const Object = struct {
                         return int_ty;
                     }
 
-                    var llvm_field_types: std.ArrayListUnmanaged(Builder.Type) = .empty;
+                    var llvm_field_types: std.ArrayList(Builder.Type) = .empty;
                     defer llvm_field_types.deinit(o.gpa);
                     // Although we can estimate how much capacity to add, these cannot be
                     // relied upon because of the recursive calls to lowerType below.
@@ -3341,7 +3341,7 @@ pub const Object = struct {
                     return ty;
                 },
                 .tuple_type => |tuple_type| {
-                    var llvm_field_types: std.ArrayListUnmanaged(Builder.Type) = .empty;
+                    var llvm_field_types: std.ArrayList(Builder.Type) = .empty;
                     defer llvm_field_types.deinit(o.gpa);
                     // Although we can estimate how much capacity to add, these cannot be
                     // relied upon because of the recursive calls to lowerType below.
@@ -3530,7 +3530,7 @@ pub const Object = struct {
         const target = zcu.getTarget();
         const ret_ty = try lowerFnRetTy(o, pt, fn_info);
 
-        var llvm_params: std.ArrayListUnmanaged(Builder.Type) = .empty;
+        var llvm_params: std.ArrayList(Builder.Type) = .empty;
         defer llvm_params.deinit(o.gpa);
 
         if (firstParamSRet(fn_info, zcu, target)) {
@@ -3650,35 +3650,22 @@ pub const Object = struct {
             .opt => {}, // pointer like optional expected
             else => unreachable,
         }
-        const bits = ty.bitSize(zcu);
-        const bytes: usize = @intCast(std.mem.alignForward(u64, bits, 8) / 8);
-
         var stack = std.heap.stackFallback(32, o.gpa);
         const allocator = stack.get();
 
-        const limbs = try allocator.alloc(
-            std.math.big.Limb,
-            std.mem.alignForward(usize, bytes, @sizeOf(std.math.big.Limb)) /
-                @sizeOf(std.math.big.Limb),
-        );
+        const bits: usize = @intCast(ty.bitSize(zcu));
+
+        const buffer = try allocator.alloc(u8, (bits + 7) / 8);
+        defer allocator.free(buffer);
+        const limbs = try allocator.alloc(std.math.big.Limb, std.math.big.int.calcTwosCompLimbCount(bits));
         defer allocator.free(limbs);
-        @memset(limbs, 0);
 
-        val.writeToPackedMemory(ty, pt, std.mem.sliceAsBytes(limbs)[0..bytes], 0) catch unreachable;
+        val.writeToPackedMemory(ty, pt, buffer, 0) catch unreachable;
 
-        if (builtin.target.cpu.arch.endian() == .little) {
-            if (target.cpu.arch.endian() == .big)
-                std.mem.reverse(u8, std.mem.sliceAsBytes(limbs)[0..bytes]);
-        } else if (target.cpu.arch.endian() == .little) {
-            for (limbs) |*limb| {
-                limb.* = std.mem.nativeToLittle(usize, limb.*);
-            }
-        }
+        var big: std.math.big.int.Mutable = .init(limbs, 0);
+        big.readTwosComplement(buffer, bits, target.cpu.arch.endian(), .unsigned);
 
-        return o.builder.bigIntConst(llvm_int_ty, .{
-            .limbs = limbs,
-            .positive = true,
-        });
+        return o.builder.bigIntConst(llvm_int_ty, big.toConst());
     }
 
     fn lowerValue(o: *Object, pt: Zcu.PerThread, arg_val: InternPool.Index) Error!Builder.Constant {
@@ -4753,7 +4740,7 @@ pub const FuncGen = struct {
 
     const Fuzz = struct {
         counters_variable: Builder.Variable.Index,
-        pcs: std.ArrayListUnmanaged(Builder.Constant),
+        pcs: std.ArrayList(Builder.Constant),
 
         fn deinit(f: *Fuzz, gpa: Allocator) void {
             f.pcs.deinit(gpa);
@@ -4884,6 +4871,13 @@ pub const FuncGen = struct {
 
             const val: Builder.Value = switch (air_tags[@intFromEnum(inst)]) {
                 // zig fmt: off
+
+                // No "scalarize" legalizations are enabled, so these instructions never appear.
+                .legalize_vec_elem_val   => unreachable,
+                .legalize_vec_store_elem => unreachable,
+                // No soft float legalizations are enabled.
+                .legalize_compiler_rt_call => unreachable,
+
                 .add            => try self.airAdd(inst, .normal),
                 .add_optimized  => try self.airAdd(inst, .fast),
                 .add_wrap       => try self.airAddWrap(inst),
@@ -5089,8 +5083,6 @@ pub const FuncGen = struct {
 
                 .wasm_memory_size => try self.airWasmMemorySize(inst),
                 .wasm_memory_grow => try self.airWasmMemoryGrow(inst),
-
-                .vector_store_elem => try self.airVectorStoreElem(inst),
 
                 .runtime_nav_ptr => try self.airRuntimeNavPtr(inst),
 
@@ -6666,7 +6658,9 @@ pub const FuncGen = struct {
             "",
         );
 
-        const rt_int_bits = compilerRtIntBits(@intCast(operand_scalar_ty.bitSize(zcu)));
+        const rt_int_bits = compilerRtIntBits(@intCast(operand_scalar_ty.bitSize(zcu))) orelse {
+            return self.todo("float_from_int from '{f}' without intrinsics", .{operand_scalar_ty.fmt(pt)});
+        };
         const rt_int_ty = try o.builder.intType(rt_int_bits);
         var extended = try self.wip.conv(
             if (is_signed_int) .signed else .unsigned,
@@ -6735,7 +6729,9 @@ pub const FuncGen = struct {
             );
         }
 
-        const rt_int_bits = compilerRtIntBits(@intCast(dest_scalar_ty.bitSize(zcu)));
+        const rt_int_bits = compilerRtIntBits(@intCast(dest_scalar_ty.bitSize(zcu))) orelse {
+            return self.todo("int_from_float to '{f}' without intrinsics", .{dest_scalar_ty.fmt(pt)});
+        };
         const ret_ty = try o.builder.intType(rt_int_bits);
         const libc_ret_ty = if (rt_int_bits == 128 and (target.os.tag == .windows and target.cpu.arch == .x86_64)) b: {
             // On Windows x86-64, "ti" functions must use Vector(2, u64) instead of the standard
@@ -6870,16 +6866,14 @@ pub const FuncGen = struct {
         const array_llvm_ty = try o.lowerType(pt, array_ty);
         const elem_ty = array_ty.childType(zcu);
         if (isByRef(array_ty, zcu)) {
-            const indices: [2]Builder.Value = .{
-                try o.builder.intValue(try o.lowerType(pt, Type.usize), 0), rhs,
-            };
+            const elem_ptr = try self.wip.gep(.inbounds, array_llvm_ty, array_llvm_val, &.{
+                try o.builder.intValue(try o.lowerType(pt, Type.usize), 0),
+                rhs,
+            }, "");
             if (isByRef(elem_ty, zcu)) {
-                const elem_ptr = try self.wip.gep(.inbounds, array_llvm_ty, array_llvm_val, &indices, "");
                 const elem_alignment = elem_ty.abiAlignment(zcu).toLlvm();
                 return self.loadByRef(elem_ptr, elem_ty, elem_alignment, .normal);
             } else {
-                const elem_ptr =
-                    try self.wip.gep(.inbounds, array_llvm_ty, array_llvm_val, &indices, "");
                 return self.loadTruncate(.normal, elem_ty, elem_ptr, .default);
             }
         }
@@ -7256,7 +7250,7 @@ pub const FuncGen = struct {
         const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.inputs_len]);
         extra_i += inputs.len;
 
-        var llvm_constraints: std.ArrayListUnmanaged(u8) = .empty;
+        var llvm_constraints: std.ArrayList(u8) = .empty;
         defer llvm_constraints.deinit(gpa);
 
         var arena_allocator = std.heap.ArenaAllocator.init(gpa);
@@ -8137,33 +8131,6 @@ pub const FuncGen = struct {
         }, "");
     }
 
-    fn airVectorStoreElem(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.ng.object;
-        const pt = self.ng.pt;
-        const zcu = pt.zcu;
-        const data = self.air.instructions.items(.data)[@intFromEnum(inst)].vector_store_elem;
-        const extra = self.air.extraData(Air.Bin, data.payload).data;
-
-        const vector_ptr = try self.resolveInst(data.vector_ptr);
-        const vector_ptr_ty = self.typeOf(data.vector_ptr);
-        const index = try self.resolveInst(extra.lhs);
-        const operand = try self.resolveInst(extra.rhs);
-
-        self.maybeMarkAllowZeroAccess(vector_ptr_ty.ptrInfo(zcu));
-
-        // TODO: Emitting a load here is a violation of volatile semantics. Not fixable in general.
-        // https://github.com/ziglang/zig/issues/18652#issuecomment-2452844908
-        const access_kind: Builder.MemoryAccessKind =
-            if (vector_ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
-        const elem_llvm_ty = try o.lowerType(pt, vector_ptr_ty.childType(zcu));
-        const alignment = vector_ptr_ty.ptrAlignment(zcu).toLlvm();
-        const loaded = try self.wip.load(access_kind, elem_llvm_ty, vector_ptr, alignment, "");
-
-        const new_vector = try self.wip.insertElement(loaded, operand, index, "");
-        _ = try self.store(vector_ptr, vector_ptr_ty, new_vector, .none);
-        return .none;
-    }
-
     fn airRuntimeNavPtr(fg: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = fg.ng.object;
         const pt = fg.ng.pt;
@@ -8300,8 +8267,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.typeOfIndex(inst);
         const scalar_ty = inst_ty.scalarType(zcu);
-
-        if (scalar_ty.isAnyFloat()) return self.todo("saturating float add", .{});
+        assert(scalar_ty.zigTypeTag(zcu) == .int);
         return self.wip.callIntrinsic(
             .normal,
             .none,
@@ -8341,8 +8307,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.typeOfIndex(inst);
         const scalar_ty = inst_ty.scalarType(zcu);
-
-        if (scalar_ty.isAnyFloat()) return self.todo("saturating float sub", .{});
+        assert(scalar_ty.zigTypeTag(zcu) == .int);
         return self.wip.callIntrinsic(
             .normal,
             .none,
@@ -8382,8 +8347,7 @@ pub const FuncGen = struct {
         const rhs = try self.resolveInst(bin_op.rhs);
         const inst_ty = self.typeOfIndex(inst);
         const scalar_ty = inst_ty.scalarType(zcu);
-
-        if (scalar_ty.isAnyFloat()) return self.todo("saturating float mul", .{});
+        assert(scalar_ty.zigTypeTag(zcu) == .int);
         return self.wip.callIntrinsic(
             .normal,
             .none,
@@ -11451,7 +11415,6 @@ pub const FuncGen = struct {
         const access_kind: Builder.MemoryAccessKind =
             if (info.flags.is_volatile) .@"volatile" else .normal;
 
-        assert(info.flags.vector_index != .runtime);
         if (info.flags.vector_index != .none) {
             const index_u32 = try o.builder.intValue(.i32, info.flags.vector_index);
             const vec_elem_ty = try o.lowerType(pt, elem_ty);
@@ -11521,7 +11484,6 @@ pub const FuncGen = struct {
         const access_kind: Builder.MemoryAccessKind =
             if (info.flags.is_volatile) .@"volatile" else .normal;
 
-        assert(info.flags.vector_index != .runtime);
         if (info.flags.vector_index != .none) {
             const index_u32 = try o.builder.intValue(.i32, info.flags.vector_index);
             const vec_elem_ty = try o.lowerType(pt, elem_ty);
@@ -11672,7 +11634,7 @@ pub const FuncGen = struct {
                 \\ srl $$0,  $$0,  19
                 \\ or  $$13, $$13, $$13
                 ,
-                .constraints = "={$11},{$12},{$11},~{memory}",
+                .constraints = "={$11},{$12},{$11},~{memory},~{$1}",
             },
             .mips64, .mips64el => .{
                 .template =
@@ -11680,7 +11642,7 @@ pub const FuncGen = struct {
                 \\ dsll $$0,  $$0,  29   ; dsll $$0, $$0, 19
                 \\ or   $$13, $$13, $$13
                 ,
-                .constraints = "={$11},{$12},{$11},~{memory}",
+                .constraints = "={$11},{$12},{$11},~{memory},~{$1}",
             },
             .powerpc, .powerpcle => .{
                 .template =
@@ -11727,7 +11689,7 @@ pub const FuncGen = struct {
                 \\ roll  $$61, %edi ; roll $$51, %edi
                 \\ xchgl %ebx, %ebx
                 ,
-                .constraints = "={edx},{eax},{edx},~{cc},~{memory}",
+                .constraints = "={edx},{eax},{edx},~{cc},~{memory},~{dirflag},~{fpsr},~{flags}",
             },
             .x86_64 => .{
                 .template =
@@ -11735,7 +11697,7 @@ pub const FuncGen = struct {
                 \\ rolq  $$61, %rdi ; rolq $$51, %rdi
                 \\ xchgq %rbx, %rbx
                 ,
-                .constraints = "={rdx},{rax},{edx},~{cc},~{memory}",
+                .constraints = "={rdx},{rax},{rdx},~{cc},~{memory},~{dirflag},~{fpsr},~{flags}",
             },
             else => unreachable,
         };
@@ -11930,6 +11892,8 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: *const s
         .hexagon_sysv_hvx,
         .hppa_elf,
         .hppa64_elf,
+        .kvx_lp64,
+        .kvx_ilp32,
         .lanai_sysv,
         .loongarch64_lp64,
         .loongarch32_ilp32,
@@ -12624,7 +12588,7 @@ fn ccAbiPromoteInt(cc: std.builtin.CallingConvention, zcu: *Zcu, ty: Type) ?std.
         else => return null,
     };
     return switch (target.os.tag) {
-        .macos, .ios, .watchos, .tvos, .visionos => switch (int_info.bits) {
+        .driverkit, .ios, .maccatalyst, .macos, .watchos, .tvos, .visionos => switch (int_info.bits) {
             0...16 => int_info.signedness,
             else => null,
         },
@@ -12851,13 +12815,13 @@ const optional_layout_version = 3;
 
 const lt_errors_fn_name = "__zig_lt_errors_len";
 
-fn compilerRtIntBits(bits: u16) u16 {
+fn compilerRtIntBits(bits: u16) ?u16 {
     inline for (.{ 32, 64, 128 }) |b| {
         if (bits <= b) {
             return b;
         }
     }
-    return bits;
+    return null;
 }
 
 fn buildAllocaInner(
@@ -13113,6 +13077,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         .hppa,
         .hppa64,
         .kalimba,
+        .kvx,
         .microblaze,
         .microblazeel,
         .or1k,
@@ -13167,7 +13132,7 @@ fn maxIntConst(b: *Builder, max_ty: Type, as_ty: Builder.Type, zcu: *const Zcu) 
 /// Appends zero or more LLVM constraints to `llvm_constraints`, returning how many were added.
 fn appendConstraints(
     gpa: Allocator,
-    llvm_constraints: *std.ArrayListUnmanaged(u8),
+    llvm_constraints: *std.ArrayList(u8),
     zig_name: []const u8,
     target: *const std.Target,
 ) error{OutOfMemory}!usize {

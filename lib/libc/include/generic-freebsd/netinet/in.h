@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)in.h	8.3 (Berkeley) 1/3/94
  */
 
 #ifndef _NETINET_IN_H_
@@ -674,19 +672,26 @@ int	getsourcefilter(int, uint32_t, struct sockaddr *, socklen_t,
 struct ifnet; struct mbuf;	/* forward declarations for Standard C */
 struct in_ifaddr;
 
-int	 in_broadcast(struct in_addr, struct ifnet *);
-int	 in_ifaddr_broadcast(struct in_addr, struct in_ifaddr *);
-int	 in_canforward(struct in_addr);
-int	 in_localaddr(struct in_addr);
+bool	 in_ifnet_broadcast(struct in_addr, struct ifnet *);
+bool	 in_ifaddr_broadcast(struct in_addr, struct in_ifaddr *);
+bool	 in_canforward(struct in_addr);
+bool	 in_localaddr(struct in_addr);
 bool	 in_localip(struct in_addr);
 bool	 in_localip_fib(struct in_addr, uint16_t);
-int	 in_ifhasaddr(struct ifnet *, struct in_addr);
+bool	 in_ifhasaddr(struct ifnet *, struct in_addr);
 struct in_ifaddr *in_findlocal(uint32_t, bool);
 int	 inet_aton(const char *, struct in_addr *); /* in libkern */
 char	*inet_ntoa_r(struct in_addr ina, char *buf); /* in libkern */
 char	*inet_ntop(int, const void *, char *, socklen_t); /* in libkern */
 int	 inet_pton(int af, const char *, void *); /* in libkern */
 void	 in_ifdetach(struct ifnet *);
+
+static inline bool
+in_broadcast(struct in_addr in)
+{
+	return (in.s_addr == __htonl(INADDR_BROADCAST) ||
+	    in.s_addr == __htonl(INADDR_ANY));
+}
 
 #define	in_hosteq(s, t)	((s).s_addr == (t).s_addr)
 #define	in_nullhost(x)	((x).s_addr == INADDR_ANY)

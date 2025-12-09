@@ -91,7 +91,7 @@
 void	_mtx_init(volatile uintptr_t *c, const char *name, const char *type,
 	    int opts);
 void	_mtx_destroy(volatile uintptr_t *c);
-void	mtx_sysinit(void *arg);
+void	mtx_sysinit(const void *arg);
 int	_mtx_trylock_flags_int(struct mtx *m, int opts LOCK_FILE_LINE_ARG_DEF);
 int	_mtx_trylock_flags_(volatile uintptr_t *c, int opts, const char *file,
 	    int line);

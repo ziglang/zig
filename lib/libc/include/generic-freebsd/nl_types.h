@@ -34,7 +34,6 @@
 #ifndef _NL_TYPES_H_
 #define _NL_TYPES_H_
 
-#include <sys/cdefs.h>
 #include <sys/types.h>
 
 #ifdef _NLS_PRIVATE

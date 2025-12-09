@@ -45,7 +45,6 @@ extern "C" {
  * Copyright (c) 1986, 1990 by Sun Microsystems, Inc.
  */
 
-/* from @(#)ypupdate_prot.x	1.3 91/03/11 TIRPC 1.0 */
 
 /*
  * Compiled from ypupdate_prot.x using rpcgen

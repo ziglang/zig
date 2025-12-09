@@ -21,7 +21,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
 #include <sys/param.h>
 
 #include "crt.h"
@@ -41,9 +40,8 @@ void __cxa_finalize(void *) __weak_symbol;
  * When we have ctors/dtors call from the dtor handler before calling
  * any dtors, otherwise use a destructor.
  */
-#ifndef HAVE_CTORS
+/* zig patch: no HAVE_CTORS */
 __attribute__((destructor))
-#endif
 static void
 run_cxa_finalize(void)
 {
@@ -53,43 +51,4 @@ run_cxa_finalize(void)
 }
 #endif
 
-/*
- * On some architectures and toolchains we may need to call the .dtors.
- * These are called in the order they are in the ELF file.
- */
-#ifdef HAVE_CTORS
-static void __do_global_dtors_aux(void) __used;
-
-static crt_func __CTOR_LIST__[] __section(".ctors") __used = {
-	(crt_func)-1
-};
-static crt_func __DTOR_LIST__[] __section(".dtors") __used = {
-	(crt_func)-1
-};
-
-static void
-__do_global_dtors_aux(void)
-{
-	crt_func fn;
-	int n;
-
-#ifdef SHARED
-	run_cxa_finalize();
-#endif
-
-	for (n = 1;; n++) {
-		fn = __DTOR_LIST__[n];
-		if (fn == (crt_func)0 || fn == (crt_func)-1)
-			break;
-		fn();
-	}
-}
-
-asm (
-    ".pushsection .fini		\n"
-    "\t" INIT_CALL_SEQ(__do_global_dtors_aux) "\n"
-    ".popsection		\n"
-);
-#endif
-
-/* zig patch: remove gcj nonsense */
+/* zig patch: no HAVE_CTORS */

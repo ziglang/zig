@@ -38,9 +38,6 @@
  * map the page tables using the pagetables themselves. This is done to
  * reduce the impact on kernel virtual memory for lots of sparse address
  * space, and to reduce the cost of memory to each process.
- *
- *	from: hp300: @(#)pmap.h	7.2 (Berkeley) 12/16/90
- *	from: @(#)pmap.h	7.4 (Berkeley) 5/12/91
  */
 
 #ifdef __i386__
@@ -50,48 +47,7 @@
 #ifndef _MACHINE_PMAP_H_
 #define	_MACHINE_PMAP_H_
 
-/*
- * Page-directory and page-table entries follow this format, with a few
- * of the fields not present here and there, depending on a lot of things.
- */
-				/* ---- Intel Nomenclature ---- */
-#define	X86_PG_V	0x001	/* P	Valid			*/
-#define	X86_PG_RW	0x002	/* R/W	Read/Write		*/
-#define	X86_PG_U	0x004	/* U/S  User/Supervisor		*/
-#define	X86_PG_NC_PWT	0x008	/* PWT	Write through		*/
-#define	X86_PG_NC_PCD	0x010	/* PCD	Cache disable		*/
-#define	X86_PG_A	0x020	/* A	Accessed		*/
-#define	X86_PG_M	0x040	/* D	Dirty			*/
-#define	X86_PG_PS	0x080	/* PS	Page size (0=4k,1=2M)	*/
-#define	X86_PG_PTE_PAT	0x080	/* PAT	PAT index		*/
-#define	X86_PG_G	0x100	/* G	Global			*/
-#define	X86_PG_AVAIL1	0x200	/*    /	Available for system	*/
-#define	X86_PG_AVAIL2	0x400	/*   <	programmers use		*/
-#define	X86_PG_AVAIL3	0x800	/*    \				*/
-#define	X86_PG_PDE_PAT	0x1000	/* PAT	PAT index		*/
-#define	X86_PG_PKU(idx)	((pt_entry_t)idx << 59)
-#define	X86_PG_NX	(1ul<<63) /* No-execute */
-#define	X86_PG_AVAIL(x)	(1ul << (x))
-
-/* Page level cache control fields used to determine the PAT type */
-#define	X86_PG_PDE_CACHE (X86_PG_PDE_PAT | X86_PG_NC_PWT | X86_PG_NC_PCD)
-#define	X86_PG_PTE_CACHE (X86_PG_PTE_PAT | X86_PG_NC_PWT | X86_PG_NC_PCD)
-
-/* Protection keys indexes */
-#define	PMAP_MAX_PKRU_IDX	0xf
-#define	X86_PG_PKU_MASK		X86_PG_PKU(PMAP_MAX_PKRU_IDX)
-
-/*
- * Intel extended page table (EPT) bit definitions.
- */
-#define	EPT_PG_READ		0x001	/* R	Read		*/
-#define	EPT_PG_WRITE		0x002	/* W	Write		*/
-#define	EPT_PG_EXECUTE		0x004	/* X	Execute		*/
-#define	EPT_PG_IGNORE_PAT	0x040	/* IPAT	Ignore PAT	*/
-#define	EPT_PG_PS		0x080	/* PS	Page size	*/
-#define	EPT_PG_A		0x100	/* A	Accessed	*/
-#define	EPT_PG_M		0x200	/* D	Dirty		*/
-#define	EPT_PG_MEMORY_TYPE(x)	((x) << 3) /* MT Memory Type	*/
+#include <machine/pte.h>
 
 /*
  * Define the PG_xx macros in terms of the bits on x86 PTEs.
@@ -120,9 +76,6 @@
 #define	EPT_PG_EMUL_V	X86_PG_AVAIL(52)
 #define	EPT_PG_EMUL_RW	X86_PG_AVAIL(53)
 #define	PG_PROMOTED	X86_PG_AVAIL(54)	/* PDE only */
-#define	PG_FRAME	(0x000ffffffffff000ul)
-#define	PG_PS_FRAME	(0x000fffffffe00000ul)
-#define	PG_PS_PDP_FRAME	(0x000fffffc0000000ul)
 
 /*
  * Promotion to a 2MB (PDE) page mapping requires that the corresponding 4KB
@@ -132,18 +85,6 @@
 	    PG_M | PG_U | PG_RW | PG_V | PG_PKU_MASK)
 
 /*
- * Page Protection Exception bits
- */
-
-#define PGEX_P		0x01	/* Protection violation vs. not present */
-#define PGEX_W		0x02	/* during a Write cycle */
-#define PGEX_U		0x04	/* access from User mode (UPL) */
-#define PGEX_RSV	0x08	/* reserved PTE field is non-zero */
-#define PGEX_I		0x10	/* during an instruction fetch */
-#define	PGEX_PK		0x20	/* protection key violation */
-#define	PGEX_SGX	0x8000	/* SGX-related */
-
-/* 
  * undef the PG_xx macros that define bits in the regular x86 PTEs that
  * have a different position in nested PTEs. This is done when compiling
  * code that needs to be aware of the differences between regular x86 and
@@ -169,12 +110,7 @@
  * Pte related macros.  This is complicated by having to deal with
  * the sign extension of the 48th bit.
  */
-#define KV4ADDR(l4, l3, l2, l1) ( \
-	((unsigned long)-1 << 47) | \
-	((unsigned long)(l4) << PML4SHIFT) | \
-	((unsigned long)(l3) << PDPSHIFT) | \
-	((unsigned long)(l2) << PDRSHIFT) | \
-	((unsigned long)(l1) << PAGE_SHIFT))
+#define KV4ADDR(l4, l3, l2, l1)		KV5ADDR(-1, l4, l3, l2, l1)
 #define KV5ADDR(l5, l4, l3, l2, l1) (		\
 	((unsigned long)-1 << 56) | \
 	((unsigned long)(l5) << PML5SHIFT) | \
@@ -233,11 +169,12 @@
  * the recursive page table map.
  */
 #define	NDMPML4E	8
+#define	NDMPML5E	32
 
 /*
- * These values control the layout of virtual memory.  The starting address
- * of the direct map, which is controlled by DMPML4I, must be a multiple of
- * its size.  (See the PHYS_TO_DMAP() and DMAP_TO_PHYS() macros.)
+ * These values control the layout of virtual memory.  The starting
+ * address of the direct map is controlled by DMPML4I on LA48 and
+ * DMPML5I on LA57.
  *
  * Note: KPML4I is the index of the (single) level 4 page that maps
  * the KVA that holds KERNBASE, while KPML4BASE is the index of the
@@ -255,6 +192,7 @@
 
 #define	KPML4BASE	(NPML4EPG-NKPML4E) /* KVM at highest addresses */
 #define	DMPML4I		rounddown(KPML4BASE-NDMPML4E, NDMPML4E) /* Below KVM */
+#define	DMPML5I		(NPML5EPG / 2 + 1)
 
 #define	KPML4I		(NPML4EPG-1)
 #define	KPDPI		(NPDPEPG-2)	/* kernbase at -2GB */
@@ -264,9 +202,14 @@
 #define	KMSANSHADPML4I	(KPML4BASE - NKMSANSHADPML4E)
 #define	KMSANORIGPML4I	(DMPML4I - NKMSANORIGPML4E)
 
-/* Large map: index of the first and max last pml4 entry */
+/*
+ * Large map: index of the first and max last pml4/la48 and pml5/la57
+ * entry.
+ */
 #define	LMSPML4I	(PML4PML4I + 1)
 #define	LMEPML4I	(KASANPML4I - 1)
+#define	LMSPML5I	(DMPML5I + NDMPML5E)
+#define	LMEPML5I	(LMSPML5I + 32 - 1)	/* 32 slots for large map */
 
 /*
  * XXX doesn't really belong here I guess...
@@ -448,10 +391,10 @@ void	pmap_activate_boot(pmap_t pmap);
 void	pmap_activate_sw(struct thread *);
 void	pmap_allow_2m_x_ept_recalculate(void);
 void	pmap_bootstrap(vm_paddr_t *);
-int	pmap_cache_bits(pmap_t pmap, int mode, boolean_t is_pde);
+int	pmap_cache_bits(pmap_t pmap, int mode, bool is_pde);
 int	pmap_change_attr(vm_offset_t, vm_size_t, int);
 int	pmap_change_prot(vm_offset_t, vm_size_t, vm_prot_t);
-void	pmap_demote_DMAP(vm_paddr_t base, vm_size_t len, boolean_t invalidate);
+void	pmap_demote_DMAP(vm_paddr_t base, vm_size_t len, bool invalidate);
 void	pmap_flush_cache_range(vm_offset_t, vm_offset_t);
 void	pmap_flush_cache_phys_range(vm_paddr_t, vm_paddr_t, vm_memattr_t);
 void	pmap_init_pat(void);
@@ -467,7 +410,7 @@ void	*pmap_mapdev(vm_paddr_t, vm_size_t);
 void	*pmap_mapdev_attr(vm_paddr_t, vm_size_t, int);
 void	*pmap_mapdev_pciecfg(vm_paddr_t pa, vm_size_t size);
 bool	pmap_not_in_di(void);
-boolean_t pmap_page_is_mapped(vm_page_t m);
+bool	pmap_page_is_mapped(vm_page_t m);
 void	pmap_page_set_memattr(vm_page_t m, vm_memattr_t ma);
 void	pmap_page_set_memattr_noflush(vm_page_t m, vm_memattr_t ma);
 void	pmap_pinit_pml4(vm_page_t);
@@ -611,6 +554,25 @@ pmap_pml5e_index(vm_offset_t va)
 
 	return ((va >> PML5SHIFT) & ((1ul << NPML5EPGSHIFT) - 1));
 }
+
+struct kva_layout_s {
+	vm_offset_t kva_min;
+	vm_offset_t kva_max;
+	vm_offset_t dmap_low;	/* DMAP_MIN_ADDRESS */
+	vm_offset_t dmap_high;	/* DMAP_MAX_ADDRESS */
+	vm_offset_t lm_low;	/* LARGEMAP_MIN_ADDRESS */
+	vm_offset_t lm_high;	/* LARGEMAP_MAX_ADDRESS */
+	vm_offset_t km_low;	/* VM_MIN_KERNEL_ADDRESS */
+	vm_offset_t km_high;	/* VM_MAX_KERNEL_ADDRESS */
+	vm_offset_t rec_pt;
+	vm_offset_t kasan_shadow_low;	/* KASAN_MIN_ADDRESS */
+	vm_offset_t kasan_shadow_high;	/* KASAN_MAX_ADDRESS */
+	vm_offset_t kmsan_shadow_low;	/* KMSAN_SHAD_MIN_ADDRESS */
+	vm_offset_t kmsan_shadow_high;	/* KMSAN_SHAD_MAX_ADDRESS */
+	vm_offset_t kmsan_origin_low;	/* KMSAN_ORIG_MIN_ADDRESS */
+	vm_offset_t kmsan_origin_high;	/* KMSAN_ORIG_MAX_ADDRESS */
+};
+extern struct kva_layout_s kva_layout;
 
 #endif /* !LOCORE */
 

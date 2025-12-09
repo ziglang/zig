@@ -389,11 +389,4 @@ _cb_p_nh(struct snl_state *ss __unused, void *_target)
 SNL_DECLARE_PARSER_EXT(snl_nhmsg_parser, sizeof(struct nhmsg),
 		sizeof(struct snl_parsed_nhop), _fp_p_nh, _nla_p_nh, _cb_p_nh);
 
-static const struct snl_hdr_parser *snl_all_route_parsers[] = {
-	&_metrics_mp_nh_parser, &_mpath_nh_parser, &_metrics_parser, &snl_rtm_route_parser,
-	&_link_fbsd_parser, &snl_rtm_link_parser, &snl_rtm_link_parser_simple,
-	&_neigh_fbsd_parser, &snl_rtm_neigh_parser,
-	&_addr_fbsd_parser, &snl_rtm_addr_parser, &_nh_fbsd_parser, &snl_nhmsg_parser,
-};
-
 #endif

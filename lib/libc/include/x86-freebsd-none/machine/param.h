@@ -30,8 +30,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	from: @(#)param.h	5.8 (Berkeley) 6/28/91
  */
 
 #ifndef _I386_INCLUDE_PARAM_H_
@@ -43,9 +41,7 @@
  * Machine dependent constants for Intel 386.
  */
 
-#define __HAVE_ACPI
 #define	__HAVE_PIR
-#define __PCI_REROUTE_INTERRUPT
 
 #ifndef MACHINE
 #define MACHINE		"i386"
@@ -146,18 +142,11 @@
 /*
  * Mach derived conversion macros
  */
-#define trunc_page(x)		((x) & ~PAGE_MASK)
-#define round_page(x)		(((x) + PAGE_MASK) & ~PAGE_MASK)
 #define trunc_4mpage(x)		((x) & ~PDRMASK)
 #define round_4mpage(x)		((((x)) + PDRMASK) & ~PDRMASK)
 
-#define atop(x)			((x) >> PAGE_SHIFT)
-#define ptoa(x)			((x) << PAGE_SHIFT)
-
 #define i386_btop(x)		((x) >> PAGE_SHIFT)
 #define i386_ptob(x)		((x) << PAGE_SHIFT)
-
-#define	pgtok(x)		((x) * (PAGE_SIZE / 1024))
 
 #define INKERNEL(va)		(TRUE)
 

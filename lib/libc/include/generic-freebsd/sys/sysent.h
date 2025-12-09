@@ -79,11 +79,10 @@ struct sysent {			/* system call table */
  */
 #define	SYF_CAPENABLED	0x00000001
 
-#define	SY_THR_FLAGMASK	0x7
-#define	SY_THR_STATIC	0x1
-#define	SY_THR_DRAINING	0x2
-#define	SY_THR_ABSENT	0x4
-#define	SY_THR_INCR	0x8
+#define	SY_THR_STATIC	0x01
+#define	SY_THR_DRAINING	0x02
+#define	SY_THR_ABSENT	0x04
+#define	SY_THR_INCR	0x08
 
 #ifdef KLD_MODULE
 #define	SY_THR_STATIC_KLD	0
@@ -91,6 +90,7 @@ struct sysent {			/* system call table */
 #define	SY_THR_STATIC_KLD	SY_THR_STATIC
 #endif
 
+struct coredump_writer;
 struct image_params;
 struct proc;
 struct __sigset;
@@ -109,7 +109,8 @@ struct sysentvec {
 	int 		*sv_szsigcode;	/* size of sigtramp code */
 	int		sv_sigcodeoff;
 	char		*sv_name;	/* name of binary type */
-	int		(*sv_coredump)(struct thread *, struct vnode *, off_t, int);
+	int		(*sv_coredump)(struct thread *, struct coredump_writer *,
+			    off_t, int);
 					/* function to dump core, or NULL */
 	int		sv_elf_core_osabi;
 	const char	*sv_elf_core_abi_vendor;
@@ -145,10 +146,13 @@ struct sysentvec {
 	int		(*sv_trap)(struct thread *);
 	u_long		*sv_hwcap;	/* Value passed in AT_HWCAP. */
 	u_long		*sv_hwcap2;	/* Value passed in AT_HWCAP2. */
+	u_long		*sv_hwcap3;	/* Value passed in AT_HWCAP3. */
+	u_long		*sv_hwcap4;	/* Value passed in AT_HWCAP4. */
 	const char	*(*sv_machine_arch)(struct proc *);
 	vm_offset_t	sv_fxrng_gen_offset;
 	void		(*sv_onexec_old)(struct thread *td);
 	int		(*sv_onexec)(struct proc *, struct image_params *);
+	void		(*sv_protect)(struct image_params *, int);
 	void		(*sv_onexit)(struct proc *);
 	void		(*sv_ontdexit)(struct thread *td);
 	int		(*sv_setid_allowed)(struct thread *td,
@@ -161,7 +165,7 @@ struct sysentvec {
 
 #define	SV_ILP32	0x000100	/* 32-bit executable. */
 #define	SV_LP64		0x000200	/* 64-bit executable. */
-#define	SV_IA32		0x004000	/* Intel 32-bit executable. */
+#define	SV_RESERVED0	0x004000	/* Formerly SV_IA32 */
 #define	SV_AOUT		0x008000	/* a.out executable. */
 #define	SV_SHP		0x010000	/* Shared page. */
 #define	SV_SIGSYS	0x020000	/* SIGSYS for non-existing syscall */
@@ -186,6 +190,10 @@ struct sysentvec {
 #define	SVC_PT_COREDUMP	0x00000001	/* dump requested by ptrace(2) */
 #define	SVC_NOCOMPRESS	0x00000002	/* disable compression. */
 #define	SVC_ALL		0x00000004	/* dump everything */
+
+/* sv_protect flags */
+#define	SVP_IMAGE	0x00000001
+#define	SVP_INTERP	0x00000002
 
 #ifdef _KERNEL
 extern struct sysentvec aout_sysvec;

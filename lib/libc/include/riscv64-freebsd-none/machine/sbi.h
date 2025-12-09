@@ -49,6 +49,12 @@
 #define	SBI_IMPL_ID_KVM			3
 #define	SBI_IMPL_ID_RUSTSBI		4
 #define	SBI_IMPL_ID_DIOSIX		5
+#define	SBI_IMPL_ID_COFFER		6
+#define	SBI_IMPL_ID_XEN_PROJECT		7
+#define	SBI_IMPL_ID_POLARFIRE_HSS	8
+#define	SBI_IMPL_ID_COREBOOT		9
+#define	SBI_IMPL_ID_OREBOOT		10
+#define	SBI_IMPL_ID_BHYVE		11
 
 /* SBI Error Codes */
 #define	SBI_SUCCESS			0
@@ -116,6 +122,8 @@
 #define	SBI_REMOTE_SFENCE_VMA		6
 #define	SBI_REMOTE_SFENCE_VMA_ASID	7
 #define	SBI_SHUTDOWN			8
+
+#ifndef LOCORE
 
 #define	SBI_CALL0(e, f)				SBI_CALL5(e, f, 0, 0, 0, 0, 0)
 #define	SBI_CALL1(e, f, p1)			SBI_CALL5(e, f, p1, 0, 0, 0, 0)
@@ -236,4 +244,5 @@ sbi_console_getchar(void)
 void sbi_print_version(void);
 void sbi_init(void);
 
+#endif /* !LOCORE */
 #endif /* !_MACHINE_SBI_H_ */

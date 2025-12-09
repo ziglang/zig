@@ -31,7 +31,7 @@
 #ifndef _DEV_HWPMC_AMD_H_
 #define	_DEV_HWPMC_AMD_H_ 1
 
-/* AMD K7 and K8 PMCs */
+/* AMD K8 PMCs */
 
 #define	AMD_PMC_EVSEL_0		0xC0010000
 #define	AMD_PMC_EVSEL_1		0xC0010001

@@ -271,7 +271,7 @@ struct ypbind_setdom {
  *
  * Sun says:
  * "Protocol between clients (ypxfr, only) and yppush
- *  yppush speaks a protocol in the transient range, which
+ *  speaks a protocol in the transient range, which
  *  is supplied to ypxfr as a command-line parameter when it
  *  is activated by ypserv."
  *

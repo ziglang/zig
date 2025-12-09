@@ -51,6 +51,13 @@ void arm_add_efi_map_entries(struct efi_map_header *efihdr,
     struct mem_region *mr, int *mrcnt);
 #endif
 
+#ifdef SOCDEV_PA
+/*
+ * The virtual address SOCDEV_PA is mapped at.
+ */
+extern uintptr_t socdev_va;
+#endif
+
 /*
  * Symbols created by ldscript.arm which are accessible in the kernel as global
  * symbols. They have uint8 type because they mark the byte location where the

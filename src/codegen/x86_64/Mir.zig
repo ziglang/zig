@@ -1732,7 +1732,7 @@ pub const Inst = struct {
             assert(@sizeOf(Data) == 8);
         }
         const Mnemonic = @import("Encoding.zig").Mnemonic;
-        if (@typeInfo(Mnemonic).@"enum".fields.len != 977 or
+        if (@typeInfo(Mnemonic).@"enum".fields.len != 978 or
             @typeInfo(Fixes).@"enum".fields.len != 231 or
             @typeInfo(Tag).@"enum".fields.len != 251)
         {
@@ -1741,7 +1741,7 @@ pub const Inst = struct {
                     return @src();
                 }
             }).src();
-            @setEvalBranchQuota(1_750_000);
+            @setEvalBranchQuota(2_000_000);
             for (@typeInfo(Mnemonic).@"enum".fields) |mnemonic| {
                 if (mnemonic.name[0] == '.') continue;
                 for (@typeInfo(Fixes).@"enum".fields) |fixes| {

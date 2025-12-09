@@ -8,7 +8,7 @@ const Translator = @import("Translator.zig");
 const Scope = @This();
 
 pub const SymbolTable = std.StringArrayHashMapUnmanaged(ast.Node);
-pub const AliasList = std.ArrayListUnmanaged(struct {
+pub const AliasList = std.ArrayList(struct {
     alias: []const u8,
     name: []const u8,
 });
@@ -16,7 +16,7 @@ pub const AliasList = std.ArrayListUnmanaged(struct {
 /// Associates a container (structure or union) with its relevant member functions.
 pub const ContainerMemberFns = struct {
     container_decl_ptr: *ast.Node,
-    member_fns: std.ArrayListUnmanaged(*ast.Payload.Func) = .empty,
+    member_fns: std.ArrayList(*ast.Payload.Func) = .empty,
 };
 pub const ContainerMemberFnsHashMap = std.AutoArrayHashMapUnmanaged(aro.QualType, ContainerMemberFns);
 
@@ -55,7 +55,7 @@ pub const Condition = struct {
 pub const Block = struct {
     base: Scope,
     translator: *Translator,
-    statements: std.ArrayListUnmanaged(ast.Node),
+    statements: std.ArrayList(ast.Node),
     variables: AliasList,
     mangle_count: u32 = 0,
     label: ?[]const u8 = null,
@@ -195,7 +195,7 @@ pub const Root = struct {
     translator: *Translator,
     sym_table: SymbolTable,
     blank_macros: std.StringArrayHashMapUnmanaged(void),
-    nodes: std.ArrayListUnmanaged(ast.Node),
+    nodes: std.ArrayList(ast.Node),
     container_member_fns_map: ContainerMemberFnsHashMap,
 
     pub fn init(t: *Translator) Root {
@@ -252,7 +252,7 @@ pub const Root = struct {
         const gpa = root.translator.gpa;
         const arena = root.translator.arena;
 
-        var member_names: std.StringArrayHashMapUnmanaged(u32) = .empty;
+        var member_names: std.StringArrayHashMapUnmanaged(void) = .empty;
         defer member_names.deinit(gpa);
         for (root.container_member_fns_map.values()) |members| {
             member_names.clearRetainingCapacity();
@@ -261,7 +261,7 @@ pub const Root = struct {
                     const payload: *ast.Payload.Container = @alignCast(@fieldParentPtr("base", members.container_decl_ptr.ptr_otherwise));
                     // Avoid duplication with field names
                     for (payload.data.fields) |field| {
-                        try member_names.put(gpa, field.name, 0);
+                        try member_names.put(gpa, field.name, {});
                     }
                     break :blk_record &payload.data.decls;
                 },
@@ -278,34 +278,39 @@ pub const Root = struct {
             };
 
             const old_decls = decls_ptr.*;
-            const new_decls = try arena.alloc(ast.Node, old_decls.len + members.member_fns.items.len);
+            const new_decls = try arena.alloc(ast.Node, old_decls.len + members.member_fns.items.len * 2);
             @memcpy(new_decls[0..old_decls.len], old_decls);
             // Assume the allocator of payload.data.decls is arena,
             // so don't add arena.free(old_variables).
             const func_ref_vars = new_decls[old_decls.len..];
             var count: u32 = 0;
+
+            // Add members without mangling them - only fields may cause name conflicts
             for (members.member_fns.items) |func| {
                 const func_name = func.data.name.?;
-
-                const last_index = std.mem.lastIndexOf(u8, func_name, "_");
-                const last_name = if (last_index) |index| func_name[index + 1 ..] else continue;
-                var same_count: u32 = 0;
-                const gop = try member_names.getOrPutValue(gpa, last_name, same_count);
-                if (gop.found_existing) {
-                    gop.value_ptr.* += 1;
-                    same_count = gop.value_ptr.*;
-                }
-                const var_name = if (same_count == 0)
-                    last_name
-                else
-                    try std.fmt.allocPrint(arena, "{s}{d}", .{ last_name, same_count });
-
+                const member_name_slot = try member_names.getOrPutValue(gpa, func_name, {});
+                if (member_name_slot.found_existing) continue;
                 func_ref_vars[count] = try ast.Node.Tag.pub_var_simple.create(arena, .{
-                    .name = var_name,
-                    .init = try ast.Node.Tag.identifier.create(arena, func_name),
+                    .name = func_name,
+                    .init = try ast.Node.Tag.root_ref.create(arena, func_name),
                 });
                 count += 1;
             }
+
+            for (members.member_fns.items) |func| {
+                const func_name = func.data.name.?;
+                const func_name_trimmed = std.mem.trimEnd(u8, func_name, "_");
+                const last_idx = std.mem.findLast(u8, func_name_trimmed, "_") orelse continue;
+                const func_name_alias = func_name[last_idx + 1 ..];
+                const member_name_slot = try member_names.getOrPutValue(gpa, func_name_alias, {});
+                if (member_name_slot.found_existing) continue;
+                func_ref_vars[count] = try ast.Node.Tag.pub_var_simple.create(arena, .{
+                    .name = func_name_alias,
+                    .init = try ast.Node.Tag.root_ref.create(arena, func_name),
+                });
+                count += 1;
+            }
+
             decls_ptr.* = new_decls[0 .. old_decls.len + count];
         }
     }

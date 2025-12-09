@@ -60,17 +60,12 @@ uint64_t	counter_u64_fetch(counter_u64_t);
 		counter_u64_zero((a)[_i]);			\
 } while (0)
 
-/*
- * counter(9) based rate checking.
- */
-struct counter_rate {
-	counter_u64_t	cr_rate;	/* Events since last second */
-	volatile int	cr_lock;	/* Lock to clean the struct */
-	int		cr_ticks;	/* Ticks on last clean */
-	int		cr_over;	/* Over limit since cr_ticks? */
-};
+struct counter_rate;
 
+struct counter_rate *counter_rate_alloc(int flags, int period);
+void counter_rate_free(struct counter_rate *);
 int64_t	counter_ratecheck(struct counter_rate *, int64_t);
+uint64_t counter_rate_get(struct counter_rate *);
 
 #define	COUNTER_U64_SYSINIT(c)					\
 	SYSINIT(c##_counter_sysinit, SI_SUB_COUNTER,		\

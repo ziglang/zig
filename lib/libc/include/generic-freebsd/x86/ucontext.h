@@ -99,7 +99,9 @@ typedef struct __mcontext {
 #define	_MC_HASSEGS	0x1
 #define	_MC_HASBASES	0x2
 #define	_MC_HASFPXSTATE	0x4
-#define	_MC_FLAG_MASK	(_MC_HASSEGS | _MC_HASBASES | _MC_HASFPXSTATE)
+#define	_MC_HASTLSBASE	0x8
+#define	_MC_FLAG_MASK	(_MC_HASSEGS | _MC_HASBASES | _MC_HASFPXSTATE | \
+    _MC_HASTLSBASE)
 
 typedef struct __mcontext {
 	/*
@@ -158,7 +160,9 @@ typedef struct __mcontext {
 	__register_t	mc_xfpustate;
 	__register_t	mc_xfpustate_len;
 
-	long	mc_spare[4];
+	__register_t	mc_tlsbase;
+
+	long	mc_spare[3];
 } mcontext_t;
 #endif /* __amd64__ */
 

@@ -46,15 +46,16 @@
  * The following functions are only to be used by the virtual memory system.
  */
 vm_page_t	vm_reserv_alloc_contig(vm_object_t object, vm_pindex_t pindex,
-		    int domain, int req, vm_page_t mpred, u_long npages,
-		    vm_paddr_t low, vm_paddr_t high, u_long alignment,
-		    vm_paddr_t boundary);
+		    int domain, int req, u_long npages, vm_paddr_t low,
+		    vm_paddr_t high, u_long alignment, vm_paddr_t boundary,
+		    struct pctrie_iter *pages);
 vm_page_t	vm_reserv_alloc_page(vm_object_t object, vm_pindex_t pindex,
-		    int domain, int req, vm_page_t mpred);
+		    int domain, int req, struct pctrie_iter *pages);
 void		vm_reserv_break_all(vm_object_t object);
 boolean_t	vm_reserv_free_page(vm_page_t m);
 void		vm_reserv_init(void);
 bool		vm_reserv_is_page_free(vm_page_t m);
+bool		vm_reserv_is_populated(vm_page_t m, int npages);
 int		vm_reserv_level(vm_page_t m);
 int		vm_reserv_level_iffullpop(vm_page_t m);
 vm_page_t	vm_reserv_reclaim_contig(int domain, u_long npages,

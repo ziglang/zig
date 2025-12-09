@@ -534,9 +534,7 @@ pub fn generateSymbol(
                             while (index < vector_type.len) : (index += 1) {
                                 try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(switch (aggregate.storage) {
                                     .bytes => unreachable,
-                                    .elems => |elems| elems[
-                                        math.cast(usize, index) orelse return error.Overflow
-                                    ],
+                                    .elems => |elems| elems[math.cast(usize, index) orelse return error.Overflow],
                                     .repeated_elem => |elem| elem,
                                 }), w, reloc_parent);
                             }
@@ -551,35 +549,24 @@ pub fn generateSymbol(
             },
             .tuple_type => |tuple| {
                 const struct_begin = w.end;
-                for (
-                    tuple.types.get(ip),
-                    tuple.values.get(ip),
-                    0..,
-                ) |field_ty, comptime_val, index| {
-                    if (comptime_val != .none) continue;
+                for (tuple.types.get(ip), tuple.values.get(ip), 0..) |field_ty, field_val, field_index| {
+                    if (field_val != .none) continue;
                     if (!Type.fromInterned(field_ty).hasRuntimeBits(zcu)) continue;
 
-                    const field_val = switch (aggregate.storage) {
+                    try w.splatByteAll(0, math.cast(usize, struct_begin +
+                        Type.fromInterned(field_ty).abiAlignment(zcu).forward(w.end - struct_begin) - w.end) orelse
+                        return error.Overflow);
+                    try generateSymbol(bin_file, pt, src_loc, .fromInterned(switch (aggregate.storage) {
                         .bytes => |bytes| try pt.intern(.{ .int = .{
                             .ty = field_ty,
-                            .storage = .{ .u64 = bytes.at(index, ip) },
+                            .storage = .{ .u64 = bytes.at(field_index, ip) },
                         } }),
-                        .elems => |elems| elems[index],
+                        .elems => |elems| elems[field_index],
                         .repeated_elem => |elem| elem,
-                    };
-
-                    try generateSymbol(bin_file, pt, src_loc, Value.fromInterned(field_val), w, reloc_parent);
-                    const unpadded_field_end = w.end - struct_begin;
-
-                    // Pad struct members if required
-                    const padded_field_end = ty.structFieldOffset(index + 1, zcu);
-                    const padding = math.cast(usize, padded_field_end - unpadded_field_end) orelse
-                        return error.Overflow;
-
-                    if (padding > 0) {
-                        try w.splatByteAll(0, padding);
-                    }
+                    }), w, reloc_parent);
                 }
+                try w.splatByteAll(0, math.cast(usize, struct_begin + ty.abiSize(zcu) - w.end) orelse
+                    return error.Overflow);
             },
             .struct_type => {
                 const struct_type = ip.loadStructType(ty.toIntern());

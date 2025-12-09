@@ -200,5 +200,6 @@ extern vm_offset_t vm_max_kernel_address;
  * Need a page dump array for minidump.
  */
 #define MINIDUMP_PAGE_TRACKING	1
+#define MINIDUMP_STARTUP_PAGE_TRACKING 0
 
 #endif	/* _MACHINE_VMPARAM_H_ */

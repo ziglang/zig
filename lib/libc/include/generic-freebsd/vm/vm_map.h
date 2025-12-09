@@ -31,8 +31,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	@(#)vm_map.h	8.9 (Berkeley) 5/17/95
- *
  *
  * Copyright (c) 1987, 1990 Carnegie-Mellon University.
  * All rights reserved.
@@ -77,7 +75,6 @@
  *	vm_map_entry_t		an entry in an address map.
  */
 
-typedef u_char vm_flags_t;
 typedef u_int vm_eflags_t;
 
 /*
@@ -96,9 +93,9 @@ union vm_map_object {
  *	and user-exported inheritance and protection information.
  *	Also included is control information for virtual copy operations.
  *
- *	For stack gap map entries (MAP_ENTRY_GUARD | MAP_ENTRY_GROWS_DOWN
- *	or UP), the next_read member is reused as the stack_guard_page
- *	storage, and offset is the stack protection.
+ *	For stack gap map entries (MAP_ENTRY_GUARD | MAP_ENTRY_STACK_GAP),
+ *	the next_read member is reused as the stack_guard_page storage, and
+ *	offset is the stack protection.
  */
 struct vm_map_entry {
 	struct vm_map_entry *left;	/* left child or previous entry */
@@ -141,14 +138,14 @@ struct vm_map_entry {
 							   a core */
 #define	MAP_ENTRY_VN_EXEC		0x00000800	/* text vnode mapping */
 #define	MAP_ENTRY_GROWS_DOWN		0x00001000	/* top-down stacks */
-#define	MAP_ENTRY_GROWS_UP		0x00002000	/* bottom-up stacks */
+#define	MAP_ENTRY_UNUSED0		0x00002000
 
 #define	MAP_ENTRY_WIRE_SKIPPED		0x00004000
 #define	MAP_ENTRY_WRITECNT		0x00008000	/* tracked writeable
 							   mapping */
 #define	MAP_ENTRY_GUARD			0x00010000
-#define	MAP_ENTRY_STACK_GAP_DN		0x00020000
-#define	MAP_ENTRY_STACK_GAP_UP		0x00040000
+#define	MAP_ENTRY_STACK_GAP		0x00020000
+#define	MAP_ENTRY_UNUSED1		0x00040000
 #define	MAP_ENTRY_HEADER		0x00080000
 
 #define	MAP_ENTRY_SPLIT_BOUNDARY_MASK	0x00300000
@@ -205,14 +202,14 @@ vm_map_entry_system_wired_count(vm_map_entry_t entry)
  */
 struct vm_map {
 	struct vm_map_entry header;	/* List of entries */
-	struct sx lock;			/* Lock for map data */
-	struct mtx system_mtx;
+	union {
+		struct sx lock;			/* Lock for map data */
+		struct mtx system_mtx;
+	};
 	int nentries;			/* Number of entries */
 	vm_size_t size;			/* virtual size */
 	u_int timestamp;		/* Version number */
-	u_char needs_wakeup;
-	u_char system_map;		/* (c) Am I a system map? */
-	vm_flags_t flags;		/* flags for this vm_map */
+	u_int flags;			/* flags for this vm_map */
 	vm_map_entry_t root;		/* Root of a binary search tree */
 	pmap_t pmap;			/* (c) Physical map */
 	vm_offset_t anon_loc;
@@ -223,16 +220,21 @@ struct vm_map {
 };
 
 /*
- * vm_flags_t values
+ * vm_map flags values
  */
-#define MAP_WIREFUTURE		0x01	/* wire all future pages */
-#define	MAP_BUSY_WAKEUP		0x02	/* thread(s) waiting on busy state */
-#define	MAP_IS_SUB_MAP		0x04	/* has parent */
-#define	MAP_ASLR		0x08	/* enabled ASLR */
-#define	MAP_ASLR_IGNSTART	0x10	/* ASLR ignores data segment */
-#define	MAP_REPLENISH		0x20	/* kmapent zone needs to be refilled */
-#define	MAP_WXORX		0x40	/* enforce W^X */
-#define	MAP_ASLR_STACK		0x80	/* stack location is randomized */
+#define	MAP_WIREFUTURE		0x00000001	/* wire all future pages */
+#define	MAP_BUSY_WAKEUP		0x00000002	/* thread(s) waiting on busy
+						   state */
+#define	MAP_IS_SUB_MAP		0x00000004	/* has parent */
+#define	MAP_ASLR		0x00000008	/* enabled ASLR */
+#define	MAP_ASLR_IGNSTART	0x00000010	/* ASLR ignores data segment */
+#define	MAP_REPLENISH		0x00000020	/* kmapent zone needs to be
+						   refilled */
+#define	MAP_WXORX		0x00000040	/* enforce W^X */
+#define	MAP_ASLR_STACK		0x00000080	/* stack location is
+						   randomized */
+#define	MAP_NEEDS_WAKEUP	0x40000000
+#define	MAP_SYSTEM_MAP		0x80000000
 
 #ifdef	_KERNEL
 #if defined(KLD_MODULE) && !defined(KLD_TIED)
@@ -263,7 +265,7 @@ vm_map_pmap(vm_map_t map)
 }
 
 static __inline void
-vm_map_modflags(vm_map_t map, vm_flags_t set, vm_flags_t clear)
+vm_map_modflags(vm_map_t map, u_int set, u_int clear)
 {
 	map->flags = (map->flags | set) & ~clear;
 }
@@ -276,6 +278,12 @@ vm_map_range_valid(vm_map_t map, vm_offset_t start, vm_offset_t end)
 	if (start < vm_map_min(map) || end > vm_map_max(map))
 		return (false);
 	return (true);
+}
+
+static inline bool
+vm_map_is_system(vm_map_t map)
+{
+	return ((map->flags & MAP_SYSTEM_MAP) != 0);
 }
 
 #endif	/* KLD_MODULE */
@@ -378,12 +386,12 @@ long vmspace_resident_count(struct vmspace *vmspace);
 #define	MAP_PREFAULT_MADVISE	0x00000200    /* from (user) madvise request */
 #define	MAP_WRITECOUNT		0x00000400
 #define	MAP_REMAP		0x00000800
-#define	MAP_STACK_GROWS_DOWN	0x00001000
-#define	MAP_STACK_GROWS_UP	0x00002000
+#define	MAP_STACK_AREA		0x00001000
+#define	MAP_COW_UNUSED0		0x00002000
 #define	MAP_ACC_CHARGED		0x00004000
 #define	MAP_ACC_NO_CHARGE	0x00008000
-#define	MAP_CREATE_STACK_GAP_UP	0x00010000
-#define	MAP_CREATE_STACK_GAP_DN	0x00020000
+#define	MAP_COW_UNUSED1		0x00010000
+#define	MAP_CREATE_STACK_GAP	0x00020000
 #define	MAP_VN_EXEC		0x00040000
 #define	MAP_SPLIT_BOUNDARY_MASK	0x00180000
 #define	MAP_NO_HINT		0x00200000
@@ -486,6 +494,7 @@ int vm_map_fixed(vm_map_t, vm_object_t, vm_ooffset_t, vm_offset_t, vm_size_t,
 vm_offset_t vm_map_findspace(vm_map_t, vm_offset_t, vm_size_t);
 int vm_map_inherit (vm_map_t, vm_offset_t, vm_offset_t, vm_inherit_t);
 void vm_map_init(vm_map_t, pmap_t, vm_offset_t, vm_offset_t);
+void vm_map_init_system(vm_map_t, pmap_t, vm_offset_t, vm_offset_t);
 int vm_map_insert (vm_map_t, vm_object_t, vm_ooffset_t, vm_offset_t, vm_offset_t, vm_prot_t, vm_prot_t, int);
 int vm_map_lookup (vm_map_t *, vm_offset_t, vm_prot_t, vm_map_entry_t *, vm_object_t *,
     vm_pindex_t *, vm_prot_t *, boolean_t *);

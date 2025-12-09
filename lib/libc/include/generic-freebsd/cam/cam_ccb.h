@@ -32,7 +32,6 @@
 #define _CAM_CAM_CCB_H 1
 
 #include <sys/queue.h>
-#include <sys/cdefs.h>
 #include <sys/time.h>
 #include <sys/limits.h>
 #ifndef _KERNEL
@@ -298,15 +297,18 @@ typedef enum {
 	XPORT_SRP,	/* SCSI RDMA Protocol */
 	XPORT_NVME,	/* NVMe over PCIe */
 	XPORT_MMCSD,	/* MMC, SD, SDIO card */
+	XPORT_NVMF,	/* NVMe over Fabrics */
+	XPORT_UFSHCI,	/* Universal Flash Storage Host Interface */
 } cam_xport;
 
-#define XPORT_IS_NVME(t)	((t) == XPORT_NVME)
+#define XPORT_IS_NVME(t)	((t) == XPORT_NVME || (t) == XPORT_NVMF)
 #define XPORT_IS_ATA(t)		((t) == XPORT_ATA || (t) == XPORT_SATA)
 #define XPORT_IS_SCSI(t)	((t) != XPORT_UNKNOWN && \
 				 (t) != XPORT_UNSPECIFIED && \
 				 !XPORT_IS_ATA(t) && !XPORT_IS_NVME(t))
 #define XPORT_DEVSTAT_TYPE(t)	(XPORT_IS_ATA(t) ? DEVSTAT_TYPE_IF_IDE : \
 				 XPORT_IS_SCSI(t) ? DEVSTAT_TYPE_IF_SCSI : \
+				 XPORT_IS_NVME(t) ? DEVSTAT_TYPE_IF_NVME : \
 				 DEVSTAT_TYPE_IF_OTHER)
 
 #define PROTO_VERSION_UNKNOWN (UINT_MAX - 1)
@@ -653,6 +655,12 @@ struct ccb_pathinq_settings_nvme {
 _Static_assert(sizeof(struct ccb_pathinq_settings_nvme) == 64,
     "ccb_pathinq_settings_nvme too big");
 
+struct ccb_pathinq_settings_nvmf {
+	uint32_t nsid;		/* Namespace ID for this path */
+	uint8_t  trtype;
+	char	 dev_name[NVME_DEV_NAME_LEN]; /* nvme controller dev name for this device */
+};
+
 #define	PATHINQ_SETTINGS_SIZE	128
 
 struct ccb_pathinq {
@@ -684,6 +692,7 @@ struct ccb_pathinq {
 		struct ccb_pathinq_settings_fc fc;
 		struct ccb_pathinq_settings_sas sas;
 		struct ccb_pathinq_settings_nvme nvme;
+		struct ccb_pathinq_settings_nvmf nvmf;
 		char ccb_pathinq_settings_opaque[PATHINQ_SETTINGS_SIZE];
 	} xport_specific;
 	u_int		maxio;		/* Max supported I/O size, in bytes. */
@@ -1050,6 +1059,31 @@ struct ccb_trans_settings_nvme
 	uint8_t		max_speed;	/* PCIe generation for each lane */
 };
 
+struct ccb_trans_settings_nvmf
+{
+	u_int     	valid;		/* Which fields to honor */
+#define CTS_NVMF_VALID_TRTYPE	0x01
+	uint8_t		trtype;
+};
+
+struct ccb_trans_settings_ufshci
+{
+	u_int     	valid;		/* Which fields to honor */
+	/* 
+	 * Ensure the validity of the information for the Unipro link
+	 * (GEAR, SPEED, LANE)
+	 */
+#define CTS_UFSHCI_VALID_LINK	0x01
+	uint32_t 	speed;
+	uint8_t  	hs_gear;      	/* High Speed Gear (G1, G2, G3...) */
+	uint8_t  	tx_lanes;
+	uint8_t  	rx_lanes;
+	uint8_t		max_hs_gear;	/* Maximum HS Gear */
+	uint8_t		max_tx_lanes;
+	uint8_t		max_rx_lanes;
+};
+
+
 #include <cam/mmc/mmc_bus.h>
 struct ccb_trans_settings_mmc {
 	struct mmc_ios ios;
@@ -1122,6 +1156,8 @@ struct ccb_trans_settings {
 		struct ccb_trans_settings_pata ata;
 		struct ccb_trans_settings_sata sata;
 		struct ccb_trans_settings_nvme nvme;
+		struct ccb_trans_settings_nvmf nvmf;
+		struct ccb_trans_settings_ufshci ufshci;
 	} xport_specific;
 };
 
@@ -1488,6 +1524,7 @@ cam_fill_mmcio(struct ccb_mmcio *mmcio, uint32_t retries,
 	mmcio->cmd.opcode = mmc_opcode;
 	mmcio->cmd.arg = mmc_arg;
 	mmcio->cmd.flags = mmc_flags;
+	mmcio->cmd.error = 0;
 	mmcio->stop.opcode = 0;
 	mmcio->stop.arg = 0;
 	mmcio->stop.flags = 0;

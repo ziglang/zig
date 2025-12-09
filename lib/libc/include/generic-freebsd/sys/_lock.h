@@ -33,8 +33,8 @@
 
 struct lock_object {
 	const	char *lo_name;		/* Individual lock name. */
-	u_int	lo_flags;
-	u_int	lo_data;		/* General class specific data. */
+	unsigned int lo_flags;
+	unsigned int lo_data;		/* General class specific data. */
 	struct	witness *lo_witness;	/* Data for witness. */
 };
 

@@ -35,6 +35,8 @@
 #include <sys/_bitset.h>
 
 #ifdef _KERNEL
+#include <machine/param.h>
+
 #define	CPU_SETSIZE	MAXCPU
 #endif
 

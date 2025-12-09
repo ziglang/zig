@@ -47,6 +47,13 @@
 #ifndef _SYS_MAC_H_
 #define	_SYS_MAC_H_
 
+#include <sys/_types.h>
+
+#ifndef _SIZE_T_DECLARED
+typedef	__size_t	size_t;
+#define	_SIZE_T_DECLARED
+#endif
+
 #ifndef _POSIX_MAC
 #define	_POSIX_MAC
 #endif
@@ -71,6 +78,13 @@ struct mac {
 typedef struct mac	*mac_t;
 
 #ifndef _KERNEL
+
+#include <sys/cdefs.h> /* For __BEGIN_DECLS and __END_DECLS. */
+
+#ifndef _PID_T_DECLARED
+typedef	__pid_t		pid_t;		/* process id */
+#define	_PID_T_DECLARED
+#endif
 
 /*
  * Location of the userland MAC framework configuration file.  mac.conf

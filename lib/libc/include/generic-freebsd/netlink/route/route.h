@@ -134,9 +134,10 @@ enum rt_scope_t {
 
 /*
  * Routing table identifiers.
- * FreeBSD route table numbering starts from 0, where 0 is a valid default routing table.
- * Indicating "all tables" via netlink can be done by not including RTA_TABLE attribute
- * and keeping rtm_table=0 (compatibility) or setting RTA_TABLE value to RT_TABLE_UNSPEC.
+ * FreeBSD route table numbering starts from 0, where 0 is a valid default
+ * routing table.  Indicating "all tables" via netlink can be done by not
+ * including RTA_TABLE attribute and keeping rtm_table=0 (compatibility) or
+ * setting RTA_TABLE value to RT_TABLE_UNSPEC.
  */
 #define	RT_TABLE_MAIN	0		/* RT_DEFAULT_FIB */
 #define	RT_TABLE_UNSPEC	0xFFFFFFFF	/* RT_ALL_FIBS */

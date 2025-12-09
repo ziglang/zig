@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)unistd.h	8.2 (Berkeley) 1/7/94
  */
 
 #ifndef _SYS_UNISTD_H_
@@ -95,7 +93,7 @@
 #endif
 
 /* Define the POSIX.1 version we target for compliance. */
-#define	_POSIX_VERSION		200112L
+#define	_POSIX_VERSION		200809L
 
 /* access function */
 #define	F_OK		0	/* test for existence of file */
@@ -156,6 +154,12 @@
 #define	_PC_MAC_PRESENT		63
 #define	_PC_ACL_NFS4		64
 #define	_PC_DEALLOC_PRESENT	65
+#define	_PC_NAMEDATTR_ENABLED	66
+#define	_PC_HAS_NAMEDATTR	67
+#define	_PC_XATTR_ENABLED	_PC_NAMEDATTR_ENABLED	/* Solaris Compatible */
+#define	_PC_XATTR_EXISTS	_PC_HAS_NAMEDATTR	/* Solaris Compatible */
+#define	_PC_HAS_HIDDENSYSTEM	68
+#define	_PC_CLONE_BLKSIZE	69
 #endif
 
 /* From OpenSolaris, used by SEEK_DATA/SEEK_HOLE. */
@@ -210,6 +214,16 @@
  * close_range() options.
  */
 #define	CLOSE_RANGE_CLOEXEC	(1<<2)
+#define	CLOSE_RANGE_CLOFORK	(1<<3)
+
+/*
+ * copy_file_range flags visible to user space.
+ * High order 8 bits reserved for kernel flags.
+ * Allocate from bit 23 down, to try and avoid conflicts with
+ * future Linux flags.
+ */
+#define	COPY_FILE_RANGE_CLONE		0x00800000	/* Require cloning. */
+#define	COPY_FILE_RANGE_USERFLAGS	(COPY_FILE_RANGE_CLONE)
 
 #endif /* __BSD_VISIBLE */
 

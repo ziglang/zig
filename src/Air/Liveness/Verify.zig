@@ -272,6 +272,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .memset_safe,
             .memcpy,
             .memmove,
+            .legalize_vec_elem_val,
             => {
                 const bin_op = data[@intFromEnum(inst)].bin_op;
                 try self.verifyInstOperands(inst, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -321,11 +322,6 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 const pl_op = data[@intFromEnum(inst)].pl_op;
                 const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
                 try self.verifyInstOperands(inst, .{ extra.lhs, extra.rhs, pl_op.operand });
-            },
-            .vector_store_elem => {
-                const vector_store_elem = data[@intFromEnum(inst)].vector_store_elem;
-                const extra = self.air.extraData(Air.Bin, vector_store_elem.payload).data;
-                try self.verifyInstOperands(inst, .{ vector_store_elem.vector_ptr, extra.lhs, extra.rhs });
             },
             .cmpxchg_strong,
             .cmpxchg_weak,
@@ -580,6 +576,20 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                     try self.verifyBody(else_body);
                 }
 
+                try self.verifyInst(inst);
+            },
+            .legalize_vec_store_elem => {
+                const pl_op = data[@intFromEnum(inst)].pl_op;
+                const bin = self.air.extraData(Air.Bin, pl_op.payload).data;
+                try self.verifyInstOperands(inst, .{ pl_op.operand, bin.lhs, bin.rhs });
+            },
+            .legalize_compiler_rt_call => {
+                const extra = self.air.extraData(Air.Call, data[@intFromEnum(inst)].legalize_compiler_rt_call.payload);
+                const args: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.args_len]);
+                var bt = self.liveness.iterateBigTomb(inst);
+                for (args) |arg| {
+                    try self.verifyOperand(inst, arg, bt.feed());
+                }
                 try self.verifyInst(inst);
             },
         }

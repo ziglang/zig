@@ -30,8 +30,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	from: @(#)cpu.h	5.4 (Berkeley) 5/9/91
  */
 
 #ifndef _MACHINE_CPU_H_
@@ -72,7 +70,8 @@ extern char	btext[];
 extern char	_end[];
 extern char	etext[];
 
-/* Resume hook for VMM. */
+/* Suspend and resume hook for VMM. */
+extern	void (*vmm_suspend_p)(void);
 extern	void (*vmm_resume_p)(void);
 
 void	cpu_halt(void);

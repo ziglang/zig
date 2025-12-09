@@ -338,14 +338,14 @@ test "peer type resolution with @TypeOf doesn't trigger dependency loop check" {
 
 test "@sizeOf reified union zero-size payload fields" {
     comptime {
-        try std.testing.expect(0 == @sizeOf(@Type(@typeInfo(union {}))));
-        try std.testing.expect(0 == @sizeOf(@Type(@typeInfo(union { a: void }))));
+        try std.testing.expect(0 == @sizeOf(@Union(.auto, null, &.{}, &.{}, &.{})));
+        try std.testing.expect(0 == @sizeOf(@Union(.auto, null, &.{"a"}, &.{void}, &.{.{}})));
         if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
-            try std.testing.expect(1 == @sizeOf(@Type(@typeInfo(union { a: void, b: void }))));
-            try std.testing.expect(1 == @sizeOf(@Type(@typeInfo(union { a: void, b: void, c: void }))));
+            try std.testing.expect(1 == @sizeOf(@Union(.auto, null, &.{ "a", "b" }, &.{ void, void }, &.{ .{}, .{} })));
+            try std.testing.expect(1 == @sizeOf(@Union(.auto, null, &.{ "a", "b", "c" }, &.{ void, void, void }, &.{ .{}, .{}, .{} })));
         } else {
-            try std.testing.expect(0 == @sizeOf(@Type(@typeInfo(union { a: void, b: void }))));
-            try std.testing.expect(0 == @sizeOf(@Type(@typeInfo(union { a: void, b: void, c: void }))));
+            try std.testing.expect(0 == @sizeOf(@Union(.auto, null, &.{ "a", "b" }, &.{ void, void }, &.{ .{}, .{} })));
+            try std.testing.expect(0 == @sizeOf(@Union(.auto, null, &.{ "a", "b", "c" }, &.{ void, void, void }, &.{ .{}, .{}, .{} })));
         }
     }
 }

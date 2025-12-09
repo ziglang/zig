@@ -296,6 +296,8 @@ typedef struct IOAPIC ioapic_t;
 /* constants relating to APIC ID registers */
 #define APIC_ID_MASK		0xff000000
 #define	APIC_ID_SHIFT		24
+#define APIC_EXT_ID_MASK	0x00fe0000
+#define	APIC_EXT_ID_SHIFT	17
 #define	APIC_ID_CLUSTER		0xf0
 #define	APIC_ID_CLUSTER_ID	0x0f
 #define	APIC_MAX_CLUSTER	0xe

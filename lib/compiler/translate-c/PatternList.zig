@@ -178,6 +178,7 @@ fn tokenizeMacro(allocator: mem.Allocator, source: []const u8, tok_list: *std.Ar
         .buf = source,
         .source = .unused,
         .langopts = .{},
+        .splice_locs = &.{},
     };
     {
         const name_tok = tokenizer.nextNoWS();

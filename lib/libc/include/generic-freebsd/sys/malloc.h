@@ -29,8 +29,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)malloc.h	8.5 (Berkeley) 5/3/95
  */
 
 #ifndef _SYS_MALLOC_H_
@@ -62,8 +60,9 @@
 #define	M_BESTFIT	0x2000		/* only for vmem, low fragmentation */
 #define	M_EXEC		0x4000		/* allocate executable space */
 #define	M_NEXTFIT	0x8000		/* only for vmem, follow cursor */
+#define	M_NEVERFREED 	0x10000		/* chunk will never get freed */
 
-#define	M_VERSION	2020110501
+#define	M_VERSION	2024073001
 
 /*
  * Two malloc type structures are present: malloc_type, which is used by a
@@ -159,6 +158,9 @@ struct malloc_type_header {
 
 MALLOC_DECLARE(M_CACHE);
 MALLOC_DECLARE(M_DEVBUF);
+MALLOC_DECLARE(M_PARGS);
+MALLOC_DECLARE(M_SESSION);
+MALLOC_DECLARE(M_SUBPROC);
 MALLOC_DECLARE(M_TEMP);
 
 /*
@@ -176,7 +178,8 @@ extern struct mtx malloc_mtx;
  */
 typedef void malloc_type_list_func_t(struct malloc_type *, void *);
 
-void	contigfree(void *addr, unsigned long size, struct malloc_type *type);
+/* contigfree(9) is deprecated. */
+void	contigfree(void *addr, unsigned long, struct malloc_type *type);
 void	*contigmalloc(unsigned long size, struct malloc_type *type, int flags,
 	    vm_paddr_t low, vm_paddr_t high, unsigned long alignment,
 	    vm_paddr_t boundary) __malloc_like __result_use_check

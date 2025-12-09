@@ -31,8 +31,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	from: @(#)vm_object.h	8.3 (Berkeley) 1/12/94
- *
  *
  * Copyright (c) 1987, 1990 Carnegie-Mellon University.
  * All rights reserved.
@@ -100,7 +98,6 @@ struct vm_object {
 	TAILQ_ENTRY(vm_object) object_list; /* list of all objects */
 	LIST_HEAD(, vm_object) shadow_head; /* objects that this is a shadow for */
 	LIST_ENTRY(vm_object) shadow_list; /* chain of shadow objects */
-	struct pglist memq;		/* list of resident pages */
 	struct vm_radix rtree;		/* root of the resident page radix trie*/
 	vm_pindex_t size;		/* Object size */
 	struct domainset_ref domain;	/* NUMA policy. */
@@ -206,7 +203,6 @@ struct vm_object {
 #define	OBJ_PAGERPRIV2	0x00008000	/* Pager private */
 #define	OBJ_SYSVSHM	0x00010000	/* SysV SHM */
 #define	OBJ_POSIXSHM	0x00020000	/* Posix SHM */
-#define	OBJ_CDEVH	0x00040000	/* OBJT_DEVICE handle is cdev */
 
 /*
  * Helpers to perform conversion between vm_object page indexes and offsets.
@@ -379,6 +375,8 @@ void vm_object_page_noreuse(vm_object_t object, vm_pindex_t start,
 void vm_object_page_remove(vm_object_t object, vm_pindex_t start,
     vm_pindex_t end, int options);
 boolean_t vm_object_populate(vm_object_t, vm_pindex_t, vm_pindex_t);
+void vm_object_prepare_buf_pages(vm_object_t object, vm_page_t *ma_dst,
+    int count, int *rbehind, int *rahead, vm_page_t *ma_src);
 void vm_object_print(long addr, boolean_t have_addr, long count, char *modif);
 void vm_object_reference (vm_object_t);
 void vm_object_reference_locked(vm_object_t);

@@ -55,6 +55,7 @@ struct sglist {
 
 struct bio;
 struct mbuf;
+struct thread;
 struct uio;
 
 static __inline void

@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	from: @(#)specialreg.h	7.1 (Berkeley) 5/9/91
  */
 
 #ifndef _MACHINE_SPECIALREG_H_
@@ -125,6 +123,7 @@
 #define	XFEATURE_ENABLED_OPMASK		0x00000020
 #define	XFEATURE_ENABLED_ZMM_HI256	0x00000040
 #define	XFEATURE_ENABLED_HI16_ZMM	0x00000080
+#define	XFEATURE_ENABLED_PT		0x00000100
 #define	XFEATURE_ENABLED_PKRU		0x00000200
 #define	XFEATURE_ENABLED_TILECONFIG	0x00020000
 #define	XFEATURE_ENABLED_TILEDATA	0x00040000
@@ -215,6 +214,7 @@
 #define	CPUPT_MTC		(1 << 3)	/* MTC Supported */
 #define	CPUPT_PRW		(1 << 4)	/* PTWRITE Supported */
 #define	CPUPT_PWR		(1 << 5)	/* Power Event Trace Supported */
+#define	CPUPT_DIS_TNT		(1 << 8)	/* TNT disable supported */
 
 /* Leaf 0 ecx. */
 #define	CPUPT_TOPA		(1 << 0)	/* ToPA Output Supported */
@@ -387,6 +387,14 @@
 #define	CPUID_EXTSTATE_XSAVEC	0x00000002
 #define	CPUID_EXTSTATE_XINUSE	0x00000004
 #define	CPUID_EXTSTATE_XSAVES	0x00000008
+
+/*
+ * CPUID instruction 0xd Processor Extended State Enumeration
+ * Sub-leaf > 1 ecx info
+ */
+#define	CPUID_EXTSTATE_SUPERVISOR	0x00000001
+#define	CPUID_EXTSTATE_ALIGNED		0x00000002
+#define	CPUID_EXTSTATE_XFD_SUPPORTED	0x00000004
 
 /*
  * AMD extended function 8000_0007h ebx info
@@ -648,6 +656,12 @@
 #define	MSR_PAT			0x277
 #define	MSR_MC0_CTL2		0x280
 #define	MSR_MTRRdefType		0x2ff
+#define	MSR_IA_GLOBAL_STATUS    0x38E
+#define	MSR_IA_GLOBAL_CTRL      0x38F
+#define	MSR_IA_GLOBAL_OVF_CTRL  0x390
+#define	MSR_IA_GLOBAL_STATUS_RESET	0x390
+#define	MSR_IA_GLOBAL_STATUS_SET	0x391
+#define	 GLOBAL_STATUS_FLAG_TRACETOPAPMI	(1ULL << 55)
 #define	MSR_MC0_CTL		0x400
 #define	MSR_MC0_STATUS		0x401
 #define	MSR_MC0_ADDR		0x402
@@ -775,6 +789,7 @@
 #define	 RTIT_CTL_ADDR2_CFG_M	(0xfULL << RTIT_CTL_ADDR2_CFG_S)
 #define	 RTIT_CTL_ADDR3_CFG_S	44
 #define	 RTIT_CTL_ADDR3_CFG_M	(0xfULL << RTIT_CTL_ADDR3_CFG_S)
+#define	RTIT_CTL_DIS_TNT	(1ULL << 55)
 #define	MSR_IA32_RTIT_STATUS		0x571	/* Tracing Status Register (R/W) */
 #define	 RTIT_STATUS_FILTEREN	(1 << 0)
 #define	 RTIT_STATUS_CONTEXTEN	(1 << 1)
@@ -991,7 +1006,7 @@
 
 #define	CCR4			0xe8
 #define	CCR4_IOMASK		0x07
-#define	CCR4_MEM		0x08	/* Enables momory bypassing */
+#define	CCR4_MEM		0x08	/* Enables memory bypassing */
 #define	CCR4_DTE		0x10	/* Enables directory table entry cache */
 #define	CCR4_FASTFPE	0x20	/* Fast FPU exception */
 #define	CCR4_CPUID		0x80	/* Enables CPUID instruction */
@@ -1011,7 +1026,7 @@
 #define	PCR0_RSTK		0x01	/* Enables return stack */
 #define	PCR0_BTB		0x02	/* Enables branch target buffer */
 #define	PCR0_LOOP		0x04	/* Enables loop */
-#define	PCR0_AIS		0x08	/* Enables all instrcutions stalled to
+#define	PCR0_AIS		0x08	/* Enables all instructions stalled to
 								   serialize pipe. */
 #define	PCR0_MLR		0x10	/* Enables reordering of misaligned loads */
 #define	PCR0_BTBRT		0x40	/* Enables BTB test register. */
@@ -1165,7 +1180,7 @@
 
 /*
  * The region control registers specify the attributes associated with
- * the ARRx addres regions.
+ * the ARRx address regions.
  */
 #define	RCR0	0xdc
 #define	RCR1	0xdd

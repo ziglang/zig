@@ -1,4 +1,5 @@
 const std = @import("std");
+const Io = std.Io;
 const mem = std.mem;
 const fs = std.fs;
 const process = std.process;
@@ -34,13 +35,14 @@ const Fmt = struct {
     color: Color,
     gpa: Allocator,
     arena: Allocator,
+    io: Io,
     out_buffer: std.Io.Writer.Allocating,
     stdout_writer: *fs.File.Writer,
 
     const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
 
-pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+pub fn run(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) !void {
     var color: Color = .auto;
     var stdin_flag = false;
     var check_flag = false;
@@ -99,7 +101,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
         const stdin: fs.File = .stdin();
         var stdio_buffer: [1024]u8 = undefined;
-        var file_reader: fs.File.Reader = stdin.reader(&stdio_buffer);
+        var file_reader: fs.File.Reader = stdin.reader(io, &stdio_buffer);
         const source_code = std.zig.readSourceFileToEndAlloc(gpa, &file_reader) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
@@ -122,7 +124,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     try wip_errors.addZirErrorMessages(zir, tree, source_code, "<stdin>");
                     var error_bundle = try wip_errors.toOwnedBundle("");
                     defer error_bundle.deinit(gpa);
-                    error_bundle.renderToStdErr(color.renderOptions());
+                    error_bundle.renderToStdErr(.{}, color);
                     process.exit(2);
                 }
             } else {
@@ -136,7 +138,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     try wip_errors.addZoirErrorMessages(zoir, tree, source_code, "<stdin>");
                     var error_bundle = try wip_errors.toOwnedBundle("");
                     defer error_bundle.deinit(gpa);
-                    error_bundle.renderToStdErr(color.renderOptions());
+                    error_bundle.renderToStdErr(.{}, color);
                     process.exit(2);
                 }
             }
@@ -165,6 +167,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var fmt: Fmt = .{
         .gpa = gpa,
         .arena = arena,
+        .io = io,
         .seen = .init(gpa),
         .any_error = false,
         .check_ast = check_ast_flag,
@@ -255,6 +258,8 @@ fn fmtPathFile(
     dir: fs.Dir,
     sub_path: []const u8,
 ) !void {
+    const io = fmt.io;
+
     const source_file = try dir.openFile(sub_path, .{});
     var file_closed = false;
     errdefer if (!file_closed) source_file.close();
@@ -265,7 +270,7 @@ fn fmtPathFile(
         return error.IsDir;
 
     var read_buffer: [1024]u8 = undefined;
-    var file_reader: fs.File.Reader = source_file.reader(&read_buffer);
+    var file_reader: fs.File.Reader = source_file.reader(io, &read_buffer);
     file_reader.size = stat.size;
 
     const gpa = fmt.gpa;
@@ -312,7 +317,7 @@ fn fmtPathFile(
                     try wip_errors.addZirErrorMessages(zir, tree, source_code, file_path);
                     var error_bundle = try wip_errors.toOwnedBundle("");
                     defer error_bundle.deinit(gpa);
-                    error_bundle.renderToStdErr(fmt.color.renderOptions());
+                    error_bundle.renderToStdErr(.{}, fmt.color);
                     fmt.any_error = true;
                 }
             },
@@ -327,7 +332,7 @@ fn fmtPathFile(
                     try wip_errors.addZoirErrorMessages(zoir, tree, source_code, file_path);
                     var error_bundle = try wip_errors.toOwnedBundle("");
                     defer error_bundle.deinit(gpa);
-                    error_bundle.renderToStdErr(fmt.color.renderOptions());
+                    error_bundle.renderToStdErr(.{}, fmt.color);
                     fmt.any_error = true;
                 }
             },
@@ -363,5 +368,8 @@ pub fn main() !void {
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
     const arena = arena_instance.allocator();
     const args = try process.argsAlloc(arena);
-    return run(gpa, arena, args[1..]);
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
+    return run(gpa, arena, io, args[1..]);
 }

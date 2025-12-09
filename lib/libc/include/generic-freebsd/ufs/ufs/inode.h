@@ -32,8 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)inode.h	8.9 (Berkeley) 5/14/95
  */
 
 #ifndef _UFS_UFS_INODE_H_
@@ -90,10 +88,7 @@ struct inode {
 	/*
 	 * The real copy of the on-disk inode.
 	 */
-	union {
-		struct ufs1_dinode *din1;	/* UFS1 on-disk dinode. */
-		struct ufs2_dinode *din2;	/* UFS2 on-disk dinode. */
-	} dinode_u;
+	union dinodep i_dp;	/* On-disk dinode */
 
 	ino_t	  i_number;	/* The identity of the inode. */
 	uint32_t  i_flag;	/* flags, see below */
@@ -206,8 +201,8 @@ struct inode {
 
 #define	i_dirhash i_un.dirhash
 #define	i_snapblklist i_un.snapblklist
-#define	i_din1 dinode_u.din1
-#define	i_din2 dinode_u.din2
+#define	i_din1 i_dp.dp1
+#define	i_din2 i_dp.dp2
 
 #define	ITOUMP(ip)	((ip)->i_ump)
 #define	ITODEV(ip)	(ITOUMP(ip)->um_dev)

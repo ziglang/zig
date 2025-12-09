@@ -1,26 +1,5 @@
-const Tag = @Type(.{
-    .@"enum" = .{
-        .tag_type = u2,
-        .fields = &.{
-            .{ .name = "signed", .value = 0 },
-            .{ .name = "unsigned", .value = 1 },
-            .{ .name = "arst", .value = 2 },
-        },
-        .decls = &.{},
-        .is_exhaustive = true,
-    },
-});
-const Tagged = @Type(.{
-    .@"union" = .{
-        .layout = .auto,
-        .tag_type = Tag,
-        .fields = &.{
-            .{ .name = "signed", .type = i32, .alignment = @alignOf(i32) },
-            .{ .name = "unsigned", .type = u32, .alignment = @alignOf(u32) },
-        },
-        .decls = &.{},
-    },
-});
+const Tag = @Enum(u2, .exhaustive, &.{ "signed", "unsigned", "arst" }, &.{ 0, 1, 2 });
+const Tagged = @Union(.auto, Tag, &.{ "signed", "unsigned" }, &.{ i32, u32 }, &@splat(.{}));
 export fn entry() void {
     var tagged = Tagged{ .signed = -1 };
     tagged = .{ .unsigned = 1 };
@@ -28,6 +7,6 @@ export fn entry() void {
 
 // error
 //
-// :13:16: error: enum fields missing in union
+// :2:35: error: 1 enum fields missing in union
 // :1:13: note: field 'arst' missing, declared here
 // :1:13: note: enum declared here

@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)un.h	8.3 (Berkeley) 2/19/95
  */
 
 #ifndef _SYS_UN_H_
@@ -67,7 +65,6 @@ struct sockaddr_un {
 #define	LOCAL_PEERCRED		1	/* retrieve peer credentials */
 #define	LOCAL_CREDS		2	/* pass credentials to receiver */
 #define	LOCAL_CREDS_PERSISTENT	3	/* pass credentials to receiver */
-#define	LOCAL_CONNWAIT		4	/* connects block until accepted */
 
 /* Start of reserved space for third-party socket options. */
 #define	LOCAL_VENDOR		SO_VENDOR

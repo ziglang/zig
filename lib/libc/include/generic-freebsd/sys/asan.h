@@ -53,14 +53,18 @@
 #define	KASAN_KSTACK_FREED	0xFE
 #define	KASAN_EXEC_ARGS_FREED	0xFF
 
+struct thread;
+
 void kasan_init(void);
 void kasan_init_early(vm_offset_t, size_t);
 void kasan_shadow_map(vm_offset_t, size_t);
 void kasan_mark(const void *, size_t, size_t, uint8_t);
+void kasan_thread_alloc(struct thread *);
 #else /* KASAN */
 #define kasan_init()
 #define kasan_shadow_map(a, s)
 #define kasan_mark(p, s, l, c)
+#define kasan_thread_alloc(t)
 #endif /* !KASAN */
 
 #endif /* !_SYS_ASAN_H_ */

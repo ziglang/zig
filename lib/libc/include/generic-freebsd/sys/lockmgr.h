@@ -130,6 +130,10 @@ _lockmgr_args_rw(struct lock *lk, u_int flags, struct rwlock *ilk,
 	    LOCK_FILE, LOCK_LINE)
 #define	lockmgr_disown(lk)						\
 	_lockmgr_disown((lk), LOCK_FILE, LOCK_LINE)
+#define	lockmgr_disowned_v(v)						\
+	(LK_HOLDER((v)) == LK_KERNPROC)
+#define	lockmgr_disowned(lk)						\
+	lockmgr_disowned_v(lockmgr_read_value((lk)))
 #define	lockmgr_recursed_v(v)						\
 	(v & LK_WRITER_RECURSED)
 #define	lockmgr_recursed(lk)						\

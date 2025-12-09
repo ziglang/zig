@@ -2,17 +2,14 @@ const std = @import("../../std.zig");
 const windows = std.os.windows;
 
 const BOOL = windows.BOOL;
-const BOOLEAN = windows.BOOLEAN;
 const CONDITION_VARIABLE = windows.CONDITION_VARIABLE;
 const CONSOLE_SCREEN_BUFFER_INFO = windows.CONSOLE_SCREEN_BUFFER_INFO;
 const COORD = windows.COORD;
-const CRITICAL_SECTION = windows.CRITICAL_SECTION;
 const DWORD = windows.DWORD;
 const FARPROC = windows.FARPROC;
 const FILETIME = windows.FILETIME;
 const HANDLE = windows.HANDLE;
 const HANDLER_ROUTINE = windows.HANDLER_ROUTINE;
-const HLOCAL = windows.HLOCAL;
 const HMODULE = windows.HMODULE;
 const INIT_ONCE = windows.INIT_ONCE;
 const INIT_ONCE_FN = windows.INIT_ONCE_FN;
@@ -32,30 +29,29 @@ const SECURITY_ATTRIBUTES = windows.SECURITY_ATTRIBUTES;
 const SIZE_T = windows.SIZE_T;
 const SRWLOCK = windows.SRWLOCK;
 const STARTUPINFOW = windows.STARTUPINFOW;
+const SYSTEM_INFO = windows.SYSTEM_INFO;
 const UCHAR = windows.UCHAR;
 const UINT = windows.UINT;
 const ULONG = windows.ULONG;
 const ULONG_PTR = windows.ULONG_PTR;
 const va_list = windows.va_list;
-const VECTORED_EXCEPTION_HANDLER = windows.VECTORED_EXCEPTION_HANDLER;
 const WCHAR = windows.WCHAR;
 const WIN32_FIND_DATAW = windows.WIN32_FIND_DATAW;
 const Win32Error = windows.Win32Error;
 const WORD = windows.WORD;
-const SYSTEM_INFO = windows.SYSTEM_INFO;
 
 // I/O - Filesystem
 
 pub extern "kernel32" fn ReadDirectoryChangesW(
-    hDirectory: windows.HANDLE,
+    hDirectory: HANDLE,
     lpBuffer: [*]align(@alignOf(windows.FILE_NOTIFY_INFORMATION)) u8,
-    nBufferLength: windows.DWORD,
-    bWatchSubtree: windows.BOOL,
+    nBufferLength: DWORD,
+    bWatchSubtree: BOOL,
     dwNotifyFilter: windows.FileNotifyChangeFilter,
-    lpBytesReturned: ?*windows.DWORD,
-    lpOverlapped: ?*windows.OVERLAPPED,
+    lpBytesReturned: ?*DWORD,
+    lpOverlapped: ?*OVERLAPPED,
     lpCompletionRoutine: windows.LPOVERLAPPED_COMPLETION_ROUTINE,
-) callconv(.winapi) windows.BOOL;
+) callconv(.winapi) BOOL;
 
 // TODO: Wrapper around NtCancelIoFile.
 pub extern "kernel32" fn CancelIo(
@@ -90,33 +86,10 @@ pub extern "kernel32" fn CreateNamedPipeW(
     lpSecurityAttributes: ?*const SECURITY_ATTRIBUTES,
 ) callconv(.winapi) HANDLE;
 
-pub extern "kernel32" fn FindFirstFileW(
-    lpFileName: LPCWSTR,
-    lpFindFileData: *WIN32_FIND_DATAW,
-) callconv(.winapi) HANDLE;
-
-pub extern "kernel32" fn FindClose(
-    hFindFile: HANDLE,
-) callconv(.winapi) BOOL;
-
-// TODO: Wrapper around RtlGetFullPathName_UEx
-pub extern "kernel32" fn GetFullPathNameW(
-    lpFileName: LPCWSTR,
-    nBufferLength: DWORD,
-    lpBuffer: LPWSTR,
-    lpFilePart: ?*?LPWSTR,
-) callconv(.winapi) DWORD;
-
 // TODO: Matches `STD_*_HANDLE` to peb().ProcessParameters.Standard*
 pub extern "kernel32" fn GetStdHandle(
     nStdHandle: DWORD,
 ) callconv(.winapi) ?HANDLE;
-
-pub extern "kernel32" fn MoveFileExW(
-    lpExistingFileName: LPCWSTR,
-    lpNewFileName: LPCWSTR,
-    dwFlags: DWORD,
-) callconv(.winapi) BOOL;
 
 // TODO: Wrapper around NtSetInformationFile + `FILE_POSITION_INFORMATION`.
 //  `FILE_STANDARD_INFORMATION` is also used if dwMoveMethod is `FILE_END`
@@ -166,11 +139,6 @@ pub extern "kernel32" fn GetCurrentDirectoryW(
     lpBuffer: ?[*]WCHAR,
 ) callconv(.winapi) DWORD;
 
-// TODO: RtlDosPathNameToNtPathNameU_WithStatus + NtQueryAttributesFile.
-pub extern "kernel32" fn GetFileAttributesW(
-    lpFileName: LPCWSTR,
-) callconv(.winapi) DWORD;
-
 pub extern "kernel32" fn ReadFile(
     hFile: HANDLE,
     lpBuffer: LPVOID,
@@ -185,14 +153,6 @@ pub extern "kernel32" fn GetSystemDirectoryW(
 ) callconv(.winapi) UINT;
 
 // I/O - Kernel Objects
-
-// TODO: Wrapper around NtCreateEvent.
-pub extern "kernel32" fn CreateEventExW(
-    lpEventAttributes: ?*SECURITY_ATTRIBUTES,
-    lpName: ?LPCWSTR,
-    dwFlags: DWORD,
-    dwDesiredAccess: DWORD,
-) callconv(.winapi) ?HANDLE;
 
 // TODO: Wrapper around GetStdHandle + NtDuplicateObject.
 pub extern "kernel32" fn DuplicateHandle(
@@ -258,17 +218,6 @@ pub extern "kernel32" fn CreateIoCompletionPort(
     NumberOfConcurrentThreads: DWORD,
 ) callconv(.winapi) ?HANDLE;
 
-// TODO: Forwarder to NtAddVectoredExceptionHandler.
-pub extern "kernel32" fn AddVectoredExceptionHandler(
-    First: ULONG,
-    Handler: ?VECTORED_EXCEPTION_HANDLER,
-) callconv(.winapi) ?LPVOID;
-
-// TODO: Forwarder to NtRemoveVectoredExceptionHandler.
-pub extern "kernel32" fn RemoveVectoredExceptionHandler(
-    Handle: HANDLE,
-) callconv(.winapi) ULONG;
-
 // TODO: Wrapper around RtlReportSilentProcessExit + NtTerminateProcess.
 pub extern "kernel32" fn TerminateProcess(
     hProcess: HANDLE,
@@ -321,24 +270,17 @@ pub extern "kernel32" fn CreateProcessW(
     lpProcessInformation: *PROCESS_INFORMATION,
 ) callconv(.winapi) BOOL;
 
-// TODO: Fowarder to RtlExitUserProcess.
-pub extern "kernel32" fn ExitProcess(
-    exit_code: UINT,
-) callconv(.winapi) noreturn;
-
-// TODO: SleepEx with bAlertable=false.
-pub extern "kernel32" fn Sleep(
+// TODO: implement via ntdll instead
+pub extern "kernel32" fn SleepEx(
     dwMilliseconds: DWORD,
-) callconv(.winapi) void;
+    bAlertable: BOOL,
+) callconv(.winapi) DWORD;
 
 // TODO: Wrapper around NtQueryInformationProcess with `PROCESS_BASIC_INFORMATION`.
 pub extern "kernel32" fn GetExitCodeProcess(
     hProcess: HANDLE,
     lpExitCode: *DWORD,
 ) callconv(.winapi) BOOL;
-
-// TODO: Already a wrapper for this, see `windows.GetCurrentProcess`.
-pub extern "kernel32" fn GetCurrentProcess() callconv(.winapi) HANDLE;
 
 // TODO: Wrapper around RtlSetEnvironmentVar.
 pub extern "kernel32" fn SetEnvironmentVariableW(
@@ -371,57 +313,12 @@ pub extern "kernel32" fn SwitchToThread() callconv(.winapi) BOOL;
 
 // Locks, critical sections, initializers
 
-// TODO: Forwarder to RtlInitializeCriticalSection
-pub extern "kernel32" fn InitializeCriticalSection(
-    lpCriticalSection: *CRITICAL_SECTION,
-) callconv(.winapi) void;
-
-// TODO: Forwarder to RtlEnterCriticalSection
-pub extern "kernel32" fn EnterCriticalSection(
-    lpCriticalSection: *CRITICAL_SECTION,
-) callconv(.winapi) void;
-
-// TODO: Forwarder to RtlLeaveCriticalSection
-pub extern "kernel32" fn LeaveCriticalSection(
-    lpCriticalSection: *CRITICAL_SECTION,
-) callconv(.winapi) void;
-
-// TODO: Forwarder to RtlDeleteCriticalSection
-pub extern "kernel32" fn DeleteCriticalSection(
-    lpCriticalSection: *CRITICAL_SECTION,
-) callconv(.winapi) void;
-
-// TODO: Forwarder to RtlTryAcquireSRWLockExclusive
-pub extern "kernel32" fn TryAcquireSRWLockExclusive(
-    SRWLock: *SRWLOCK,
-) callconv(.winapi) BOOLEAN;
-
-// TODO: Forwarder to RtlAcquireSRWLockExclusive
-pub extern "kernel32" fn AcquireSRWLockExclusive(
-    SRWLock: *SRWLOCK,
-) callconv(.winapi) void;
-
-// TODO: Forwarder to RtlReleaseSRWLockExclusive
-pub extern "kernel32" fn ReleaseSRWLockExclusive(
-    SRWLock: *SRWLOCK,
-) callconv(.winapi) void;
-
 pub extern "kernel32" fn InitOnceExecuteOnce(
     InitOnce: *INIT_ONCE,
     InitFn: INIT_ONCE_FN,
     Parameter: ?*anyopaque,
     Context: ?*anyopaque,
 ) callconv(.winapi) BOOL;
-
-// TODO: Forwarder to RtlWakeConditionVariable
-pub extern "kernel32" fn WakeConditionVariable(
-    ConditionVariable: *CONDITION_VARIABLE,
-) callconv(.winapi) void;
-
-// TODO: Forwarder to RtlWakeAllConditionVariable
-pub extern "kernel32" fn WakeAllConditionVariable(
-    ConditionVariable: *CONDITION_VARIABLE,
-) callconv(.winapi) void;
 
 // TODO:
 //  - dwMilliseconds -> LARGE_INTEGER.
@@ -513,22 +410,9 @@ pub extern "kernel32" fn HeapCreate(
     dwMaximumSize: SIZE_T,
 ) callconv(.winapi) ?HANDLE;
 
-// TODO: Forwarder to RtlReAllocateHeap.
-pub extern "kernel32" fn HeapReAlloc(
-    hHeap: HANDLE,
-    dwFlags: DWORD,
-    lpMem: *anyopaque,
-    dwBytes: SIZE_T,
-) callconv(.winapi) ?*anyopaque;
-
-// TODO: Fowrarder to RtlAllocateHeap.
-pub extern "kernel32" fn HeapAlloc(
-    hHeap: HANDLE,
-    dwFlags: DWORD,
-    dwBytes: SIZE_T,
-) callconv(.winapi) ?*anyopaque;
-
-// TODO: Fowrarder to RtlFreeHeap.
+// TODO: Fowrarder to RtlFreeHeap before win11_zn.
+// Since win11_zn this function points to unexported symbol RtlFreeHeapFast.
+// See https://github.com/ziglang/zig/pull/25766#discussion_r2479727640
 pub extern "kernel32" fn HeapFree(
     hHeap: HANDLE,
     dwFlags: DWORD,
@@ -541,29 +425,6 @@ pub extern "kernel32" fn HeapValidate(
     dwFlags: DWORD,
     lpMem: ?*const anyopaque,
 ) callconv(.winapi) BOOL;
-
-// TODO: Wrapper around NtAllocateVirtualMemory.
-pub extern "kernel32" fn VirtualAlloc(
-    lpAddress: ?LPVOID,
-    dwSize: SIZE_T,
-    flAllocationType: DWORD,
-    flProtect: DWORD,
-) callconv(.winapi) ?LPVOID;
-
-// TODO: Wrapper around NtFreeVirtualMemory.
-// If the return value is .INVALID_PAGE_PROTECTION, calls RtlFlushSecureMemoryCache and try again.
-pub extern "kernel32" fn VirtualFree(
-    lpAddress: ?LPVOID,
-    dwSize: SIZE_T,
-    dwFreeType: DWORD,
-) callconv(.winapi) BOOL;
-
-// TODO: Wrapper around NtQueryVirtualMemory.
-pub extern "kernel32" fn VirtualQuery(
-    lpAddress: ?LPVOID,
-    lpBuffer: PMEMORY_BASIC_INFORMATION,
-    dwLength: SIZE_T,
-) callconv(.winapi) SIZE_T;
 
 // TODO: Getter for peb.ProcessHeap
 pub extern "kernel32" fn GetProcessHeap() callconv(.winapi) ?HANDLE;
@@ -641,4 +502,6 @@ pub extern "kernel32" fn SetLastError(
 
 // Everything Else
 
-pub extern "kernel32" fn GetSystemInfo(lpSystemInfo: *SYSTEM_INFO) callconv(.winapi) void;
+pub extern "kernel32" fn GetSystemInfo(
+    lpSystemInfo: *SYSTEM_INFO,
+) callconv(.winapi) void;

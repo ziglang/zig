@@ -68,7 +68,7 @@ stack_align: Alignment,
 /// MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// MIR extra data
-mir_extra: std.ArrayListUnmanaged(u32) = .empty,
+mir_extra: std.ArrayList(u32) = .empty,
 
 /// Byte offset within the source file of the ending curly.
 end_di_line: u32,
@@ -77,7 +77,7 @@ end_di_column: u32,
 /// The value is an offset into the `Function` `code` from the beginning.
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
-exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
+exitlude_jump_relocs: std.ArrayList(usize) = .empty,
 
 reused_operands: std.StaticBitSet(Air.Liveness.bpi - 1) = undefined,
 
@@ -218,7 +218,7 @@ const StackAllocation = struct {
 };
 
 const BlockData = struct {
-    relocs: std.ArrayListUnmanaged(Mir.Inst.Index),
+    relocs: std.ArrayList(Mir.Inst.Index),
     /// The first break instruction encounters `null` here and chooses a
     /// machine code value for the block result, populating this field.
     /// Following break instructions encounter that value and use it for
@@ -479,6 +479,13 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
         self.reused_operands = @TypeOf(self.reused_operands).initEmpty();
         switch (air_tags[@intFromEnum(inst)]) {
             // zig fmt: off
+
+            // No "scalarize" legalizations are enabled, so these instructions never appear.
+            .legalize_vec_elem_val   => unreachable,
+            .legalize_vec_store_elem => unreachable,
+            // No soft float legalizations are enabled.
+            .legalize_compiler_rt_call => unreachable,
+
             .ptr_add => try self.airPtrArithmetic(inst, .ptr_add),
             .ptr_sub => try self.airPtrArithmetic(inst, .ptr_sub),
 
@@ -702,7 +709,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
             .is_named_enum_value => @panic("TODO implement is_named_enum_value"),
             .error_set_has_value => @panic("TODO implement error_set_has_value"),
-            .vector_store_elem => @panic("TODO implement vector_store_elem"),
             .runtime_nav_ptr => @panic("TODO implement runtime_nav_ptr"),
 
             .c_va_arg => return self.fail("TODO implement c_va_arg", .{}),

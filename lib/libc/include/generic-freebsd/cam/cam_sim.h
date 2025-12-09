@@ -60,15 +60,6 @@ struct cam_sim *  cam_sim_alloc(sim_action_func sim_action,
 				int max_dev_transactions,
 				int max_tagged_dev_transactions,
 				struct cam_devq *queue);
-struct cam_sim *  cam_sim_alloc_dev(sim_action_func sim_action,
-				sim_poll_func sim_poll,
-				const char *sim_name,
-				void *softc,
-				device_t dev,
-				struct mtx *mtx,
-				int max_dev_transactions,
-				int max_tagged_dev_transactions,
-				struct cam_devq *queue);
 void		  cam_sim_free(struct cam_sim *sim, int free_devq);
 void		  cam_sim_hold(struct cam_sim *sim);
 void		  cam_sim_release(struct cam_sim *sim);

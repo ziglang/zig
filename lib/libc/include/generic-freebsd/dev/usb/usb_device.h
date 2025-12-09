@@ -225,7 +225,7 @@ struct usb_device {
 	struct usb_fifo *fifo[USB_FIFO_MAX];
 	struct usb_symlink *ugen_symlink;	/* our generic symlink */
 	struct usb_fs_privdata *ctrl_dev;	/* Control Endpoint 0 device node */
-	LIST_HEAD(,usb_fs_privdata) pd_list;
+	SLIST_HEAD(,usb_fs_privdata) pd_list;
 	char	ugen_name[20];		/* name of ugenX.X device */
 #endif
 	usb_ticks_t plugtime;		/* copy of "ticks" */

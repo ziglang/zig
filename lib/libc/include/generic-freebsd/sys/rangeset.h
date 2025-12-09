@@ -69,10 +69,19 @@ int	rangeset_remove_pred(struct rangeset *rs, uint64_t start,
 	    uint64_t end, rs_pred_t pred);
 
 /*
- * Really returns the pointer to the data with struct rs_el embedded
- * at the beginning.
+ * Finds the range that contains place, if any.
  */
-void	*rangeset_lookup(struct rangeset *rs, uint64_t place);
+void	*rangeset_containing(struct rangeset *rs, uint64_t place);
+
+/*
+ * Report whether no range begins between start and end.
+ */
+bool	rangeset_empty(struct rangeset *rs, uint64_t start, uint64_t end);
+
+/*
+ * Finds the range that begins at place, if any.
+ */
+void	*rangeset_beginning(struct rangeset *rs, uint64_t place);
 
 /*
  * Copies src_rs entries into dst_rs.  dst_rs must be empty.

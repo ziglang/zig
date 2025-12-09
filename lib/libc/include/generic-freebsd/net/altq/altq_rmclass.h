@@ -38,8 +38,6 @@
 
 #include <net/altq/altq_classq.h>
 
-/* #pragma ident "@(#)rm_class.h  1.20     97/10/23 SMI" */
-
 #ifdef __cplusplus
 extern "C" {
 #endif

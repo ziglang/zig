@@ -28,9 +28,6 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
- *
- *	from: @(#)svc.h 1.35 88/12/17 SMI
- *	from: @(#)svc.h      1.27    94/04/25 SMI
  */
 
 /*
@@ -457,6 +454,19 @@ extern SVCXPRT *svc_fd_create(const int, const u_int, const u_int);
  * Added for compatibility to old rpc 4.0. Obsoleted by svc_fd_create().
  */
 extern SVCXPRT *svcunixfd_create(int, u_int, u_int);
+
+/*
+ * netlink(4) server creation.  To be used to service requests that
+ * originate from an in-kernel client.
+ */
+extern SVCXPRT *svc_nl_create(const char *);
+
+/*
+ * Arguments to SVC_CONTROL(svc_nl)
+ */
+enum {
+	SVCNL_GET_XIDKEY = 1,	/* obtain pthread specific key for xid */
+};
 
 /*
  * Memory based rpc (for speed check and testing)

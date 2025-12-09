@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: CDDL-1.0
 /*
  * CDDL HEADER START
  *
@@ -265,6 +266,8 @@ _SYS_NVPAIR_H int nvlist_lookup_pairs(nvlist_t *, int, ...);
 _SYS_NVPAIR_H int nvlist_lookup_double(const nvlist_t *, const char *,
     double *);
 #endif
+
+_SYS_NVPAIR_H int nvlist_snprintf(char *, size_t, nvlist_t *, int);
 
 _SYS_NVPAIR_H int nvlist_lookup_nvpair(nvlist_t *, const char *, nvpair_t **);
 _SYS_NVPAIR_H int nvlist_lookup_nvpair_embedded_index(nvlist_t *, const char *,

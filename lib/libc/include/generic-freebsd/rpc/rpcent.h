@@ -42,10 +42,6 @@
 #ifndef _RPC_RPCENT_H
 #define _RPC_RPCENT_H
 
-/*	#pragma ident "@(#)rpcent.h   1.13    94/04/25 SMI"	*/
-/*      @(#)rpcent.h 1.1 88/12/06 SMI   */
-
-
 struct rpcent {
       char    *r_name;        /* name of server for this rpc program */
       char    **r_aliases;    /* alias list */

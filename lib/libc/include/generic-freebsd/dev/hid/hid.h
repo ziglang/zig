@@ -57,6 +57,7 @@
 #define	HUP_SCALE		0x008c
 #define	HUP_CAMERA_CONTROL	0x0090
 #define	HUP_ARCADE		0x0091
+#define	HUP_FIDO		0xf1d0
 #define	HUP_MICROSOFT		0xff00
 
 /* Usages, generic desktop */
@@ -161,6 +162,9 @@
 #define	HUC_HEADPHONE		0x0005
 #define	HUC_AC_PAN		0x0238
 
+/* Usages, FIDO */
+#define	HUF_U2FHID		0x0001
+
 #define	HID_USAGE2(p,u)		(((p) << 16) | (u))
 #define	HID_GET_USAGE(u)	((u) & 0xffff)
 #define	HID_GET_USAGE_PAGE(u)	(((u) >> 16) & 0xffff)
@@ -233,31 +237,31 @@ struct hid_location {
 
 struct hid_item {
 	/* Global */
-	int32_t	_usage_page;
+	uint32_t _usage_page;
 	int32_t	logical_minimum;
 	int32_t	logical_maximum;
 	int32_t	physical_minimum;
 	int32_t	physical_maximum;
-	int32_t	unit_exponent;
-	int32_t	unit;
-	int32_t	report_ID;
+	uint32_t unit_exponent;
+	uint32_t unit;
+	uint32_t report_ID;
 	/* Local */
 	int	nusages;
 	union {
-		int32_t	usage;
-		int32_t usages[HID_ITEM_MAXUSAGE];
+		uint32_t usage;
+		uint32_t usages[HID_ITEM_MAXUSAGE];
 	};
-	int32_t	usage_minimum;
-	int32_t	usage_maximum;
-	int32_t	designator_index;
-	int32_t	designator_minimum;
-	int32_t	designator_maximum;
-	int32_t	string_index;
-	int32_t	string_minimum;
-	int32_t	string_maximum;
-	int32_t	set_delimiter;
+	uint32_t usage_minimum;
+	uint32_t usage_maximum;
+	uint32_t designator_index;
+	uint32_t designator_minimum;
+	uint32_t designator_maximum;
+	uint32_t string_index;
+	uint32_t string_minimum;
+	uint32_t string_maximum;
+	uint32_t set_delimiter;
 	/* Misc */
-	int32_t	collection;
+	uint32_t collection;
 	int	collevel;
 	enum hid_kind kind;
 	uint32_t flags;

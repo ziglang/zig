@@ -33,22 +33,8 @@ pub fn fromInt(comptime E: type, integer: anytype) ?E {
 /// default, which may be undefined.
 pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_default: ?Data) type {
     @setEvalBranchQuota(@typeInfo(E).@"enum".fields.len + eval_branch_quota_cushion);
-    var struct_fields: [@typeInfo(E).@"enum".fields.len]std.builtin.Type.StructField = undefined;
-    for (&struct_fields, @typeInfo(E).@"enum".fields) |*struct_field, enum_field| {
-        struct_field.* = .{
-            .name = enum_field.name,
-            .type = Data,
-            .default_value_ptr = if (field_default) |d| @as(?*const anyopaque, @ptrCast(&d)) else null,
-            .is_comptime = false,
-            .alignment = if (@sizeOf(Data) > 0) @alignOf(Data) else 0,
-        };
-    }
-    return @Type(.{ .@"struct" = .{
-        .layout = .auto,
-        .fields = &struct_fields,
-        .decls = &.{},
-        .is_tuple = false,
-    } });
+    const default_ptr: ?*const anyopaque = if (field_default) |d| @ptrCast(&d) else null;
+    return @Struct(.auto, null, std.meta.fieldNames(E), &@splat(Data), &@splat(.{ .default_value_ptr = default_ptr }));
 }
 
 /// Looks up the supplied fields in the given enum type.
@@ -214,48 +200,6 @@ test "directEnumArrayDefault slice" {
     try testing.expectEqualSlices(u8, "a", array[4]);
     try testing.expectEqualSlices(u8, "b", array[6]);
     try testing.expectEqualSlices(u8, "default", array[2]);
-}
-
-/// Deprecated: Use @field(E, @tagName(tag)) or @field(E, string)
-pub fn nameCast(comptime E: type, comptime value: anytype) E {
-    return comptime blk: {
-        const V = @TypeOf(value);
-        if (V == E) break :blk value;
-        const name: ?[]const u8 = switch (@typeInfo(V)) {
-            .enum_literal, .@"enum" => @tagName(value),
-            .pointer => value,
-            else => null,
-        };
-        if (name) |n| {
-            if (@hasField(E, n)) {
-                break :blk @field(E, n);
-            }
-            @compileError("Enum " ++ @typeName(E) ++ " has no field named " ++ n);
-        }
-        @compileError("Cannot cast from " ++ @typeName(@TypeOf(value)) ++ " to " ++ @typeName(E));
-    };
-}
-
-test nameCast {
-    const A = enum(u1) { a = 0, b = 1 };
-    const B = enum(u1) { a = 1, b = 0 };
-    try testing.expectEqual(A.a, nameCast(A, .a));
-    try testing.expectEqual(A.a, nameCast(A, A.a));
-    try testing.expectEqual(A.a, nameCast(A, B.a));
-    try testing.expectEqual(A.a, nameCast(A, "a"));
-    try testing.expectEqual(A.a, nameCast(A, @as(*const [1]u8, "a")));
-    try testing.expectEqual(A.a, nameCast(A, @as([:0]const u8, "a")));
-    try testing.expectEqual(A.a, nameCast(A, @as([]const u8, "a")));
-
-    try testing.expectEqual(B.a, nameCast(B, .a));
-    try testing.expectEqual(B.a, nameCast(B, A.a));
-    try testing.expectEqual(B.a, nameCast(B, B.a));
-    try testing.expectEqual(B.a, nameCast(B, "a"));
-
-    try testing.expectEqual(B.b, nameCast(B, .b));
-    try testing.expectEqual(B.b, nameCast(B, A.b));
-    try testing.expectEqual(B.b, nameCast(B, B.b));
-    try testing.expectEqual(B.b, nameCast(B, "b"));
 }
 
 test fromInt {
@@ -1532,19 +1476,15 @@ test "EnumIndexer empty" {
 test "EnumIndexer large dense unsorted" {
     @setEvalBranchQuota(500_000); // many `comptimePrint`s
     // Make an enum with 500 fields with values in *descending* order.
-    const E = @Type(.{ .@"enum" = .{
-        .tag_type = u32,
-        .fields = comptime fields: {
-            var fields: [500]EnumField = undefined;
-            for (&fields, 0..) |*f, i| f.* = .{
-                .name = std.fmt.comptimePrint("f{d}", .{i}),
-                .value = 500 - i,
-            };
-            break :fields &fields;
-        },
-        .decls = &.{},
-        .is_exhaustive = true,
-    } });
+    const E = @Enum(u32, .exhaustive, names: {
+        var names: [500][]const u8 = undefined;
+        for (&names, 0..) |*name, i| name.* = std.fmt.comptimePrint("f{d}", .{i});
+        break :names &names;
+    }, vals: {
+        var vals: [500]u32 = undefined;
+        for (&vals, 0..) |*val, i| val.* = 500 - i;
+        break :vals &vals;
+    });
     const Indexer = EnumIndexer(E);
     try testing.expectEqual(E.f0, Indexer.keyForIndex(499));
     try testing.expectEqual(E.f499, Indexer.keyForIndex(0));

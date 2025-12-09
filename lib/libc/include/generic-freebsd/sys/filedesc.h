@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)filedesc.h	8.1 (Berkeley) 6/2/93
  */
 
 #ifndef _SYS_FILEDESC_H_
@@ -150,6 +148,8 @@ struct filedesc_to_leader {
  * Per-process open flags.
  */
 #define	UF_EXCLOSE	0x01		/* auto-close on exec */
+#define	UF_RESOLVE_BENEATH 0x02		/* lookups must be beneath this dir */
+#define	UF_FOCLOSE	0x04		/* auto-close on fork */
 
 #ifdef _KERNEL
 
@@ -222,6 +222,7 @@ enum {
 
 /* Flags for kern_dup(). */
 #define	FDDUP_FLAG_CLOEXEC	0x1	/* Atomically set UF_EXCLOSE. */
+#define	FDDUP_FLAG_CLOFORK	0x2	/* Atomically set UF_FOCLOSE. */
 
 /* For backward compatibility. */
 #define	falloc(td, resultfp, resultfd, flags) \
@@ -277,22 +278,26 @@ struct filedesc_to_leader *
 struct filedesc_to_leader *
 	filedesc_to_leader_share(struct filedesc_to_leader *fdtol,
 	    struct filedesc *fdp);
-int	getvnode(struct thread *td, int fd, cap_rights_t *rightsp,
+int	getvnode(struct thread *td, int fd, const cap_rights_t *rightsp,
 	    struct file **fpp);
-int	getvnode_path(struct thread *td, int fd, cap_rights_t *rightsp,
-	    struct file **fpp);
+int	getvnode_path(struct thread *td, int fd, const cap_rights_t *rightsp,
+	    uint8_t *flagsp, struct file **fpp);
 void	mountcheckdirs(struct vnode *olddp, struct vnode *newdp);
 
-int	fget_cap_noref(struct filedesc *fdp, int fd, cap_rights_t *needrightsp,
-	    struct file **fpp, struct filecaps *havecapsp);
-int	fget_cap(struct thread *td, int fd, cap_rights_t *needrightsp,
-	    struct file **fpp, struct filecaps *havecapsp);
+int	fget_cap_noref(struct filedesc *fdp, int fd,
+	    const cap_rights_t *needrightsp, struct file **fpp,
+	    struct filecaps *havecapsp);
+int	fget_cap(struct thread *td, int fd, const cap_rights_t *needrightsp,
+	    uint8_t *flagsp, struct file **fpp, struct filecaps *havecapsp);
 /* Return a referenced file from an unlocked descriptor. */
-int	fget_unlocked(struct thread *td, int fd, cap_rights_t *needrightsp,
+int	fget_unlocked(struct thread *td, int fd,
+	    const cap_rights_t *needrightsp, struct file **fpp);
+int	fget_unlocked_flags(struct thread *td, int fd,
+	    const cap_rights_t *needrightsp, uint8_t *flagsp,
 	    struct file **fpp);
 /* Return a file pointer without a ref. FILEDESC_IS_ONLY_USER must be true.  */
-int	fget_only_user(struct filedesc *fdp, int fd, cap_rights_t *needrightsp,
-	    struct file **fpp);
+int	fget_only_user(struct filedesc *fdp, int fd,
+	    const cap_rights_t *needrightsp, struct file **fpp);
 #define	fput_only_user(fdp, fp)	({					\
 	MPASS(FILEDESC_IS_ONLY_USER(fdp));				\
 	MPASS(refcount_load(&fp->f_count) > 0);				\

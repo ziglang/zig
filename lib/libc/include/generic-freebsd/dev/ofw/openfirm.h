@@ -83,8 +83,8 @@ MALLOC_DECLARE(M_OFWPROP);
  * interface as the Open Firmware access mechanism, OF_init initializes it.
  */
 
-boolean_t	OF_install(char *name, int prio);
-int		OF_init(void *cookie);
+bool	OF_install(char *name, int prio);
+int	OF_init(void *cookie);
 
 /*
  * Known Open Firmware interface names
@@ -149,6 +149,7 @@ phandle_t	OF_xref_from_node(phandle_t node);
 device_t	OF_device_from_xref(phandle_t xref);
 phandle_t	OF_xref_from_device(device_t dev);
 int		OF_device_register_xref(phandle_t xref, device_t dev);
+void		OF_device_unregister_xref(phandle_t xref, device_t dev);
 
 /* Device I/O functions */
 ihandle_t	OF_open(const char *path);

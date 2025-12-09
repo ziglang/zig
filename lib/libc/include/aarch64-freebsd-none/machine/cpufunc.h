@@ -41,8 +41,6 @@ breakpoint(void)
 #ifdef _KERNEL
 #include <machine/armreg.h>
 
-void pan_enable(void);
-
 static __inline register_t
 dbg_disable(void)
 {
@@ -160,6 +158,26 @@ invalidate_local_icache(void)
 	    "isb               \n");
 }
 
+static __inline void
+wfet(uint64_t val)
+{
+	__asm __volatile(
+		"msr s0_3_c1_c0_0, %0\n"
+		:
+		: "r" ((val))
+		: "memory");
+}
+
+static __inline void
+wfit(uint64_t val)
+{
+	__asm __volatile(
+		"msr s0_3_c1_c0_1, %0\n"
+		:
+		: "r" ((val))
+		: "memory");
+}
+
 extern bool icache_aliasing;
 extern bool icache_vmid;
 
@@ -177,21 +195,21 @@ extern int64_t dczva_line_size;
 #define	cpu_dcache_inv_range(a, s)	arm64_dcache_inv_range((a), (s))
 #define	cpu_dcache_wb_range(a, s)	arm64_dcache_wb_range((a), (s))
 
-extern void (*arm64_icache_sync_range)(vm_offset_t, vm_size_t);
+extern void (*arm64_icache_sync_range)(void *, vm_size_t);
 
 #define	cpu_icache_sync_range(a, s)	arm64_icache_sync_range((a), (s))
 #define cpu_icache_sync_range_checked(a, s) arm64_icache_sync_range_checked((a), (s))
 
 void arm64_nullop(void);
 void arm64_tlb_flushID(void);
-void arm64_dic_idc_icache_sync_range(vm_offset_t, vm_size_t);
-void arm64_idc_aliasing_icache_sync_range(vm_offset_t, vm_size_t);
-void arm64_aliasing_icache_sync_range(vm_offset_t, vm_size_t);
-int arm64_icache_sync_range_checked(vm_offset_t, vm_size_t);
-void arm64_dcache_wbinv_range(vm_offset_t, vm_size_t);
-void arm64_dcache_inv_range(vm_offset_t, vm_size_t);
-void arm64_dcache_wb_range(vm_offset_t, vm_size_t);
-bool arm64_get_writable_addr(vm_offset_t, vm_offset_t *);
+void arm64_dic_idc_icache_sync_range(void *, vm_size_t);
+void arm64_idc_aliasing_icache_sync_range(void *, vm_size_t);
+void arm64_aliasing_icache_sync_range(void *, vm_size_t);
+int arm64_icache_sync_range_checked(void *, vm_size_t);
+void arm64_dcache_wbinv_range(void *, vm_size_t);
+void arm64_dcache_inv_range(void *, vm_size_t);
+void arm64_dcache_wb_range(void *, vm_size_t);
+bool arm64_get_writable_addr(void *, void **);
 
 #endif	/* _KERNEL */
 #endif	/* _MACHINE_CPUFUNC_H_ */

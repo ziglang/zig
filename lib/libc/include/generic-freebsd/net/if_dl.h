@@ -27,12 +27,12 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)if_dl.h	8.1 (Berkeley) 6/10/93
  */
 
 #ifndef _NET_IF_DL_H_
 #define _NET_IF_DL_H_
+
+#include <sys/_types.h>
 
 /*
  * A Link-Level Sockaddr may specify the interface in one of two
@@ -67,22 +67,25 @@ struct sockaddr_dl {
 				   contains both if name and ll address */
 };
 
-#define LLADDR(s) ((caddr_t)((s)->sdl_data + (s)->sdl_nlen))
-#define CLLADDR(s) ((c_caddr_t)((s)->sdl_data + (s)->sdl_nlen))
+#define LLADDR(s) (&(s)->sdl_data[(s)->sdl_nlen])
 #define LLINDEX(s) ((s)->sdl_index)
 
-struct ifnet;
-struct sockaddr_dl *link_alloc_sdl(size_t, int);
-void link_free_sdl(struct sockaddr *sa);
-struct sockaddr_dl *link_init_sdl(struct ifnet *, struct sockaddr *, u_char);
+#ifdef _KERNEL
 
-#ifndef _KERNEL
+struct ifnet;
+struct sockaddr_dl *link_alloc_sdl(size_t size, int flags);
+void link_free_sdl(struct sockaddr *sa);
+struct sockaddr_dl *link_init_sdl(struct ifnet *ifp, struct sockaddr *paddr,
+    u_char iftypes);
+
+#else /* !_KERNEL */
 
 #include <sys/cdefs.h>
 
 __BEGIN_DECLS
-void	link_addr(const char *, struct sockaddr_dl *);
+int	link_addr(const char *, struct sockaddr_dl *);
 char	*link_ntoa(const struct sockaddr_dl *);
+int	link_ntoa_r(const struct sockaddr_dl *, char *, size_t *);
 __END_DECLS
 
 #endif /* !_KERNEL */

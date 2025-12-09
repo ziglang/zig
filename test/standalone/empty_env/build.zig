@@ -31,6 +31,7 @@ pub fn build(b: *std.Build) void {
     const run = b.addRunArtifact(main);
     run.clearEnvironment();
     run.disable_zig_progress = true;
+    run.color = .manual;
 
     test_step.dependOn(&run.step);
 }

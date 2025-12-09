@@ -154,7 +154,7 @@ struct timex {
 #ifdef __FreeBSD__
 
 #ifdef _KERNEL
-void	ntp_update_second(int64_t *adjustment, time_t *newsec);
+void	ntp_update_second(int64_t *adjustment, time_t *newsec, long *tai_off);
 #else /* !_KERNEL */
 #include <sys/cdefs.h>
 

@@ -158,7 +158,7 @@ pub fn StackMachine(comptime options: Options) type {
             }
         };
 
-        stack: std.ArrayListUnmanaged(Value) = .empty,
+        stack: std.ArrayList(Value) = .empty,
 
         pub fn reset(self: *Self) void {
             self.stack.clearRetainingCapacity();

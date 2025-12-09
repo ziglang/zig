@@ -92,5 +92,9 @@ struct hidraw_devinfo {
 #define	HIDIOCSFEATURE(len)	_IOC(IOC_IN,    'U', 35, len)
 #define	HIDIOCGFEATURE(len)	_IOC(IOC_INOUT, 'U', 36, len)
 #define	HIDIOCGRAWUNIQ(len)	_IOC(IOC_OUT,   'U', 37, len)
+#define	HIDIOCSINPUT(len)	_IOC(IOC_IN,    'U', 38, len)
+#define	HIDIOCGINPUT(len)	_IOC(IOC_INOUT, 'U', 39, len)
+#define	HIDIOCSOUTPUT(len)	_IOC(IOC_IN,    'U', 40, len)
+#define	HIDIOCGOUTPUT(len)	_IOC(IOC_INOUT, 'U', 41, len)
 
 #endif	/* _HID_HIDRAW_H */

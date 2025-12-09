@@ -71,7 +71,7 @@ struct pim {
 #endif /* ! _PIM_VT  */
 	uint8_t		pim_reserved;	/* Reserved			*/
 	uint16_t	pim_cksum;	/* IP-style checksum		*/
-};
+} __packed;
 /* KAME-related name backward compatibility */
 #define pim_ver pim_vers
 #define pim_rsv pim_reserved

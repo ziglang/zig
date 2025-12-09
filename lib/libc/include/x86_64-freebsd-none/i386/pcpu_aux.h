@@ -49,8 +49,8 @@ __curthread(void)
 {
 	struct thread *td;
 
-	__asm("movl %%fs:%1,%0" : "=r" (td)
-	    : "m" (*(char *)offsetof(struct pcpu, pc_curthread)));
+	__asm("movl %%fs:%c1,%0" : "=r" (td)
+	    : "i" (offsetof(struct pcpu, pc_curthread)));
 	return (td);
 }
 #define	curthread		(__curthread())
@@ -60,8 +60,8 @@ __curpcb(void)
 {
 	struct pcb *pcb;
 
-	__asm("movl %%fs:%1,%0" : "=r" (pcb)
-	    : "m" (*(char *)offsetof(struct pcpu, pc_curpcb)));
+	__asm("movl %%fs:%c1,%0" : "=r" (pcb)
+	    : "i" (offsetof(struct pcpu, pc_curpcb)));
 	return (pcb);
 }
 #define	curpcb		(__curpcb())

@@ -27,12 +27,12 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)tcp_timer.h	8.1 (Berkeley) 6/10/93
  */
 
 #ifndef _NETINET_TCP_TIMER_H_
 #define _NETINET_TCP_TIMER_H_
+
+#ifdef _KERNEL
 
 /*
  * The TCPT_REXMT timer is used to force retransmissions.
@@ -73,21 +73,22 @@
 /*
  * Time constants.
  */
-#define	TCPTV_MSL	( 30*hz)		/* max seg lifetime (hah!) */
+#define	TCPTV_MSL	MSEC_2_TICKS(30000)	/* max seg lifetime (hah!) */
+#define	TCPTV_MSL_LOCAL	MSEC_2_TICKS(10)	/* max seg lifetime for local comm */
 #define	TCPTV_SRTTBASE	0			/* base roundtrip time;
 						   if 0, no idea yet */
-#define	TCPTV_RTOBASE	(  1*hz)		/* assumed RTO if no info */
+#define	TCPTV_RTOBASE	MSEC_2_TICKS(1000)	/* assumed RTO if no info */
 
-#define	TCPTV_PERSMIN	(  5*hz)		/* minimum persist interval */
-#define	TCPTV_PERSMAX	( 60*hz)		/* maximum persist interval */
+#define	TCPTV_PERSMIN	MSEC_2_TICKS(5000)	/* minimum persist interval */
+#define	TCPTV_PERSMAX	MSEC_2_TICKS(60000)	/* maximum persist interval */
 
-#define	TCPTV_KEEP_INIT	( 75*hz)		/* initial connect keepalive */
-#define	TCPTV_KEEP_IDLE	(120*60*hz)		/* dflt time before probing */
-#define	TCPTV_KEEPINTVL	( 75*hz)		/* default probe interval */
+#define	TCPTV_KEEP_INIT	MSEC_2_TICKS(75000)	/* initial connect keepalive */
+#define	TCPTV_KEEP_IDLE	MSEC_2_TICKS(120*60*1000)	/* dflt time before probing */
+#define	TCPTV_KEEPINTVL	MSEC_2_TICKS(75000)	/* default probe interval */
 #define	TCPTV_KEEPCNT	8			/* max probes before drop */
 #define	TCPTV_MAXUNACKTIME	0		/* max time without making progress */
 
-#define TCPTV_FINWAIT2_TIMEOUT (60*hz)         /* FIN_WAIT_2 timeout if no receiver */
+#define	TCPTV_FINWAIT2_TIMEOUT	MSEC_2_TICKS(60000)	/* FIN_WAIT_2 timeout if no receiver */
 
 /*
  * Minimum retransmit timer is 3 ticks, for algorithmic stability.
@@ -109,15 +110,13 @@
  * The prior minimum of 1*hz (1 second) badly breaks throughput on any
  * networks faster then a modem that has minor (e.g. 1%) packet loss.
  */
-#define	TCPTV_MIN	( hz/33 )		/* minimum allowable value */
-#define TCPTV_CPU_VAR	( hz/5 )		/* cpu variance allowed (200ms) */
-#define	TCPTV_REXMTMAX	( 64*hz)		/* max allowable REXMT value */
-
-#define TCPTV_TWTRUNC	8			/* RTO factor to truncate TW */
+#define	TCPTV_MIN	MSEC_2_TICKS(30)	/* minimum allowable value */
+#define	TCPTV_CPU_VAR	MSEC_2_TICKS(200)	/* cpu variance allowed (200ms) */
+#define	TCPTV_REXMTMAX	MSEC_2_TICKS(64000)	/* max allowable REXMT value */
 
 #define	TCP_MAXRXTSHIFT	12			/* maximum retransmits */
 
-#define	TCPTV_DELACK	( hz/25 )		/* 40ms timeout */
+#define	TCPTV_DELACK	MSEC_2_TICKS(40)	/* 40ms timeout */
 
 /*
  * If we exceed this number of retransmits for a single segment, we'll consider
@@ -136,8 +135,6 @@
 	if ((u_long)(tv) > (u_long)(tvmax)) \
 		(tv) = (tvmax); \
 } while(0)
-
-#ifdef _KERNEL
 
 #define	TP_KEEPINIT(tp)	((tp)->t_keepinit ? (tp)->t_keepinit : tcp_keepinit)
 #define	TP_KEEPIDLE(tp)	((tp)->t_keepidle ? (tp)->t_keepidle : tcp_keepidle)
@@ -167,6 +164,7 @@ extern int tcp_maxunacktime;		/* max time without making progress */
 extern int tcp_maxpersistidle;
 extern int tcp_rexmit_initial;
 extern int tcp_rexmit_min;
+extern int tcp_rexmit_max;
 extern int tcp_rexmit_slop;
 extern int tcp_ttl;			/* time to live for TCP segs */
 extern int tcp_backoff[];
@@ -186,6 +184,8 @@ VNET_DECLARE(int, tcp_v6pmtud_blackhole_mss);
 #define V_tcp_v6pmtud_blackhole_mss	VNET(tcp_v6pmtud_blackhole_mss)
 VNET_DECLARE(int, tcp_msl);
 #define V_tcp_msl			VNET(tcp_msl)
+VNET_DECLARE(int, tcp_msl_local);
+#define V_tcp_msl_local			VNET(tcp_msl_local)
 
 #endif /* _KERNEL */
 

@@ -121,7 +121,7 @@ struct intr_event {
 	int		ie_count;	/* Loop counter. */
 	int		ie_warncnt;	/* Rate-check interrupt storm warns. */
 	struct timeval	ie_warntm;
-	int		ie_irq;		/* Physical irq number if !SOFT. */
+	u_int		ie_irq;		/* Physical irq number if !SOFT. */
 	int		ie_cpu;		/* CPU this event is bound to. */
 	volatile int	ie_phase;	/* Switched to establish a barrier. */
 	volatile int	ie_active[2];	/* Filters in ISR context. */
@@ -129,6 +129,7 @@ struct intr_event {
 
 /* Interrupt event flags kept in ie_flags. */
 #define	IE_SOFT		0x000001	/* Software interrupt. */
+#define	IE_SLEEPABLE	0x000002	/* Sleepable ithread */
 #define	IE_ADDING_THREAD 0x000004	/* Currently building an ithread. */
 
 /* Flags to pass to swi_sched. */
@@ -175,7 +176,7 @@ struct _cpuset;
 int	intr_event_bind_ithread_cpuset(struct intr_event *ie,
 	    struct _cpuset *mask);
 int	intr_event_create(struct intr_event **event, void *source,
-	    int flags, int irq, void (*pre_ithread)(void *),
+	    int flags, u_int irq, void (*pre_ithread)(void *),
 	    void (*post_ithread)(void *), void (*post_filter)(void *),
 	    int (*assign_cpu)(void *, int), const char *fmt, ...)
 	    __printflike(9, 10);
@@ -188,7 +189,7 @@ int	intr_event_suspend_handler(void *cookie);
 int	intr_event_resume_handler(void *cookie);
 int	intr_getaffinity(int irq, int mode, void *mask);
 void	*intr_handler_source(void *cookie);
-int	intr_setaffinity(int irq, int mode, void *mask);
+int	intr_setaffinity(int irq, int mode, const void *mask);
 void	_intr_drain(int irq);  /* LinuxKPI only. */
 int	swi_add(struct intr_event **eventp, const char *name,
 	    driver_intr_t handler, void *arg, int pri, enum intr_type flags,

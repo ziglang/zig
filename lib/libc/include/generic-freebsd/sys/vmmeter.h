@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)vmmeter.h	8.2 (Berkeley) 7/10/94
  */
 
 #ifndef _SYS_VMMETER_H_
@@ -122,6 +120,7 @@ struct vmmeter {
 	counter_u64_t v_rforkpages;	/* (p) pages affected by rfork() */
 	counter_u64_t v_kthreadpages;	/* (p) ... and by kernel fork() */
 	counter_u64_t v_wire_count;	/* (p) pages wired down */
+	counter_u64_t v_nofree_count;	/* (p) permanently allocated pages */
 #define	VM_METER_NCOUNTERS	\
 	(offsetof(struct vmmeter, v_page_size) / sizeof(counter_u64_t))
 	/*
@@ -174,6 +173,13 @@ vm_wire_count(void)
 {
 
 	return (VM_CNT_FETCH(v_wire_count));
+}
+
+static inline u_int
+vm_nofree_count(void)
+{
+
+	return (VM_CNT_FETCH(v_nofree_count));
 }
 
 /*

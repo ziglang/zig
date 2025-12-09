@@ -109,6 +109,69 @@ enum ieee80211_mesh_mlstate {
 	"\20\1IDLE\2OPENSNT\2OPENRCV\3CONFIRMRCV\4ESTABLISHED\5HOLDING"
 
 /*
+ * This enum was shared with the LinuxKPI enum ieee80211_sta_rx_bandwidth
+ * describing up-to which channel width the station can receive.
+ * Rather than using hardcoded MHz values for the channel width use an enum with
+ * flags. This allows us to keep the uint8_t slot for ni_chw in
+ * struct ieee80211_node it means we do not have to sync to the value for
+ * LinuxKPI (just the names).
+ *
+ * NB: BW_20 needs to 0 and values need to be sorted!  Cannot make it
+ * bitfield-alike for use with %b.
+ */
+enum net80211_sta_rx_bw {
+	NET80211_STA_RX_BW_20		= 0x00,
+	NET80211_STA_RX_BW_40,
+	NET80211_STA_RX_BW_80,
+	NET80211_STA_RX_BW_160,
+	NET80211_STA_RX_BW_320,
+} __packed;
+
+static inline const char *
+net80211_ni_chw_to_str(enum net80211_sta_rx_bw bw)
+{
+	switch (bw) {
+	case NET80211_STA_RX_BW_20:	return ("BW_20");
+	case NET80211_STA_RX_BW_40:	return ("BW_40");
+	case NET80211_STA_RX_BW_80:	return ("BW_80");
+	case NET80211_STA_RX_BW_160:	return ("BW_160");
+	case NET80211_STA_RX_BW_320:	return ("BW_320");
+	}
+}
+
+enum ieee80211_node_txrate_type {
+	IEEE80211_NODE_TXRATE_UNDEFINED		= 0,
+	IEEE80211_NODE_TXRATE_LEGACY		= 1, /* CCK/OFDM, HT for now */
+	IEEE80211_NODE_TXRATE_HT		= 2, /* HT */
+	IEEE80211_NODE_TXRATE_VHT		= 3, /* VHT */
+};
+
+struct ieee80211_node_txrate {
+	enum ieee80211_node_txrate_type type;
+	uint8_t		nss;		/* VHT - number of spatial streams */
+	uint8_t		mcs;		/* HT/VHT - MCS */
+	uint8_t		dot11rate;	/* Legacy/HT - dot11rate / ratecode */
+};
+
+#define	IEEE80211_NODE_TXRATE_INIT_LEGACY(rate) \
+	(struct ieee80211_node_txrate) { .type = IEEE80211_NODE_TXRATE_LEGACY, \
+	  .nss = 0, \
+	  .mcs = 0, \
+	  .dot11rate = (rate) }
+
+#define	IEEE80211_NODE_TXRATE_INIT_HT(i_mcs) \
+	(struct ieee80211_node_txrate) { .type = IEEE80211_NODE_TXRATE_HT, \
+	  .nss = 0, \
+	  .mcs = (i_mcs), \
+	  .dot11rate = (i_mcs) | IEEE80211_RATE_MCS }
+
+#define	IEEE80211_NODE_TXRATE_INIT_VHT(i_nss, i_mcs) \
+	(struct ieee80211_node_txrate) { .type = IEEE80211_NODE_TXRATE_VHT, \
+	  .nss = (i_nss), \
+	  .mcs = (i_mcs), \
+	  .dot11rate = 0 }
+
+/*
  * Node specific information.  Note that drivers are expected
  * to derive from this structure to add device-specific per-node
  * state.  This is done by overriding the ic_node_* methods in
@@ -222,15 +285,15 @@ struct ieee80211_node {
 	uint8_t			ni_ht2ndchan;	/* HT 2nd channel */
 	uint8_t			ni_htopmode;	/* HT operating mode */
 	uint8_t			ni_htstbc;	/* HT */
-	uint8_t			ni_chw;		/* negotiated channel width */
+	enum net80211_sta_rx_bw ni_chw;	/* negotiated channel width */
 	struct ieee80211_htrateset ni_htrates;	/* negotiated ht rate set */
 	struct ieee80211_tx_ampdu ni_tx_ampdu[WME_NUM_TID];
 	struct ieee80211_rx_ampdu ni_rx_ampdu[WME_NUM_TID];
 
 	/* VHT state */
 	uint32_t		ni_vhtcap;
-	uint16_t		ni_vht_basicmcs;
-	uint16_t		ni_vht_pad2;
+	uint16_t		ni_vht_basicmcs;	/* Basic VHT MCS bitmap from IE */
+	uint16_t		ni_vht_tx_map;		/* Negotiated MCS TX map with peer */
 	struct ieee80211_vht_mcs_info	ni_vht_mcsinfo;
 	uint8_t			ni_vht_chan1;	/* 20/40/80/160 - VHT chan1 */
 	uint8_t			ni_vht_chan2;	/* 80+80 - VHT chan2 */
@@ -244,7 +307,7 @@ struct ieee80211_node {
 	/* others */
 	short			ni_inact;	/* inactivity mark count */
 	short			ni_inact_reload;/* inactivity reload value */
-	int			ni_txrate;	/* legacy rate/MCS */
+	struct ieee80211_node_txrate	ni_txrate;	/* current transmit rate */
 	struct ieee80211_psq	ni_psq;		/* power save queue */
 	struct ieee80211_nodestats ni_stats;	/* per-node statistics */
 
@@ -279,7 +342,7 @@ MALLOC_DECLARE(M_80211_NODE_IE);
 #define	IEEE80211_NODE_BITS \
 	"\20\1AUTH\2QOS\3ERP\5PWR_MGT\6AREF\7HT\10HTCOMPAT\11WPS\12TSN" \
 	"\13AMPDU_RX\14AMPDU_TX\15MIMO_PS\16MIMO_RTS\17RIFS\20SGI20\21SGI40" \
-	"\22ASSOCID"
+	"\22ASSOCID\23AMSDU_RX\24AMSDU_TX\25VHT\26LDPC\27UAPSD"
 
 #define	IEEE80211_NODE_AID(ni)	IEEE80211_AID(ni->ni_associd)
 
@@ -467,4 +530,27 @@ void	ieee80211_node_join(struct ieee80211_node *,int);
 void	ieee80211_node_leave(struct ieee80211_node *);
 int8_t	ieee80211_getrssi(struct ieee80211vap *);
 void	ieee80211_getsignal(struct ieee80211vap *, int8_t *, int8_t *);
+
+/* TX sequence space related routines */
+ieee80211_seq	ieee80211_tx_seqno_fetch_incr(struct ieee80211_node *,
+	uint8_t);
+ieee80211_seq	ieee80211_tx_seqno_fetch(const struct ieee80211_node *,
+	uint8_t);
+
+/*
+ * Node transmit rate specific manipulation.
+ *
+ * This should eventually be refactored into its own type.
+ */
+uint8_t	ieee80211_node_get_txrate_dot11rate(struct ieee80211_node *);
+void	ieee80211_node_get_txrate(struct ieee80211_node *,
+		struct ieee80211_node_txrate *);
+void	ieee80211_node_set_txrate(struct ieee80211_node *,
+	    const struct ieee80211_node_txrate *);
+void	ieee80211_node_set_txrate_dot11rate(struct ieee80211_node *, uint8_t);
+void	ieee80211_node_set_txrate_ht_mcsrate(struct ieee80211_node *, uint8_t);
+uint32_t	ieee80211_node_get_txrate_kbit(struct ieee80211_node *);
+void	ieee80211_node_set_txrate_vht_rate(struct ieee80211_node *ni,
+	    uint8_t nss, uint8_t mcs);
+
 #endif /* _NET80211_IEEE80211_NODE_H_ */

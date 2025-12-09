@@ -47,7 +47,7 @@ pub const Value = union(enum) {
     }
 
     pub fn dump(v: Value) void {
-        const w = std.debug.lockStderrWriter(&.{});
+        const w, _ = std.debug.lockStderrWriter(&.{});
         defer std.debug.unlockStderrWriter();
 
         json.Stringify.value(v, .{}, w) catch return;

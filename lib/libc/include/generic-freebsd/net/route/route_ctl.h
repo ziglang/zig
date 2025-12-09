@@ -61,11 +61,11 @@ int rib_del_route_px_gw(uint32_t fibnum, struct sockaddr *dst, int plen,
     const struct sockaddr *gw, int op_flags, struct rib_cmd_info *rc);
 
 /* operation flags */
-#define	RTM_F_CREATE	0x01
-#define	RTM_F_EXCL	0x02
-#define	RTM_F_REPLACE	0x04
-#define	RTM_F_APPEND	0x08
-#define	RTM_F_FORCE	0x10
+#define	RTM_F_CREATE	0x01	/* Create object if not exists */
+#define	RTM_F_EXCL	0x02	/* (Deprecated) Do not replace or append if exists */
+#define	RTM_F_REPLACE	0x04	/* Replace if route (even multipath) if exists */
+#define	RTM_F_APPEND	0x08	/* Append path to the route */
+#define	RTM_F_FORCE	0x10	/* Bump operation priority to highest */
 
 int rib_add_route(uint32_t fibnum, struct rt_addrinfo *info,
   struct rib_cmd_info *rc);

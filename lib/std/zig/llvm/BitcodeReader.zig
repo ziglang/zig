@@ -9,7 +9,7 @@ reader: *std.Io.Reader,
 keep_names: bool,
 bit_buffer: u32,
 bit_offset: u5,
-stack: std.ArrayListUnmanaged(State),
+stack: std.ArrayList(State),
 block_info: std.AutoHashMapUnmanaged(u32, Block.Info),
 
 pub const Item = union(enum) {
@@ -488,7 +488,7 @@ const Abbrev = struct {
     };
 
     const Store = struct {
-        abbrevs: std.ArrayListUnmanaged(Abbrev),
+        abbrevs: std.ArrayList(Abbrev),
 
         fn deinit(store: *Store, allocator: std.mem.Allocator) void {
             for (store.abbrevs.items) |abbrev| allocator.free(abbrev.operands);

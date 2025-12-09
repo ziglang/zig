@@ -12,9 +12,9 @@ prev_di_loc: Loc,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
-code_offset_mapping: std.ArrayListUnmanaged(u32),
-relocs: std.ArrayListUnmanaged(Reloc),
-table_relocs: std.ArrayListUnmanaged(TableReloc),
+code_offset_mapping: std.ArrayList(u32),
+relocs: std.ArrayList(Reloc),
+table_relocs: std.ArrayList(TableReloc),
 
 pub const Error = Lower.Error || error{
     EmitFail,
@@ -182,6 +182,10 @@ pub fn emitMir(emit: *Emit) Error!void {
                             try elf_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null)
                         else if (emit.bin_file.cast(.elf2)) |elf| @intFromEnum(try elf.globalSymbol(.{
                             .name = extern_func.toSlice(&emit.lower.mir).?,
+                            .lib_name = switch (comp.compiler_rt_strat) {
+                                .none, .lib, .obj, .zcu => null,
+                                .dyn_lib => "compiler_rt",
+                            },
                             .type = .FUNC,
                         })) else if (emit.bin_file.cast(.macho)) |macho_file|
                             try macho_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null)
@@ -217,9 +221,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             }, emit.lower.target), reloc_info),
                             .mov => try emit.encodeInst(try .new(.none, .mov, &.{
                                 lowered_inst.ops[0],
-                                .{ .mem = .initSib(lowered_inst.ops[reloc.op_index].mem.sib.ptr_size, .{
-                                    .base = .{ .reg = .ds },
-                                }) },
+                                .{ .mem = .initSib(lowered_inst.ops[reloc.op_index].mem.sib.ptr_size, .{}) },
                             }, emit.lower.target), reloc_info),
                             else => unreachable,
                         } else if (reloc.target.is_extern) switch (lowered_inst.encoding.mnemonic) {
@@ -322,10 +324,12 @@ pub fn emitMir(emit: *Emit) Error!void {
                                 }, emit.lower.target), &.{.{
                                     .op_index = 0,
                                     .target = .{
-                                        .index = if (emit.bin_file.cast(.elf)) |elf_file|
-                                            try elf_file.getGlobalSymbol("__tls_get_addr", null)
-                                        else if (emit.bin_file.cast(.elf2)) |elf| @intFromEnum(try elf.globalSymbol(.{
+                                        .index = if (emit.bin_file.cast(.elf)) |elf_file| try elf_file.getGlobalSymbol(
+                                            "__tls_get_addr",
+                                            if (comp.config.link_libc) "c" else null,
+                                        ) else if (emit.bin_file.cast(.elf2)) |elf| @intFromEnum(try elf.globalSymbol(.{
                                             .name = "__tls_get_addr",
+                                            .lib_name = if (comp.config.link_libc) "c" else null,
                                             .type = .FUNC,
                                         })) else unreachable,
                                         .is_extern = true,
@@ -704,7 +708,7 @@ pub fn emitMir(emit: *Emit) Error!void {
         switch (reloc.source_length) {
             else => unreachable,
             inline 1, 4 => |source_length| std.mem.writeInt(
-                @Type(.{ .int = .{ .signedness = .signed, .bits = @as(u16, 8) * source_length } }),
+                @Int(.signed, @as(u16, 8) * source_length),
                 inst_bytes[reloc.source_offset..][0..source_length],
                 @intCast(disp),
                 .little,
@@ -720,7 +724,7 @@ pub fn emitMir(emit: *Emit) Error!void {
 
             for (emit.table_relocs.items) |table_reloc| try atom.addReloc(gpa, .{
                 .r_offset = table_reloc.source_offset,
-                .r_info = @as(u64, emit.atom_index) << 32 | @intFromEnum(std.elf.R_X86_64.@"32"),
+                .r_info = @as(u64, emit.atom_index) << 32 | @intFromEnum(std.elf.R_X86_64.@"32S"),
                 .r_addend = @as(i64, table_offset) + table_reloc.target_offset,
             }, zo);
             for (emit.lower.mir.table) |entry| {
@@ -738,7 +742,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                 table_reloc.source_offset,
                 @enumFromInt(emit.atom_index),
                 @as(i64, table_offset) + table_reloc.target_offset,
-                .{ .X86_64 = .@"32" },
+                .{ .X86_64 = .@"32S" },
             );
             for (emit.lower.mir.table) |entry| {
                 try elf.addReloc(
@@ -824,7 +828,7 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             const zo = elf_file.zigObjectPtr().?;
             const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
             const r_type: std.elf.R_X86_64 = if (!emit.pic)
-                .@"32"
+                .@"32S"
             else if (reloc.target.is_extern and !reloc.target.force_pcrel_direct)
                 .GOTPCREL
             else
@@ -855,7 +859,7 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             end_offset - 4,
             @enumFromInt(reloc.target.index),
             reloc.off,
-            .{ .X86_64 = .@"32" },
+            .{ .X86_64 = .@"32S" },
         ) else if (emit.bin_file.cast(.coff2)) |coff| try coff.addReloc(
             @enumFromInt(emit.atom_index),
             end_offset - 4,
@@ -877,7 +881,7 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             end_offset - 4,
             @enumFromInt(reloc.target.index),
             reloc.off - 4,
-            .{ .X86_64 = .PC32 },
+            .{ .X86_64 = .PLT32 },
         ) else if (emit.bin_file.cast(.macho)) |macho_file| {
             const zo = macho_file.getZigObject().?;
             const atom = zo.symbols.items[emit.atom_index].getAtom(macho_file).?;
@@ -912,7 +916,13 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
                 .r_info = @as(u64, reloc.target.index) << 32 | @intFromEnum(r_type),
                 .r_addend = reloc.off - 4,
             }, zo);
-        } else return emit.fail("TODO implement {s} reloc for {s}", .{
+        } else if (emit.bin_file.cast(.elf2)) |elf| try elf.addReloc(
+            @enumFromInt(emit.atom_index),
+            end_offset - 4,
+            @enumFromInt(reloc.target.index),
+            reloc.off - 4,
+            .{ .X86_64 = if (emit.pic) .TLSLD else unreachable },
+        ) else return emit.fail("TODO implement {s} reloc for {s}", .{
             @tagName(reloc.target.type), @tagName(emit.bin_file.tag),
         }),
         .tlv => if (emit.bin_file.cast(.elf)) |elf_file| {
@@ -929,7 +939,7 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
             end_offset - 4,
             @enumFromInt(reloc.target.index),
             reloc.off,
-            .{ .X86_64 = .TPOFF32 },
+            .{ .X86_64 = if (emit.pic) .DTPOFF32 else .TPOFF32 },
         ) else if (emit.bin_file.cast(.macho)) |macho_file| {
             const zo = macho_file.getZigObject().?;
             const atom = zo.symbols.items[emit.atom_index].getAtom(macho_file).?;

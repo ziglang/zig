@@ -99,8 +99,12 @@ enum prison_state {
 #define	JAIL_UPDATE	0x02	/* Update parameters of existing jail */
 #define	JAIL_ATTACH	0x04	/* Attach to jail upon creation */
 #define	JAIL_DYING	0x08	/* Allow getting a dying jail */
-#define	JAIL_SET_MASK	0x0f
-#define	JAIL_GET_MASK	0x08
+#define JAIL_USE_DESC	0x10	/* Get/set jail in descriptor */
+#define JAIL_AT_DESC	0x20	/* Find/add jail under descriptor */
+#define	JAIL_GET_DESC	0x40	/* Return a new jail descriptor */
+#define	JAIL_OWN_DESC	0x80	/* Return a new owning jail descriptor */
+#define	JAIL_SET_MASK	0xff	/* JAIL_DYING is deprecated/ignored here */
+#define	JAIL_GET_MASK	0xf8
 
 #define	JAIL_SYS_DISABLE	0
 #define	JAIL_SYS_NEW		1
@@ -115,7 +119,9 @@ int jail(struct jail *);
 int jail_set(struct iovec *, unsigned int, int);
 int jail_get(struct iovec *, unsigned int, int);
 int jail_attach(int);
+int jail_attach_jd(int);
 int jail_remove(int);
+int jail_remove_jd(int);
 __END_DECLS
 
 #else /* _KERNEL */
@@ -141,6 +147,11 @@ MALLOC_DECLARE(M_PRISON);
 #define	DEFAULT_HOSTUUID	"00000000-0000-0000-0000-000000000000"
 #define	OSRELEASELEN	32
 
+#define	JAIL_META_PRIVATE	"meta"
+#define	JAIL_META_SHARED	"env"
+
+struct jaildesc;
+struct knlist;
 struct racct;
 struct prison_racct;
 
@@ -186,7 +197,9 @@ struct prison {
 	struct vnode	*pr_root;			/* (c) vnode to rdir */
 	struct prison_ip  *pr_addrs[PR_FAMILY_MAX];	/* (p,n) IPs of jail */
 	struct prison_racct *pr_prison_racct;		/* (c) racct jail proxy */
-	void		*pr_sparep[3];
+	struct knlist	*pr_klist;			/* (m) attached knotes */
+	LIST_HEAD(, jaildesc) pr_descs;			/* (a) attached descriptors */
+	void		*pr_sparep;
 	int		 pr_childcount;			/* (a) number of child jails */
 	int		 pr_childmax;			/* (p) maximum child jails */
 	unsigned	 pr_allow;			/* (p) PR_ALLOW_* flags */
@@ -253,13 +266,29 @@ struct prison_racct {
 #define	PR_ALLOW_RESERVED_PORTS		0x00008000
 #define	PR_ALLOW_KMEM_ACCESS		0x00010000	/* reserved, not used yet */
 #define	PR_ALLOW_NFSD			0x00020000
-#define	PR_ALLOW_ALL_STATIC		0x000387ff
+#define	PR_ALLOW_EXTATTR		0x00040000
+#define	PR_ALLOW_ADJTIME		0x00080000
+#define	PR_ALLOW_SETTIME		0x00100000
+#define	PR_ALLOW_ROUTING		0x00200000
+#define	PR_ALLOW_UNPRIV_PARENT_TAMPER	0x00400000
+#define	PR_ALLOW_SETAUDIT		0x00800000
+
+/*
+ * PR_ALLOW_PRISON0 are the allow flags that we apply by default to prison0,
+ * while PR_ALLOW_ALL_STATIC are all of the allow bits that we have allocated at
+ * build time.  PR_ALLOW_ALL_STATIC should contain any bit above that we expect
+ * to be used on the system, while PR_ALLOW_PRISON0 will be some subset of that.
+ */
+#define	PR_ALLOW_ALL_STATIC		0x00ff87ff
+#define	PR_ALLOW_PRISON0		\
+    (PR_ALLOW_ALL_STATIC & ~(PR_ALLOW_UNPRIV_PARENT_TAMPER))
 
 /*
  * PR_ALLOW_DIFFERENCES determines which flags are able to be
  * different between the parent and child jail upon creation.
  */
-#define	PR_ALLOW_DIFFERENCES		(PR_ALLOW_UNPRIV_DEBUG)
+#define	PR_ALLOW_DIFFERENCES		\
+    (PR_ALLOW_UNPRIV_DEBUG | PR_ALLOW_UNPRIV_PARENT_TAMPER)
 
 /*
  * OSD methods
@@ -373,37 +402,45 @@ extern struct	sx allprison_lock;
 /*
  * Sysctls to describe jail parameters.
  */
+SYSCTL_DECL(_security_jail);
 SYSCTL_DECL(_security_jail_param);
 
+#define SYSCTL_JAIL_PARAM_DECL(name)					\
+	SYSCTL_DECL(_security_jail_param_##name)
 #define	SYSCTL_JAIL_PARAM(module, param, type, fmt, descr)		\
-    SYSCTL_PROC(_security_jail_param ## module, OID_AUTO, param,	\
-	(type) | CTLFLAG_MPSAFE, NULL, 0, sysctl_jail_param, fmt, descr)
+	SYSCTL_PROC(_security_jail_param ## module, OID_AUTO, param,	\
+	    (type) | CTLFLAG_MPSAFE, NULL, 0, sysctl_jail_param, fmt, descr)
 #define	SYSCTL_JAIL_PARAM_STRING(module, param, access, len, descr)	\
-    SYSCTL_PROC(_security_jail_param ## module, OID_AUTO, param,	\
-	CTLTYPE_STRING | CTLFLAG_MPSAFE | (access), NULL, len,		\
-	sysctl_jail_param, "A", descr)
-#define	SYSCTL_JAIL_PARAM_STRUCT(module, param, access, len, fmt, descr)\
-    SYSCTL_PROC(_security_jail_param ## module, OID_AUTO, param,	\
-	CTLTYPE_STRUCT | CTLFLAG_MPSAFE | (access), NULL, len,		\
-	sysctl_jail_param, fmt, descr)
+	SYSCTL_PROC(_security_jail_param ## module, OID_AUTO, param,	\
+	    CTLTYPE_STRING | CTLFLAG_MPSAFE | (access), NULL, len,	\
+	    sysctl_jail_param, "A", descr)
+#define	SYSCTL_JAIL_PARAM_STRUCT(module, param, access, len, fmt, descr) \
+	SYSCTL_PROC(_security_jail_param ## module, OID_AUTO, param,	\
+	    CTLTYPE_STRUCT | CTLFLAG_MPSAFE | (access), NULL, len,	\
+	    sysctl_jail_param, fmt, descr)
 #define	SYSCTL_JAIL_PARAM_NODE(module, descr)				\
-    SYSCTL_NODE(_security_jail_param, OID_AUTO, module, CTLFLAG_MPSAFE,	\
-        0, descr)
+	SYSCTL_NODE(_security_jail_param, OID_AUTO, module, CTLFLAG_MPSAFE, \
+	    0, descr)
 #define	SYSCTL_JAIL_PARAM_SUBNODE(parent, module, descr)		\
-    SYSCTL_NODE(_security_jail_param_##parent, OID_AUTO, module, 	\
-        CTLFLAG_MPSAFE, 0, descr)
+	SYSCTL_NODE(_security_jail_param_##parent, OID_AUTO, module,	\
+	    CTLFLAG_MPSAFE, 0, descr)
 #define	SYSCTL_JAIL_PARAM_SYS_NODE(module, access, descr)		\
-    SYSCTL_JAIL_PARAM_NODE(module, descr);				\
-    SYSCTL_JAIL_PARAM(_##module, , CTLTYPE_INT | (access), "E,jailsys",	\
-	descr)
+	SYSCTL_JAIL_PARAM_NODE(module, descr);				\
+	SYSCTL_JAIL_PARAM(_##module, , CTLTYPE_INT | (access), "E,jailsys", \
+	    descr)
+#define	SYSCTL_JAIL_PARAM_SYS_SUBNODE(parent, module, access, descr)	\
+	SYSCTL_JAIL_PARAM_SUBNODE(parent, module, descr);		\
+	SYSCTL_JAIL_PARAM(_##parent##_##module, , CTLTYPE_INT | (access), \
+	    "E,jailsys", descr)
 
 /*
  * Kernel support functions for jail().
  */
-struct ucred;
+struct knote;
 struct mount;
 struct sockaddr;
 struct statfs;
+struct ucred;
 struct vfsconf;
 
 /*
@@ -421,7 +458,7 @@ void prison0_init(void);
 bool prison_allow(struct ucred *, unsigned);
 int prison_check(struct ucred *cred1, struct ucred *cred2);
 bool prison_check_nfsd(struct ucred *cred);
-bool prison_owns_vnet(struct ucred *);
+bool prison_owns_vnet(struct prison *pr);
 int prison_canseemount(struct ucred *cred, struct mount *mp);
 void prison_enforce_statfs(struct ucred *cred, struct mount *mp,
     struct statfs *sp);
@@ -438,6 +475,7 @@ void prison_proc_free(struct prison *);
 void prison_proc_link(struct prison *, struct proc *);
 void prison_proc_unlink(struct prison *, struct proc *);
 void prison_proc_iterate(struct prison *, void (*)(struct proc *, void *), void *);
+void prison_remove(struct prison *);
 void prison_set_allow(struct ucred *cred, unsigned flag, int enable);
 bool prison_ischild(struct prison *, struct prison *);
 bool prison_isalive(const struct prison *);

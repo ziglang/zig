@@ -97,7 +97,7 @@
 struct __aiocb_private {
 	long	status;
 	long	error;
-	void	*kernelinfo;
+	void	*spare;
 };
 
 /*

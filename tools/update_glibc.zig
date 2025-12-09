@@ -1,6 +1,6 @@
 //! This script updates the .c, .h, .s, and .S files that make up the start
 //! files such as crt1.o. Not to be confused with
-//! https://github.com/ziglang/glibc-abi-tool/ which updates the `abilists`
+//! https://codeberg.org/ziglang/libc-abi-tools which updates the `abilists`
 //! file.
 //!
 //! Example usage:

@@ -177,7 +177,9 @@ pub fn main() !void {
 
     const args = try std.process.argsAlloc(gpa);
     if (args.len < 2 or mem.eql(u8, args[1], "--help")) {
-        usage(std.debug.lockStderrWriter(&.{}), args[0]) catch std.process.exit(2);
+        const w, _ = std.debug.lockStderrWriter(&.{});
+        defer std.debug.unlockStderrWriter();
+        usage(w, args[0]) catch std.process.exit(2);
         std.process.exit(1);
     }
     const linux_path = args[1];

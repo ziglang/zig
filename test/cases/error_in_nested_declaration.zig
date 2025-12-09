@@ -27,4 +27,4 @@ pub export fn entry2() void {
 //
 // :6:20: error: cannot @bitCast to '[]i32'
 // :6:20: note: use @ptrCast to cast from '[]u32'
-// :17:12: error: C pointers cannot point to opaque types
+// :17:12: error: indexable pointer to opaque type 'anyopaque' not allowed

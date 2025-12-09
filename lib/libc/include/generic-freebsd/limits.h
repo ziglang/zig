@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)limits.h	8.2 (Berkeley) 1/4/94
  */
 
 #ifndef _LIMITS_H_
@@ -138,6 +136,11 @@
 #endif
 
 #define	MB_LEN_MAX		6	/* 31-bit UTF-8 */
+
+#if __POSIX_VISIBLE >= 202405
+#define GETENTROPY_MAX		256
+#define NSIG_MAX		128	/* _SIG_MAXSIG from <signal.h> */
+#endif
 
 #include <sys/limits.h>
 

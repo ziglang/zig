@@ -87,21 +87,12 @@ int	cc_deregister_algo(struct cc_algo *remove_cc);
 #endif /* _KERNEL */
 
 #if defined(_KERNEL) || defined(_WANT_TCPCB)
-/*
- * Wrapper around transport structs that contain same-named congestion
- * control variables. Allows algos to be shared amongst multiple CC aware
- * transprots.
- */
 struct cc_var {
 	void		*cc_data; /* Per-connection private CC algorithm data. */
 	int		bytes_this_ack; /* # bytes acked by the current ACK. */
 	tcp_seq		curack; /* Most recent ACK. */
 	uint32_t	flags; /* Flags for cc_var (see below) */
-	int		type; /* Indicates which ptr is valid in ccvc. */
-	union ccv_container {
-		struct tcpcb		*tcp;
-		struct sctp_nets	*sctp;
-	} ccvc;
+	struct tcpcb	*tp; /* Pointer to tcpcb */
 	uint16_t	nsegs; /* # segments coalesced into current chain. */
 	uint8_t		labc;  /* Dont use system abc use passed in */
 };
@@ -113,32 +104,34 @@ struct cc_var {
 #define	CCF_ACKNOW		0x0008	/* Will this ack be sent now? */
 #define	CCF_IPHDR_CE		0x0010	/* Does this packet set CE bit? */
 #define	CCF_TCPHDR_CWR		0x0020	/* Does this packet set CWR bit? */
-#define	CCF_MAX_CWND		0x0040	/* Have we reached maximum cwnd? */
-#define	CCF_CHG_MAX_CWND	0x0080	/* CUBIC max_cwnd changed, for K */
-#define	CCF_USR_IWND		0x0100	/* User specified initial window */
-#define	CCF_USR_IWND_INIT_NSEG	0x0200	/* Convert segs to bytes on conn init */
+#define	CCF_UNUSED1		0x0040
+#define	CCF_UNUSED2		0x0080
+#define	CCF_UNUSED3		0x0100
+#define	CCF_UNUSED4		0x0200
 #define CCF_HYSTART_ALLOWED	0x0400	/* If the CC supports it Hystart is allowed */
 #define CCF_HYSTART_CAN_SH_CWND	0x0800  /* Can hystart when going CSS -> CA slam the cwnd */
 #define CCF_HYSTART_CONS_SSTH	0x1000	/* Should hystart use the more conservative ssthresh */
 
-/* ACK types passed to the ack_received() hook. */
-#define	CC_ACK		0x0001	/* Regular in sequence ACK. */
-#define	CC_DUPACK	0x0002	/* Duplicate ACK. */
-#define	CC_PARTIALACK	0x0004	/* Not yet. */
-#define	CC_SACK		0x0008	/* Not yet. */
 #endif /* defined(_KERNEL) || defined(_WANT_TCPCB) */
-
-/*
- * Congestion signal types passed to the cong_signal() hook. The highest order 8
- * bits (0x01000000 - 0x80000000) are reserved for CC algos to declare their own
- * congestion signal types.
- */
-#define	CC_ECN		0x00000001	/* ECN marked packet received. */
-#define	CC_RTO		0x00000002	/* RTO fired. */
-#define	CC_RTO_ERR	0x00000004	/* RTO fired in error. */
-#define	CC_NDUPACK	0x00000008	/* Threshold of dupack's reached. */
-
-#define	CC_SIGPRIVMASK	0xFF000000	/* Mask to check if sig is private. */
+typedef enum {
+#if defined(_KERNEL) || defined(_WANT_TCPCB)
+	/* ACK types passed to the ack_received() hook. */
+	CC_ACK =	0x0001,	/* Regular in sequence ACK. */
+	CC_DUPACK =	0x0002,	/* Duplicate ACK. */
+	CC_PARTIALACK =	0x0004,	/* Not yet. */
+	CC_SACK =	0x0008,	/* Not yet. */
+#endif /* defined(_KERNEL) || defined(_WANT_TCPCB) */
+	/* Congestion signal types passed to the cong_signal() hook. */
+	CC_ECN =	0x0100,	/* ECN marked packet received. */
+	CC_RTO =	0x0200,	/* RTO fired. */
+	CC_RTO_ERR =	0x0400,	/* RTO fired in error. */
+	CC_NDUPACK =	0x0800,	/* Threshold of dupack's reached. */
+	/*
+	 * The highest order 8 bits (0x01000000 - 0x80000000) are reserved
+	 * for CC algos to declare their own congestion signal types.
+	 */
+	CC_SIGPRIVMASK = 0xFF000000	/* Mask to check if sig is private. */
+} ccsignal_t;
 
 #ifdef _KERNEL
 /*
@@ -175,10 +168,10 @@ struct cc_algo {
 	void	(*conn_init)(struct cc_var *ccv);
 
 	/* Called on receipt of an ack. */
-	void	(*ack_received)(struct cc_var *ccv, uint16_t type);
+	void	(*ack_received)(struct cc_var *ccv, ccsignal_t type);
 
 	/* Called on detection of a congestion signal. */
-	void	(*cong_signal)(struct cc_var *ccv, uint32_t type);
+	void	(*cong_signal)(struct cc_var *ccv, ccsignal_t type);
 
 	/* Called after exiting congestion recovery. */
 	void	(*post_recovery)(struct cc_var *ccv);
@@ -236,8 +229,11 @@ extern struct rwlock cc_list_lock;
  */
 void newreno_cc_post_recovery(struct cc_var *);
 void newreno_cc_after_idle(struct cc_var *);
-void newreno_cc_cong_signal(struct cc_var *, uint32_t );
-void newreno_cc_ack_received(struct cc_var *, uint16_t);
+void newreno_cc_cong_signal(struct cc_var *, ccsignal_t);
+void newreno_cc_ack_received(struct cc_var *, ccsignal_t);
+u_int newreno_cc_cwnd_on_multiplicative_decrease(struct cc_var *ccv, uint32_t mss);
+u_int newreno_cc_cwnd_in_cong_avoid(struct cc_var *ccv);
+u_int newreno_cc_cwnd_in_slow_start(struct cc_var *ccv);
 
 /* Called to temporarily keep an algo from going away during change */
 void cc_refer(struct cc_algo *algo);

@@ -124,17 +124,18 @@ TAILQ_HEAD(rman_head, rman);
 int	rman_activate_resource(struct resource *r);
 int	rman_adjust_resource(struct resource *r, rman_res_t start, rman_res_t end);
 int	rman_first_free_region(struct rman *rm, rman_res_t *start, rman_res_t *end);
-bus_space_handle_t rman_get_bushandle(struct resource *);
-bus_space_tag_t rman_get_bustag(struct resource *);
-rman_res_t	rman_get_end(struct resource *);
-device_t rman_get_device(struct resource *);
-u_int	rman_get_flags(struct resource *);
-void   *rman_get_irq_cookie(struct resource *);
-void	rman_get_mapping(struct resource *, struct resource_map *);
-int	rman_get_rid(struct resource *);
-rman_res_t	rman_get_size(struct resource *);
-rman_res_t	rman_get_start(struct resource *);
-void   *rman_get_virtual(struct resource *);
+bus_space_handle_t rman_get_bushandle(const struct resource *);
+bus_space_tag_t rman_get_bustag(const struct resource *);
+rman_res_t	rman_get_end(const struct resource *);
+device_t rman_get_device(const struct resource *);
+u_int	rman_get_flags(const struct resource *);
+void   *rman_get_irq_cookie(const struct resource *);
+void	rman_get_mapping(const struct resource *, struct resource_map *);
+int	rman_get_rid(const struct resource *);
+rman_res_t	rman_get_size(const struct resource *);
+rman_res_t	rman_get_start(const struct resource *);
+int	rman_get_type(const struct resource *);
+void   *rman_get_virtual(const struct resource *);
 int	rman_deactivate_resource(struct resource *r);
 int	rman_fini(struct rman *rm);
 int	rman_init(struct rman *rm);
@@ -142,22 +143,18 @@ int	rman_init_from_resource(struct rman *rm, struct resource *r);
 int	rman_last_free_region(struct rman *rm, rman_res_t *start, rman_res_t *end);
 uint32_t rman_make_alignment_flags(uint32_t size);
 int	rman_manage_region(struct rman *rm, rman_res_t start, rman_res_t end);
-int	rman_is_region_manager(struct resource *r, struct rman *rm);
+int	rman_is_region_manager(const struct resource *r, const struct rman *rm);
 int	rman_release_resource(struct resource *r);
 struct resource *rman_reserve_resource(struct rman *rm, rman_res_t start,
 					rman_res_t end, rman_res_t count,
 					u_int flags, device_t dev);
-struct resource *rman_reserve_resource_bound(struct rman *rm, rman_res_t start,
-					rman_res_t end, rman_res_t count, rman_res_t bound,
-					u_int flags, device_t dev);
 void	rman_set_bushandle(struct resource *_r, bus_space_handle_t _h);
 void	rman_set_bustag(struct resource *_r, bus_space_tag_t _t);
 void	rman_set_device(struct resource *_r, device_t _dev);
-void	rman_set_end(struct resource *_r, rman_res_t _end);
 void	rman_set_irq_cookie(struct resource *_r, void *_c);
 void	rman_set_mapping(struct resource *, struct resource_map *);
 void	rman_set_rid(struct resource *_r, int _rid);
-void	rman_set_start(struct resource *_r, rman_res_t _start);
+void	rman_set_type(struct resource *_r, int _type);
 void	rman_set_virtual(struct resource *_r, void *_v);
 
 extern	struct rman_head rman_head;

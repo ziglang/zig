@@ -25,8 +25,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *      from: @(#)proc.h        7.1 (Berkeley) 5/15/91
  *	from: FreeBSD: src/sys/i386/include/proc.h,v 1.11 2001/06/29
  */
 
@@ -37,6 +35,7 @@
 #ifndef	_MACHINE_PROC_H_
 #define	_MACHINE_PROC_H_
 
+#ifndef LOCORE
 struct ptrauth_key {
 	uint64_t pa_key_lo;
 	uint64_t pa_key_hi;
@@ -67,12 +66,21 @@ struct mdthread {
 		struct ptrauth_key apia;
 	} md_ptrauth_kern;
 
-	uint64_t md_reserved[4];
+	uint64_t md_efirt_tmp;
+	int md_efirt_dis_pf;
+
+	int md_reserved0;
+	uint64_t md_reserved[2];
 };
 
 struct mdproc {
-	long	md_dummy;
+	uint64_t md_tcr;		/* TCR_EL1 fields to update */
+	uint64_t md_reserved[2];
 };
+#endif /* !LOCORE */
+
+/* Fields that can be set in md_tcr */
+#define	MD_TCR_FIELDS			TCR_TBI0
 
 #define	KINFO_PROC_SIZE	1088
 #define	KINFO_PROC32_SIZE 816

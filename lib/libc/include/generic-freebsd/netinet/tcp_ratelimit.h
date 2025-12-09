@@ -94,6 +94,8 @@ CK_LIST_HEAD(head_tcp_rate_set, tcp_rate_set);
 #ifndef ETHERNET_SEGMENT_SIZE
 #define ETHERNET_SEGMENT_SIZE 1514
 #endif
+struct tcpcb;
+
 #ifdef RATELIMIT
 #define DETAILED_RATELIMIT_SYSCTL 1	/*
 					 * Undefine this if you don't want
@@ -130,6 +132,9 @@ tcp_get_pacing_burst_size_w_divisor(struct tcpcb *tp, uint64_t bw, uint32_t segs
 
 void
 tcp_rl_log_enobuf(const struct tcp_hwrate_limit_table *rte);
+
+void
+tcp_rl_release_ifnet(struct ifnet *ifp);
 
 #else
 static inline const struct tcp_hwrate_limit_table *
@@ -218,6 +223,10 @@ tcp_rl_log_enobuf(const struct tcp_hwrate_limit_table *rte)
 {
 }
 
+static inline void
+tcp_rl_release_ifnet(struct ifnet *ifp)
+{
+}
 #endif
 
 /*

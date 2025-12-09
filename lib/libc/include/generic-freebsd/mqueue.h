@@ -29,7 +29,6 @@
 #ifndef _MQUEUE_H_
 #define _MQUEUE_H_
 
-#include <sys/cdefs.h>
 #include <sys/types.h>
 #include <sys/mqueue.h>
 #include <sys/signal.h>

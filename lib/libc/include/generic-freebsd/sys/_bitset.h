@@ -36,7 +36,7 @@
  * Macros addressing word and bit within it, tuned to make compiler
  * optimize cases when SETSIZE fits into single machine word.
  */
-#define	_BITSET_BITS		(sizeof(long) * 8)
+#define	_BITSET_BITS		(sizeof(unsigned long) * 8)
 
 #define	__howmany(x, y)	(((x) + ((y) - 1)) / (y))
 
@@ -44,7 +44,7 @@
 
 #define	__BITSET_DEFINE(_t, _s)						\
 struct _t {								\
-        long    __bits[__bitset_words((_s))];				\
+        unsigned long    __bits[__bitset_words((_s))];			\
 }
 
 /*

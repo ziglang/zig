@@ -33,8 +33,6 @@
 
 #ifdef RPC_HDR
 %
-%/* #pragma ident	"@(#)rpcb_prot.x	1.5	94/04/29 SMI" */
-%
 %#ifndef _KERNEL
 %
 #endif

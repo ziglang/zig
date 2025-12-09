@@ -279,7 +279,7 @@ pub fn Alt(
 /// Helper for calling alternate format methods besides one named "format".
 pub fn alt(
     context: anytype,
-    comptime func_name: @TypeOf(.enum_literal),
+    comptime func_name: @EnumLiteral(),
 ) Alt(@TypeOf(context), @field(@TypeOf(context), @tagName(func_name))) {
     return .{ .data = context };
 }
@@ -1249,6 +1249,7 @@ test "vector" {
 
 test "enum-literal" {
     try expectFmt(".hello_world", "{}", .{.hello_world});
+    try expectFmt("hello_world", "{t}", .{.hello_world});
 }
 
 test "padding" {

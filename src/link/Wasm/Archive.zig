@@ -12,7 +12,7 @@ toc: Toc,
 
 /// Key points into `LazyArchive` `file_contents`.
 /// Value is allocated with gpa.
-const Toc = std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(u32));
+const Toc = std.StringArrayHashMapUnmanaged(std.ArrayList(u32));
 
 const ARMAG = std.elf.ARMAG;
 const ARFMAG = std.elf.ARFMAG;

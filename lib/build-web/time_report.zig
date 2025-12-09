@@ -254,7 +254,7 @@ pub fn runTestResultMessage(msg_bytes: []u8) error{OutOfMemory}!void {
     const durations: []align(1) const u64 = @ptrCast(trailing[0 .. hdr.tests_len * 8]);
     var offset: usize = hdr.tests_len * 8;
 
-    var table_html: std.ArrayListUnmanaged(u8) = .empty;
+    var table_html: std.ArrayList(u8) = .empty;
     defer table_html.deinit(gpa);
 
     for (durations) |test_ns| {

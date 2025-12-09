@@ -347,8 +347,6 @@ struct bbr_log_sysctl_out {
 /*
  * Locking for the rack control block.
  * a) Locked by INP_WLOCK
- * b) Locked by the hpts-mutex
- *
  */
 #define BBR_STATE_STARTUP   0x01
 #define BBR_STATE_DRAIN     0x02

@@ -29,6 +29,12 @@ pub fn writeBranchImm(disp: i28, code: *[4]u8) void {
     inst.write(code);
 }
 
+pub fn writeCondBrImm(disp: i19, code: *[4]u8) void {
+    var inst: encoding.Instruction = .read(code);
+    inst.branch_exception_generating_system.conditional_branch_immediate.group.imm19 = @intCast(@shrExact(disp, 2));
+    inst.write(code);
+}
+
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const math = std.math;

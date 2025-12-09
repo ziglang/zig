@@ -219,13 +219,6 @@ MALLOC_DECLARE(SCTP_M_MCORE);
 
 #define SCTP_FREE(var, type)	free(var, type)
 
-#define SCTP_MALLOC_SONAME(var, type, size) \
-	do { \
-		var = (type)malloc(size, M_SONAME, M_WAITOK | M_ZERO); \
-	} while (0)
-
-#define SCTP_FREE_SONAME(var)	free(var, M_SONAME)
-
 #define SCTP_PROCESS_STRUCT struct proc *
 
 /*
@@ -349,7 +342,7 @@ typedef struct callout sctp_os_timer_t;
                          } while(0)
 
 /* Other m_pkthdr type things */
-#define SCTP_IS_IT_BROADCAST(dst, m) ((m->m_flags & M_PKTHDR) ? in_broadcast(dst, m->m_pkthdr.rcvif) : 0)
+#define SCTP_IS_IT_BROADCAST(dst, m) ((m->m_flags & M_PKTHDR) ? in_ifnet_broadcast(dst, m->m_pkthdr.rcvif) : 0)
 #define SCTP_IS_IT_LOOPBACK(m) ((m->m_flags & M_PKTHDR) && ((m->m_pkthdr.rcvif == NULL) || (m->m_pkthdr.rcvif->if_type == IFT_LOOP)))
 
 /* This converts any input packet header

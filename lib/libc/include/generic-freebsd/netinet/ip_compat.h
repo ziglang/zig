@@ -2,8 +2,6 @@
  * Copyright (C) 2012 by Darren Reed.
  *
  * See the IPFILTER.LICENCE file for details on licencing.
- *
- * @(#)ip_compat.h	1.8 1/14/96
  * Id: ip_compat.h,v 2.142.2.57 2007/10/10 09:51:42 darrenr Exp $
  */
 
@@ -689,12 +687,6 @@ typedef	struct	tcpiphdr	tcpiphdr_t;
 #ifndef	IP_HL_A
 # define	IP_HL_A(x,y)	(x)->ip_hl = ((y) & 0xf)
 #endif
-#ifndef	TCP_X2
-# define	TCP_X2(x)	(x)->th_x2
-#endif
-#ifndef	TCP_X2_A
-# define	TCP_X2_A(x,y)	(x)->th_x2 = (y)
-#endif
 #ifndef	TCP_OFF
 # define	TCP_OFF(x)	(x)->th_off
 #endif
@@ -702,9 +694,6 @@ typedef	struct	tcpiphdr	tcpiphdr_t;
 # define	TCP_OFF_A(x,y)	(x)->th_off = (y)
 #endif
 #define	IPMINLEN(i, h)	((i)->ip_len >= (IP_HL(i) * 4 + sizeof(struct h)))
-
-#define	TCPF_ALL	(TH_FIN|TH_SYN|TH_RST|TH_PUSH|TH_ACK|TH_URG|\
-			 TH_ECN|TH_CWR)
 
 #if !SOLARIS && !defined(m_act)
 # define	m_act	m_nextpkt
@@ -1136,7 +1125,10 @@ typedef	struct	tcpiphdr	tcpiphdr_t;
 #ifndef TH_CWR
 # define	TH_CWR	0x80
 #endif
-#define	TH_ECNALL	(TH_ECN|TH_CWR)
+#ifndef TH_AE
+# define	TH_AE	0x100
+#endif
+#define	TH_ECNALL	(TH_ECN|TH_CWR|TH_AE)
 
 /*
  * TCP States

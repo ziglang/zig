@@ -66,12 +66,22 @@ struct ipcompstat {
 
 #ifdef _KERNEL
 #include <sys/counter.h>
+#include <netinet/in_kdtrace.h>
 
 VNET_DECLARE(int, ipcomp_enable);
 VNET_PCPUSTAT_DECLARE(struct ipcompstat, ipcompstat);
 
-#define	IPCOMPSTAT_ADD(name, val)	\
-    VNET_PCPUSTAT_ADD(struct ipcompstat, ipcompstat, name, (val))
+#define IPCOMPSTAT_ADD(name, val)                                              \
+	do {                                                                   \
+		MIB_SDT_PROBE1(ipcomp, count, name, (val));                    \
+		VNET_PCPUSTAT_ADD(struct ipcompstat, ipcompstat, name, (val)); \
+	} while (0)
+#define IPCOMPSTAT_INC2(name, type)                                          \
+	do {                                                                 \
+		MIB_SDT_PROBE2(ipcomp, count, name, 1, (type));              \
+		VNET_PCPUSTAT_ADD(struct ipcompstat, ipcompstat, name[type], \
+		    1);                                                      \
+	} while (0)
 #define	IPCOMPSTAT_INC(name)		IPCOMPSTAT_ADD(name, 1)
 #define	V_ipcomp_enable		VNET(ipcomp_enable)
 #endif /* _KERNEL */

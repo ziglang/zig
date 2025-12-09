@@ -31,8 +31,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	from: @(#)vm_param.h	8.1 (Berkeley) 6/11/93
- *
  *
  * Copyright (c) 1987, 1990 Carnegie-Mellon University.
  * All rights reserved.
@@ -113,14 +111,6 @@ struct xswdev {
 #define	KERN_NO_ACCESS		8
 #define	KERN_OUT_OF_BOUNDS	9
 #define	KERN_RESTART		10
-
-#ifndef PA_LOCK_COUNT
-#ifdef SMP
-#define	PA_LOCK_COUNT	32
-#else
-#define PA_LOCK_COUNT	1
-#endif	/* !SMP */
-#endif	/* !PA_LOCK_COUNT */
 
 #ifndef KSTACK_MAX_PAGES
 #define KSTACK_MAX_PAGES 32

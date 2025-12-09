@@ -312,6 +312,12 @@ void	 vnet_data_copy(void *start, int size);
 void	 vnet_data_free(void *start_arg, int size);
 
 /*
+ * Interfaces to manipulate the initial values of virtualized global variables.
+ */
+void    vnet_save_init(void *, size_t);
+void    vnet_restore_init(void *, size_t);
+
+/*
  * Virtual sysinit mechanism, allowing network stack components to declare
  * startup and shutdown methods to be run when virtual network stack
  * instances are created and destroyed.
@@ -400,7 +406,7 @@ do {									\
 #define	CURVNET_SET(arg)
 #define	CURVNET_SET_QUIET(arg)
 #define	CURVNET_RESTORE()
-#define	CURVNET_ASSERT_SET()						\
+#define	CURVNET_ASSERT_SET()
 
 #define	VNET_LIST_RLOCK()
 #define	VNET_LIST_RLOCK_NOSLEEP()

@@ -117,7 +117,7 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
 
             /// The extra data initialized by the `loop_analysis` pass for this pass to consume.
             /// Owned by this struct during this pass.
-            old_extra: std.ArrayListUnmanaged(u32) = .empty,
+            old_extra: std.ArrayList(u32) = .empty,
 
             const BlockScope = struct {
                 /// If this is a `block`, these instructions are alive upon a `br` to this block.
@@ -347,7 +347,7 @@ const Analysis = struct {
     intern_pool: *InternPool,
     tomb_bits: []usize,
     special: std.AutoHashMapUnmanaged(Air.Inst.Index, u32),
-    extra: std.ArrayListUnmanaged(u32),
+    extra: std.ArrayList(u32),
 
     fn addExtra(a: *Analysis, extra: anytype) Allocator.Error!u32 {
         const fields = std.meta.fields(@TypeOf(extra));
@@ -458,15 +458,10 @@ fn analyzeInst(
         .memset_safe,
         .memcpy,
         .memmove,
+        .legalize_vec_elem_val,
         => {
             const o = inst_datas[@intFromEnum(inst)].bin_op;
             return analyzeOperands(a, pass, data, inst, .{ o.lhs, o.rhs, .none });
-        },
-
-        .vector_store_elem => {
-            const o = inst_datas[@intFromEnum(inst)].vector_store_elem;
-            const extra = a.air.extraData(Air.Bin, o.payload).data;
-            return analyzeOperands(a, pass, data, inst, .{ o.vector_ptr, extra.lhs, extra.rhs });
         },
 
         .arg,
@@ -774,6 +769,30 @@ fn analyzeInst(
         .wasm_memory_grow => {
             const pl_op = inst_datas[@intFromEnum(inst)].pl_op;
             return analyzeOperands(a, pass, data, inst, .{ pl_op.operand, .none, .none });
+        },
+
+        .legalize_vec_store_elem => {
+            const pl_op = inst_datas[@intFromEnum(inst)].pl_op;
+            const bin = a.air.extraData(Air.Bin, pl_op.payload).data;
+            return analyzeOperands(a, pass, data, inst, .{ pl_op.operand, bin.lhs, bin.rhs });
+        },
+
+        .legalize_compiler_rt_call => {
+            const extra = a.air.extraData(Air.Call, inst_datas[@intFromEnum(inst)].legalize_compiler_rt_call.payload);
+            const args: []const Air.Inst.Ref = @ptrCast(a.air.extra.items[extra.end..][0..extra.data.args_len]);
+            if (args.len <= bpi - 1) {
+                var buf: [bpi - 1]Air.Inst.Ref = @splat(.none);
+                @memcpy(buf[0..args.len], args);
+                return analyzeOperands(a, pass, data, inst, buf);
+            }
+            var big = try AnalyzeBigOperands(pass).init(a, data, inst, args.len + 1);
+            defer big.deinit();
+            var i: usize = args.len;
+            while (i > 0) {
+                i -= 1;
+                try big.feed(args[i]);
+            }
+            return big.finish();
         },
     }
 }
@@ -1216,10 +1235,10 @@ fn analyzeInstCondBr(
             // Operands which are alive in one branch but not the other need to die at the start of
             // the peer branch.
 
-            var then_mirrored_deaths: std.ArrayListUnmanaged(Air.Inst.Index) = .empty;
+            var then_mirrored_deaths: std.ArrayList(Air.Inst.Index) = .empty;
             defer then_mirrored_deaths.deinit(gpa);
 
-            var else_mirrored_deaths: std.ArrayListUnmanaged(Air.Inst.Index) = .empty;
+            var else_mirrored_deaths: std.ArrayList(Air.Inst.Index) = .empty;
             defer else_mirrored_deaths.deinit(gpa);
 
             // Note: this invalidates `else_live`, but expands `then_live` to be their union
@@ -1332,7 +1351,7 @@ fn analyzeInstSwitchBr(
             // to understand it, I encourage looking at `analyzeInstCondBr` first.
 
             const DeathSet = std.AutoHashMapUnmanaged(Air.Inst.Index, void);
-            const DeathList = std.ArrayListUnmanaged(Air.Inst.Index);
+            const DeathList = std.ArrayList(Air.Inst.Index);
 
             var case_live_sets = try gpa.alloc(std.AutoHashMapUnmanaged(Air.Inst.Index, void), ncases + 1); // +1 for else
             defer gpa.free(case_live_sets);

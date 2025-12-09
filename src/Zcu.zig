@@ -4,9 +4,12 @@
 //!
 //! Each `Compilation` has exactly one or zero `Zcu`, depending on whether
 //! there is or is not any zig source code, respectively.
+const Zcu = @This();
+const builtin = @import("builtin");
 
 const std = @import("std");
-const builtin = @import("builtin");
+const Io = std.Io;
+const Writer = std.Io.Writer;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -15,9 +18,7 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Ast = std.zig.Ast;
-const Writer = std.Io.Writer;
 
-const Zcu = @This();
 const Compilation = @import("Compilation.zig");
 const Cache = std.Build.Cache;
 pub const Value = @import("Value.zig");
@@ -86,10 +87,10 @@ local_zir_cache: Cache.Directory,
 
 /// This is where all `Export` values are stored. Not all values here are necessarily valid exports;
 /// to enumerate all exports, `single_exports` and `multi_exports` must be consulted.
-all_exports: std.ArrayListUnmanaged(Export) = .empty,
+all_exports: std.ArrayList(Export) = .empty,
 /// This is a list of free indices in `all_exports`. These indices may be reused by exports from
 /// future semantic analysis.
-free_exports: std.ArrayListUnmanaged(Export.Index) = .empty,
+free_exports: std.ArrayList(Export.Index) = .empty,
 /// Maps from an `AnalUnit` which performs a single export, to the index into `all_exports` of
 /// the export it performs. Note that the key is not the `Decl` being exported, but the `AnalUnit`
 /// whose analysis triggered the export.
@@ -200,8 +201,8 @@ compile_logs: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
         };
     }
 }) = .empty,
-compile_log_lines: std.ArrayListUnmanaged(CompileLogLine) = .empty,
-free_compile_log_lines: std.ArrayListUnmanaged(CompileLogLine.Index) = .empty,
+compile_log_lines: std.ArrayList(CompileLogLine) = .empty,
+free_compile_log_lines: std.ArrayList(CompileLogLine.Index) = .empty,
 /// This tracks files which triggered errors when generating AST/ZIR/ZOIR.
 /// If not `null`, the value is a retryable error (the file status is guaranteed
 /// to be `.retryable_failure`). Otherwise, the file status is `.astgen_failure`
@@ -231,7 +232,7 @@ failed_files: std.AutoArrayHashMapUnmanaged(File.Index, ?[]u8) = .empty,
 /// semantic analysis this update.
 ///
 /// Allocated into gpa.
-failed_imports: std.ArrayListUnmanaged(struct {
+failed_imports: std.ArrayList(struct {
     file_index: File.Index,
     import_string: Zir.NullTerminatedString,
     import_token: Ast.TokenIndex,
@@ -260,7 +261,7 @@ outdated_ready: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .empty,
 /// failure was something like running out of disk space, and trying again may
 /// succeed. On the next update, we will flush this list, marking all members of
 /// it as outdated.
-retryable_failures: std.ArrayListUnmanaged(AnalUnit) = .empty,
+retryable_failures: std.ArrayList(AnalUnit) = .empty,
 
 func_body_analysis_queued: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty,
 nav_val_analysis_queued: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
@@ -289,12 +290,12 @@ global_assembly: std.AutoArrayHashMapUnmanaged(AnalUnit, []u8) = .empty,
 /// The `next` field on the `Reference` forms a linked list of all references
 /// triggered by the key `AnalUnit`.
 reference_table: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
-all_references: std.ArrayListUnmanaged(Reference) = .empty,
+all_references: std.ArrayList(Reference) = .empty,
 /// Freelist of indices in `all_references`.
-free_references: std.ArrayListUnmanaged(u32) = .empty,
+free_references: std.ArrayList(u32) = .empty,
 
-inline_reference_frames: std.ArrayListUnmanaged(InlineReferenceFrame) = .empty,
-free_inline_reference_frames: std.ArrayListUnmanaged(InlineReferenceFrame.Index) = .empty,
+inline_reference_frames: std.ArrayList(InlineReferenceFrame) = .empty,
+free_inline_reference_frames: std.ArrayList(InlineReferenceFrame.Index) = .empty,
 
 /// Key is the `AnalUnit` *performing* the reference. This representation allows
 /// incremental updates to quickly delete references caused by a specific `AnalUnit`.
@@ -302,9 +303,9 @@ free_inline_reference_frames: std.ArrayListUnmanaged(InlineReferenceFrame.Index)
 /// The `next` field on the `TypeReference` forms a linked list of all type references
 /// triggered by the key `AnalUnit`.
 type_reference_table: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
-all_type_references: std.ArrayListUnmanaged(TypeReference) = .empty,
+all_type_references: std.ArrayList(TypeReference) = .empty,
 /// Freelist of indices in `all_type_references`.
-free_type_references: std.ArrayListUnmanaged(u32) = .empty,
+free_type_references: std.ArrayList(u32) = .empty,
 
 /// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = s })`, where `s` depends on the element.
 builtin_decl_values: BuiltinDecl.Memoized = .initFill(.none),
@@ -345,7 +346,7 @@ pub const IncrementalDebugState = struct {
     pub const UnitInfo = struct {
         last_update_gen: u32,
         /// This information isn't easily recoverable from `InternPool`'s dependency storage format.
-        deps: std.ArrayListUnmanaged(InternPool.Dependee),
+        deps: std.ArrayList(InternPool.Dependee),
     };
     pub fn getUnitInfo(ids: *IncrementalDebugState, gpa: Allocator, unit: AnalUnit) Allocator.Error!*UnitInfo {
         const gop = try ids.units.getOrPut(gpa, unit);
@@ -415,10 +416,13 @@ pub const BuiltinDecl = enum {
     Type,
     @"Type.Fn",
     @"Type.Fn.Param",
+    @"Type.Fn.Param.Attributes",
+    @"Type.Fn.Attributes",
     @"Type.Int",
     @"Type.Float",
     @"Type.Pointer",
     @"Type.Pointer.Size",
+    @"Type.Pointer.Attributes",
     @"Type.Array",
     @"Type.Vector",
     @"Type.Optional",
@@ -426,10 +430,13 @@ pub const BuiltinDecl = enum {
     @"Type.ErrorUnion",
     @"Type.EnumField",
     @"Type.Enum",
+    @"Type.Enum.Mode",
     @"Type.Union",
     @"Type.UnionField",
+    @"Type.UnionField.Attributes",
     @"Type.Struct",
     @"Type.StructField",
+    @"Type.StructField.Attributes",
     @"Type.ContainerLayout",
     @"Type.Opaque",
     @"Type.Declaration",
@@ -494,10 +501,13 @@ pub const BuiltinDecl = enum {
             .Type,
             .@"Type.Fn",
             .@"Type.Fn.Param",
+            .@"Type.Fn.Param.Attributes",
+            .@"Type.Fn.Attributes",
             .@"Type.Int",
             .@"Type.Float",
             .@"Type.Pointer",
             .@"Type.Pointer.Size",
+            .@"Type.Pointer.Attributes",
             .@"Type.Array",
             .@"Type.Vector",
             .@"Type.Optional",
@@ -505,10 +515,13 @@ pub const BuiltinDecl = enum {
             .@"Type.ErrorUnion",
             .@"Type.EnumField",
             .@"Type.Enum",
+            .@"Type.Enum.Mode",
             .@"Type.Union",
             .@"Type.UnionField",
+            .@"Type.UnionField.Attributes",
             .@"Type.Struct",
             .@"Type.StructField",
+            .@"Type.StructField.Attributes",
             .@"Type.ContainerLayout",
             .@"Type.Opaque",
             .@"Type.Declaration",
@@ -811,10 +824,10 @@ pub const Namespace = struct {
     priv_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .empty,
     /// All `comptime` declarations in this namespace. We store these purely so that incremental
     /// compilation can re-use the existing `ComptimeUnit`s when a namespace changes.
-    comptime_decls: std.ArrayListUnmanaged(InternPool.ComptimeUnit.Id) = .empty,
+    comptime_decls: std.ArrayList(InternPool.ComptimeUnit.Id) = .empty,
     /// All `test` declarations in this namespace. We store these purely so that incremental
     /// compilation can re-use the existing `Nav`s when a namespace changes.
-    test_decls: std.ArrayListUnmanaged(InternPool.Nav.Index) = .empty,
+    test_decls: std.ArrayList(InternPool.Nav.Index) = .empty,
 
     pub const Index = InternPool.NamespaceIndex;
     pub const OptionalIndex = InternPool.OptionalNamespaceIndex;
@@ -924,8 +937,11 @@ pub const File = struct {
     /// allocated into `gpa`.
     path: Compilation.Path,
 
+    /// Populated only when emitting error messages; see `getSource`.
     source: ?[:0]const u8,
+    /// Populated only when emitting error messages; see `getTree`.
     tree: ?Ast,
+
     zir: ?Zir,
     zoir: ?Zoir,
 
@@ -1032,20 +1048,27 @@ pub const File = struct {
         }
     }
 
-    pub const Source = struct {
-        bytes: [:0]const u8,
-        stat: Cache.File.Stat,
-    };
+    pub const GetSourceError = error{
+        OutOfMemory,
+        FileChanged,
+    } || std.Io.File.OpenError || std.Io.File.Reader.Error;
 
-    pub const GetSourceError = error{ OutOfMemory, FileTooBig } || std.fs.File.OpenError || std.fs.File.ReadError;
-
-    pub fn getSource(file: *File, zcu: *const Zcu) GetSourceError!Source {
+    /// This must only be called in error conditions where `stat` *is* populated. It returns the
+    /// contents of the source file, assuming the stat has not changed since it was originally
+    /// loaded.
+    pub fn getSource(file: *File, zcu: *const Zcu) GetSourceError![:0]const u8 {
         const gpa = zcu.gpa;
+        const io = zcu.comp.io;
 
-        if (file.source) |source| return .{
-            .bytes = source,
-            .stat = file.stat,
-        };
+        if (file.source) |source| return source;
+
+        switch (file.status) {
+            .never_loaded => unreachable, // stat must be populated
+            .retryable_failure => unreachable, // stat must be populated
+            .astgen_failure, .success => {},
+        }
+
+        assert(file.stat.size <= std.math.maxInt(u32)); // `PerThread.updateFile` checks this
 
         var f = f: {
             const dir, const sub_path = file.path.openInfo(zcu.comp.dirs);
@@ -1053,40 +1076,43 @@ pub const File = struct {
         };
         defer f.close();
 
-        const stat = try f.stat();
+        const stat = f.stat() catch |err| switch (err) {
+            error.Streaming => {
+                // Since `file.stat` is populated, this was previously a file stream; since it is
+                // now not a file stream, it must have changed.
+                return error.FileChanged;
+            },
+            else => |e| return e,
+        };
 
-        if (stat.size > std.math.maxInt(u32))
-            return error.FileTooBig;
+        if (stat.inode != file.stat.inode or
+            stat.size != file.stat.size or
+            stat.mtime.nanoseconds != file.stat.mtime.nanoseconds)
+        {
+            return error.FileChanged;
+        }
 
-        const source = try gpa.allocSentinel(u8, @intCast(stat.size), 0);
+        const source = try gpa.allocSentinel(u8, @intCast(file.stat.size), 0);
         errdefer gpa.free(source);
 
-        var file_reader = f.reader(&.{});
+        var file_reader = f.reader(io, &.{});
         file_reader.size = stat.size;
         file_reader.interface.readSliceAll(source) catch return file_reader.err.?;
-
-        // Here we do not modify stat fields because this function is the one
-        // used for error reporting. We need to keep the stat fields stale so that
-        // updateFile can know to regenerate ZIR.
 
         file.source = source;
         errdefer comptime unreachable; // don't error after populating `source`
 
-        return .{
-            .bytes = source,
-            .stat = .{
-                .size = stat.size,
-                .inode = stat.inode,
-                .mtime = stat.mtime,
-            },
-        };
+        return source;
     }
 
+    /// This must only be called in error conditions where `stat` *is* populated. It returns the
+    /// parsed AST of the source file, assuming the stat has not changed since it was originally
+    /// loaded.
     pub fn getTree(file: *File, zcu: *const Zcu) GetSourceError!*const Ast {
         if (file.tree) |*tree| return tree;
 
         const source = try file.getSource(zcu);
-        file.tree = try .parse(zcu.gpa, source.bytes, file.getMode());
+        file.tree = try .parse(zcu.gpa, source, file.getMode());
         return &file.tree.?;
     }
 
@@ -1516,6 +1542,25 @@ pub const SrcLoc = struct {
                 };
                 return tree.nodeToSpan(src_node);
             },
+            .asm_input => |input| {
+                const tree = try src_loc.file_scope.getTree(zcu);
+                const node = input.offset.toAbsolute(src_loc.base_node);
+                const full = tree.fullAsm(node).?;
+                const asm_input = full.inputs[input.input_index];
+                return tree.nodeToSpan(tree.nodeData(asm_input).node_and_token[0]);
+            },
+            .asm_output => |output| {
+                const tree = try src_loc.file_scope.getTree(zcu);
+                const node = output.offset.toAbsolute(src_loc.base_node);
+                const full = tree.fullAsm(node).?;
+                const asm_output = full.outputs[output.output_index];
+                const data = tree.nodeData(asm_output).opt_node_and_token;
+                return if (data[0].unwrap()) |output_node|
+                    tree.nodeToSpan(output_node)
+                else
+                    // token points to the ')'
+                    tree.tokenToSpan(data[1] - 1);
+            },
             .for_input => |for_input| {
                 const tree = try src_loc.file_scope.getTree(zcu);
                 const node = for_input.for_node_offset.toAbsolute(src_loc.base_node);
@@ -1731,28 +1776,28 @@ pub const SrcLoc = struct {
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return tree.nodeToSpan(full.ast.align_expr.unwrap().?);
+                return tree.nodeToSpan(full.ast.align_expr.unwrap() orelse node);
             },
             .node_offset_fn_type_addrspace => |node_off| {
                 const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return tree.nodeToSpan(full.ast.addrspace_expr.unwrap().?);
+                return tree.nodeToSpan(full.ast.addrspace_expr.unwrap() orelse node);
             },
             .node_offset_fn_type_section => |node_off| {
                 const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return tree.nodeToSpan(full.ast.section_expr.unwrap().?);
+                return tree.nodeToSpan(full.ast.section_expr.unwrap() orelse node);
             },
             .node_offset_fn_type_cc => |node_off| {
                 const tree = try src_loc.file_scope.getTree(zcu);
                 const node = node_off.toAbsolute(src_loc.base_node);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return tree.nodeToSpan(full.ast.callconv_expr.unwrap().?);
+                return tree.nodeToSpan(full.ast.callconv_expr.unwrap() orelse node);
             },
 
             .node_offset_fn_type_ret_ty => |node_off| {
@@ -2481,6 +2526,18 @@ pub const LazySrcLoc = struct {
         /// The source location points to the operand of a `return` statement, or
         /// the `return` itself if there is no explicit operand.
         node_offset_return_operand: Ast.Node.Offset,
+        /// The source location points to an assembly input
+        asm_input: struct {
+            /// Points to the assembly node
+            offset: Ast.Node.Offset,
+            input_index: u32,
+        },
+        /// The source location points to an assembly output
+        asm_output: struct {
+            /// Points to the assembly node
+            offset: Ast.Node.Offset,
+            output_index: u32,
+        },
         /// The source location points to a for loop input.
         for_input: struct {
             /// Points to the for loop AST node.
@@ -2670,7 +2727,9 @@ pub const LazySrcLoc = struct {
                 .union_decl => zir.extraData(Zir.Inst.UnionDecl, inst.data.extended.operand).data.src_node,
                 .enum_decl => zir.extraData(Zir.Inst.EnumDecl, inst.data.extended.operand).data.src_node,
                 .opaque_decl => zir.extraData(Zir.Inst.OpaqueDecl, inst.data.extended.operand).data.src_node,
-                .reify => zir.extraData(Zir.Inst.Reify, inst.data.extended.operand).data.node,
+                .reify_enum => zir.extraData(Zir.Inst.ReifyEnum, inst.data.extended.operand).data.node,
+                .reify_struct => zir.extraData(Zir.Inst.ReifyStruct, inst.data.extended.operand).data.node,
+                .reify_union => zir.extraData(Zir.Inst.ReifyUnion, inst.data.extended.operand).data.node,
                 else => unreachable,
             },
             else => unreachable,
@@ -2727,9 +2786,11 @@ pub const LazySrcLoc = struct {
     }
 };
 
-pub const SemaError = error{ OutOfMemory, AnalysisFail };
+pub const SemaError = error{ OutOfMemory, Canceled, AnalysisFail };
 pub const CompileError = error{
     OutOfMemory,
+    /// The compilation update is no longer desired.
+    Canceled,
     /// When this is returned, the compile error for the failure has already been recorded.
     AnalysisFail,
     /// In a comptime scope, a return instruction was encountered. This error is only seen when
@@ -2859,9 +2920,9 @@ comptime {
     }
 }
 
-pub fn loadZirCache(gpa: Allocator, cache_file: std.fs.File) !Zir {
+pub fn loadZirCache(gpa: Allocator, io: Io, cache_file: std.fs.File) !Zir {
     var buffer: [2000]u8 = undefined;
-    var file_reader = cache_file.reader(&buffer);
+    var file_reader = cache_file.reader(io, &buffer);
     return result: {
         const header = file_reader.interface.takeStructPointer(Zir.Header) catch |err| break :result err;
         break :result loadZirCacheBody(gpa, header.*, &file_reader.interface);
@@ -2871,7 +2932,7 @@ pub fn loadZirCache(gpa: Allocator, cache_file: std.fs.File) !Zir {
     };
 }
 
-pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_br: *std.Io.Reader) !Zir {
+pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_br: *Io.Reader) !Zir {
     var instructions: std.MultiArrayList(Zir.Inst) = .{};
     errdefer instructions.deinit(gpa);
 
@@ -2940,7 +3001,7 @@ pub fn saveZirCache(gpa: Allocator, cache_file: std.fs.File, stat: std.fs.File.S
 
         .stat_size = stat.size,
         .stat_inode = stat.inode,
-        .stat_mtime = stat.mtime,
+        .stat_mtime = stat.mtime.toNanoseconds(),
     };
     var vecs = [_][]const u8{
         @ptrCast((&header)[0..1]),
@@ -2969,7 +3030,7 @@ pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir
 
         .stat_size = stat.size,
         .stat_inode = stat.inode,
-        .stat_mtime = stat.mtime,
+        .stat_mtime = stat.mtime.toNanoseconds(),
     };
     var vecs = [_][]const u8{
         @ptrCast((&header)[0..1]),
@@ -2988,7 +3049,7 @@ pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir
     };
 }
 
-pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_br: *std.Io.Reader) !Zoir {
+pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_br: *Io.Reader) !Zoir {
     var zoir: Zoir = .{
         .nodes = .empty,
         .extra = &.{},
@@ -3278,7 +3339,7 @@ pub fn mapOldZirToNew(
         old_inst: Zir.Inst.Index,
         new_inst: Zir.Inst.Index,
     };
-    var match_stack: std.ArrayListUnmanaged(MatchedZirDecl) = .empty;
+    var match_stack: std.ArrayList(MatchedZirDecl) = .empty;
     defer match_stack.deinit(gpa);
 
     // Used as temporary buffers for namespace declaration instructions
@@ -3344,10 +3405,10 @@ pub fn mapOldZirToNew(
         var named_decltests: std.StringHashMapUnmanaged(Zir.Inst.Index) = .empty;
         defer named_decltests.deinit(gpa);
         // All unnamed tests, in order, for a best-effort match.
-        var unnamed_tests: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
+        var unnamed_tests: std.ArrayList(Zir.Inst.Index) = .empty;
         defer unnamed_tests.deinit(gpa);
         // All comptime declarations, in order, for a best-effort match.
-        var comptime_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .empty;
+        var comptime_decls: std.ArrayList(Zir.Inst.Index) = .empty;
         defer comptime_decls.deinit(gpa);
 
         {
@@ -4283,7 +4344,7 @@ const FormatAnalUnit = struct {
     zcu: *Zcu,
 };
 
-fn formatAnalUnit(data: FormatAnalUnit, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+fn formatAnalUnit(data: FormatAnalUnit, writer: *Io.Writer) Io.Writer.Error!void {
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.unit.unwrap()) {
@@ -4309,7 +4370,7 @@ fn formatAnalUnit(data: FormatAnalUnit, writer: *std.Io.Writer) std.Io.Writer.Er
 
 const FormatDependee = struct { dependee: InternPool.Dependee, zcu: *Zcu };
 
-fn formatDependee(data: FormatDependee, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+fn formatDependee(data: FormatDependee, writer: *Io.Writer) Io.Writer.Error!void {
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.dependee) {
@@ -4622,7 +4683,7 @@ pub fn addFileInMultipleModulesError(
         info.modules[1].fully_qualified_name,
     });
 
-    var notes: std.ArrayListUnmanaged(std.zig.ErrorBundle.MessageIndex) = .empty;
+    var notes: std.ArrayList(std.zig.ErrorBundle.MessageIndex) = .empty;
     defer notes.deinit(gpa);
 
     try notes.append(gpa, try eb.addErrorMessage(.{
@@ -4646,7 +4707,7 @@ pub fn addFileInMultipleModulesError(
 fn explainWhyFileIsInModule(
     zcu: *Zcu,
     eb: *std.zig.ErrorBundle.Wip,
-    notes_out: *std.ArrayListUnmanaged(std.zig.ErrorBundle.MessageIndex),
+    notes_out: *std.ArrayList(std.zig.ErrorBundle.MessageIndex),
     file: File.Index,
     in_module: *Package.Module,
     ref: File.Reference,

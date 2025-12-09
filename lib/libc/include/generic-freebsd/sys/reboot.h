@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)reboot.h	8.3 (Berkeley) 12/13/94
  */
 
 #ifndef _SYS_REBOOT_H_
@@ -62,6 +60,7 @@
 #define	RB_PAUSE	0x100000 /* pause after each output line during probe */
 #define	RB_REROOT	0x200000 /* unmount the rootfs and mount it again */
 #define	RB_POWERCYCLE	0x400000 /* Power cycle if possible */
+#define	RB_MUTEMSGS	0x800000 /* start up with console muted after banner */
 #define	RB_PROBE	0x10000000	/* Probe multiple consoles */
 #define	RB_MULTIPLE	0x20000000	/* use multiple consoles */
 

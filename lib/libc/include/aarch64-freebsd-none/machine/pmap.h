@@ -63,10 +63,13 @@ void pmap_page_set_memattr(vm_page_t m, vm_memattr_t ma);
  * Pmap stuff
  */
 
+struct rangeset;
+
 struct md_page {
 	TAILQ_HEAD(,pv_entry)	pv_list;
 	int			pv_gen;
 	vm_memattr_t		pv_memattr;
+	uint8_t			pv_reserve[3];
 };
 
 enum pmap_stage {
@@ -87,7 +90,8 @@ struct pmap {
 	struct asid_set		*pm_asid_set;	/* The ASID/VMID set to use */
 	enum pmap_stage		pm_stage;
 	int			pm_levels;
-	uint64_t		pm_reserved[4];
+	struct rangeset		*pm_bti;
+	uint64_t		pm_reserved[3];
 };
 typedef struct pmap *pmap_t;
 
@@ -97,6 +101,8 @@ struct thread;
 extern struct pmap	kernel_pmap_store;
 #define	kernel_pmap	(&kernel_pmap_store)
 #define	pmap_kernel()	kernel_pmap
+
+extern bool		pmap_lpa_enabled;
 
 #define	PMAP_ASSERT_LOCKED(pmap) \
 				mtx_assert(&(pmap)->pm_mtx, MA_OWNED)
@@ -124,6 +130,8 @@ extern struct pmap	kernel_pmap_store;
 extern vm_offset_t virtual_avail;
 extern vm_offset_t virtual_end;
 
+extern pt_entry_t pmap_sh_attr;
+
 /*
  * Macros to test if a mapping is mappable with an L1 Section mapping
  * or an L2 Large Page mapping.
@@ -134,7 +142,8 @@ extern vm_offset_t virtual_end;
 #define	pmap_vm_page_alloc_check(m)
 
 void	pmap_activate_vm(pmap_t);
-void	pmap_bootstrap(vm_size_t);
+void	pmap_bootstrap_dmap(vm_size_t);
+void	pmap_bootstrap(void);
 int	pmap_change_attr(vm_offset_t va, vm_size_t size, int mode);
 int	pmap_change_prot(vm_offset_t va, vm_size_t size, vm_prot_t prot);
 void	pmap_kenter(vm_offset_t sva, vm_size_t size, vm_paddr_t pa, int mode);
@@ -166,18 +175,17 @@ int	pmap_fault(pmap_t, uint64_t, uint64_t);
 
 struct pcb *pmap_switch(struct thread *);
 
+void	pmap_s1_invalidate_all_kernel(void);
+
 extern void (*pmap_clean_stage2_tlbi)(void);
-extern void (*pmap_invalidate_vpipt_icache)(void);
 extern void (*pmap_stage2_invalidate_range)(uint64_t, vm_offset_t, vm_offset_t,
     bool);
 extern void (*pmap_stage2_invalidate_all)(uint64_t);
 
-static inline int
-pmap_vmspace_copy(pmap_t dst_pmap __unused, pmap_t src_pmap __unused)
-{
+int pmap_vmspace_copy(pmap_t, pmap_t);
 
-	return (0);
-}
+int pmap_bti_set(pmap_t, vm_offset_t, vm_offset_t);
+int pmap_bti_clear(pmap_t, vm_offset_t, vm_offset_t);
 
 #if defined(KASAN) || defined(KMSAN)
 struct arm64_bootparams;

@@ -30,8 +30,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	from: @(#)vmparam.h     5.9 (Berkeley) 5/12/91
  *	from: FreeBSD: src/sys/i386/include/vmparam.h,v 1.33 2000/03/30
  */
 
@@ -211,8 +209,6 @@
 #define	PS_STRINGS_SV39		(USRSTACK_SV39 - sizeof(struct ps_strings))
 #define	PS_STRINGS_SV48		(USRSTACK_SV48 - sizeof(struct ps_strings))
 
-#define	VM_EARLY_DTB_ADDRESS	(VM_MAX_KERNEL_ADDRESS - (2 * L2_SIZE))
-
 /*
  * How many physical pages per kmem arena virtual page.
  */
@@ -236,19 +232,22 @@
 #define	VM_INITIAL_PAGEIN	16
 #endif
 
-#define	UMA_MD_SMALL_ALLOC
+#define UMA_USE_DMAP
 
 #ifndef LOCORE
 extern vm_paddr_t dmap_phys_base;
 extern vm_paddr_t dmap_phys_max;
 extern vm_offset_t dmap_max_addr;
-extern vm_offset_t init_pt_va;
 #endif
 
 #define	ZERO_REGION_SIZE	(64 * 1024)	/* 64KB */
 
+/*
+ * The top of KVA is reserved for early device mappings.
+ */
 #define	DEVMAP_MAX_VADDR	VM_MAX_KERNEL_ADDRESS
-#define	PMAP_MAPDEV_EARLY_SIZE	L2_SIZE
+#define	DEVMAP_MIN_VADDR	(DEVMAP_MAX_VADDR - PMAP_MAPDEV_EARLY_SIZE)
+#define	PMAP_MAPDEV_EARLY_SIZE	(4 * L2_SIZE)
 
 /*
  * No non-transparent large page support in the pmap.
@@ -259,5 +258,6 @@ extern vm_offset_t init_pt_va;
  * Need a page dump array for minidump.
  */
 #define MINIDUMP_PAGE_TRACKING	1
+#define MINIDUMP_STARTUP_PAGE_TRACKING 1
 
 #endif /* !_MACHINE_VMPARAM_H_ */

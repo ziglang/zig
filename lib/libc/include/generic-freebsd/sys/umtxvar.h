@@ -206,6 +206,7 @@ int umtx_key_get(const void *, int, int, struct umtx_key *);
 void umtx_key_release(struct umtx_key *);
 struct umtx_q *umtxq_alloc(void);
 void umtxq_busy(struct umtx_key *);
+void umtxq_busy_unlocked(struct umtx_key *);
 int umtxq_count(struct umtx_key *);
 void umtxq_free(struct umtx_q *);
 struct umtxq_chain *umtxq_getchain(struct umtx_key *);

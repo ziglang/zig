@@ -363,7 +363,7 @@ pub const Token = union(enum) {
     };
 
     /// Resolve escapes in target or prereq. Only valid with .target_must_resolve or .prereq_must_resolve.
-    pub fn resolve(self: Token, gpa: Allocator, list: *std.ArrayListUnmanaged(u8)) error{OutOfMemory}!void {
+    pub fn resolve(self: Token, gpa: Allocator, list: *std.ArrayList(u8)) error{OutOfMemory}!void {
         switch (self) {
             .target_must_resolve => |bytes| {
                 var state: enum { start, escape, dollar } = .start;
@@ -429,7 +429,7 @@ pub const Token = union(enum) {
         }
     }
 
-    pub fn printError(self: Token, gpa: Allocator, list: *std.ArrayListUnmanaged(u8)) error{OutOfMemory}!void {
+    pub fn printError(self: Token, gpa: Allocator, list: *std.ArrayList(u8)) error{OutOfMemory}!void {
         switch (self) {
             .target, .target_must_resolve, .prereq, .prereq_must_resolve => unreachable, // not an error
             .incomplete_quoted_prerequisite,
@@ -1027,8 +1027,8 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
     defer arena_allocator.deinit();
 
     var it: Tokenizer = .{ .bytes = input };
-    var buffer: std.ArrayListUnmanaged(u8) = .empty;
-    var resolve_buf: std.ArrayListUnmanaged(u8) = .empty;
+    var buffer: std.ArrayList(u8) = .empty;
+    var resolve_buf: std.ArrayList(u8) = .empty;
     var i: usize = 0;
     while (it.next()) |token| {
         if (i != 0) try buffer.appendSlice(arena, "\n");
@@ -1076,11 +1076,11 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
     try testing.expectEqualStrings(expect, buffer.items);
 }
 
-fn printCharValues(gpa: Allocator, list: *std.ArrayListUnmanaged(u8), bytes: []const u8) !void {
+fn printCharValues(gpa: Allocator, list: *std.ArrayList(u8), bytes: []const u8) !void {
     for (bytes) |b| try list.append(gpa, printable_char_tab[b]);
 }
 
-fn printUnderstandableChar(gpa: Allocator, list: *std.ArrayListUnmanaged(u8), char: u8) !void {
+fn printUnderstandableChar(gpa: Allocator, list: *std.ArrayList(u8), char: u8) !void {
     if (std.ascii.isPrint(char)) {
         try list.print(gpa, "'{c}'", .{char});
     } else {

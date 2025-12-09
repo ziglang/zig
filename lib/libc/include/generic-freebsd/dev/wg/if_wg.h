@@ -32,4 +32,10 @@ struct wg_data_io {
 #define SIOCSWG _IOWR('i', 210, struct wg_data_io)
 #define SIOCGWG _IOWR('i', 211, struct wg_data_io)
 
+
+/* Keep these in sync with wireguard-tools:containers.h */
+#define WGALLOWEDIP_REMOVE_ME		0x0001
+
+#define WGALLOWEDIP_VALID_FLAGS		WGALLOWEDIP_REMOVE_ME
+
 #endif /* __IF_WG_H__ */

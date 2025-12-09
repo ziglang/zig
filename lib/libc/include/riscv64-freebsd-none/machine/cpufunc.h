@@ -44,6 +44,8 @@ breakpoint(void)
 
 #ifdef _KERNEL
 
+#include <sys/_null.h>
+
 #include <machine/riscvreg.h>
 
 static __inline register_t
@@ -102,21 +104,62 @@ sfence_vma_page(uintptr_t addr)
 	__asm __volatile("sfence.vma %0" :: "r" (addr) : "memory");
 }
 
+static __inline void
+sfence_vma_asid(uint64_t asid)
+{
+
+	__asm __volatile("sfence.vma x0, %0" :: "r" (asid) : "memory");
+}
+
+static __inline void
+sfence_vma_asid_page(uint64_t asid, uintptr_t addr)
+{
+
+	__asm __volatile("sfence.vma %0, %1" :: "r" (addr), "r" (asid)
+	    : "memory");
+}
+
 #define	rdcycle()			csr_read64(cycle)
 #define	rdtime()			csr_read64(time)
 #define	rdinstret()			csr_read64(instret)
 #define	rdhpmcounter(n)			csr_read64(hpmcounter##n)
 
+/* Cache hooks. */
+
 extern int64_t dcache_line_size;
-extern int64_t icache_line_size;
 
-#define	cpu_dcache_wbinv_range(a, s)
-#define	cpu_dcache_inv_range(a, s)
-#define	cpu_dcache_wb_range(a, s)
+typedef void (*cache_op_t)(vm_offset_t start, vm_size_t size);
 
-#define	cpu_idcache_wbinv_range(a, s)
-#define	cpu_icache_sync_range(a, s)
-#define	cpu_icache_sync_range_checked(a, s)
+struct riscv_cache_ops {
+	cache_op_t dcache_wbinv_range;
+	cache_op_t dcache_inv_range;
+	cache_op_t dcache_wb_range;
+};
+
+extern struct riscv_cache_ops cache_ops;
+
+static __inline void
+cpu_dcache_wbinv_range(vm_offset_t addr, vm_size_t size)
+{
+	if (cache_ops.dcache_wbinv_range != NULL)
+		cache_ops.dcache_wbinv_range(addr, size);
+}
+
+static __inline void
+cpu_dcache_inv_range(vm_offset_t addr, vm_size_t size)
+{
+	if (cache_ops.dcache_inv_range != NULL)
+		cache_ops.dcache_inv_range(addr, size);
+}
+
+static __inline void
+cpu_dcache_wb_range(vm_offset_t addr, vm_size_t size)
+{
+	if (cache_ops.dcache_wb_range != NULL)
+		cache_ops.dcache_wb_range(addr, size);
+}
+
+void riscv_cache_install_hooks(struct riscv_cache_ops *, u_int);
 
 #define	cpufunc_nullop()		riscv_nullop()
 

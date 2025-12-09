@@ -89,30 +89,25 @@ int ctf_do_queued_segments(struct tcpcb *tp, int have_pkt);
 uint32_t ctf_outstanding(struct tcpcb *tp);
 uint32_t ctf_flight_size(struct tcpcb *tp, uint32_t rc_sacked);
 int
-_ctf_drop_checks(struct tcpopt *to, struct mbuf *m, struct tcphdr *th,
+ctf_drop_checks(struct tcpopt *to, struct mbuf *m, struct tcphdr *th,
     struct tcpcb *tp, int32_t *tlenp,
-    int32_t *thf, int32_t *drop_hdrlen, int32_t *ret_val,
-    uint32_t *ts, uint32_t *cnt);
-void ctf_ack_war_checks(struct tcpcb *tp, uint32_t *ts, uint32_t *cnt);
-#define ctf_drop_checks(a, b, c, d, e, f, g, h) _ctf_drop_checks(a, b, c, d, e, f, g, h, NULL, NULL)
+    int32_t *thf, int32_t *drop_hdrlen, int32_t *ret_val);
+void ctf_ack_war_checks(struct tcpcb *tp);
 
 void
-__ctf_do_dropafterack(struct mbuf *m, struct tcpcb *tp,
+ctf_do_dropafterack(struct mbuf *m, struct tcpcb *tp,
       struct tcphdr *th, int32_t thflags, int32_t tlen,
-      int32_t *ret_val, uint32_t *ts, uint32_t *cnt);
-
-#define ctf_do_dropafterack(a, b, c, d, e, f) __ctf_do_dropafterack(a, b, c, d, e, f, NULL, NULL)
+      int32_t *ret_val);
 
 void
 ctf_do_dropwithreset(struct mbuf *m, struct tcpcb *tp,
-	struct tcphdr *th, int32_t rstreason, int32_t tlen);
+	struct tcphdr *th, int32_t tlen);
 void
 ctf_do_drop(struct mbuf *m, struct tcpcb *tp);
 
 int
-__ctf_process_rst(struct mbuf *m, struct tcphdr *th,
-      struct socket *so, struct tcpcb *tp, uint32_t *ts, uint32_t *cnt);
-#define ctf_process_rst(m, t, s, p) __ctf_process_rst(m, t, s, p, NULL, NULL)
+ctf_process_rst(struct mbuf *m, struct tcphdr *th,
+      struct socket *so, struct tcpcb *tp);
 
 void
 ctf_challenge_ack(struct mbuf *m, struct tcphdr *th,
@@ -130,7 +125,7 @@ ctf_calc_rwin(struct socket *so, struct tcpcb *tp);
 
 void
 ctf_do_dropwithreset_conn(struct mbuf *m, struct tcpcb *tp, struct tcphdr *th,
-    int32_t rstreason, int32_t tlen);
+    int32_t tlen);
 
 uint32_t
 ctf_fixed_maxseg(struct tcpcb *tp);

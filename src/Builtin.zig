@@ -360,7 +360,7 @@ pub fn updateFileOnDisk(file: *File, comp: *Compilation) !void {
     file.stat = .{
         .size = file.source.?.len,
         .inode = 0, // dummy value
-        .mtime = 0, // dummy value
+        .mtime = .zero, // dummy value
     };
 }
 

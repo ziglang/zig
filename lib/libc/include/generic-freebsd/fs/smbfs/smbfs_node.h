@@ -93,7 +93,7 @@ u_int32_t smbfs_hash(const u_char *name, int nmlen);
 
 int  smbfs_getpages(struct vop_getpages_args *);
 int  smbfs_putpages(struct vop_putpages_args *);
-int  smbfs_readvnode(struct vnode *vp, struct uio *uiop, struct ucred *cred);
+int  smbfs_readvnode(struct vnode *vp, struct uio *uiop, struct ucred *cred, int *eofp);
 int  smbfs_writevnode(struct vnode *vp, struct uio *uiop, struct ucred *cred, int ioflag);
 void smbfs_attr_cacheenter(struct vnode *vp, struct smbfattr *fap);
 int  smbfs_attr_cachelookup(struct vnode *vp ,struct vattr *va);

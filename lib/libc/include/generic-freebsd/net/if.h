@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)if.h	8.1 (Berkeley) 6/10/93
  */
 
 #ifndef _NET_IF_H_
@@ -257,7 +255,8 @@ struct if_data {
 #define	IFCAP_B_TXTLS_RTLMT	31 /* can do TLS with rate limiting */
 #define	IFCAP_B_RXTLS4		32 /* can to TLS receive for TCP */
 #define	IFCAP_B_RXTLS6		33 /* can to TLS receive for TCP6 */
-#define	__IFCAP_B_SIZE		34
+#define	IFCAP_B_IPSEC_OFFLOAD	34 /* inline IPSEC offload */
+#define	__IFCAP_B_SIZE		35
 
 #define	IFCAP_B_MAX	(__IFCAP_B_MAX - 1)
 #define	IFCAP_B_SIZE	(__IFCAP_B_SIZE)
@@ -300,6 +299,7 @@ struct if_data {
 /* IFCAP2_* are integers, not bits. */
 #define	IFCAP2_RXTLS4		(IFCAP_B_RXTLS4 - 32)
 #define	IFCAP2_RXTLS6		(IFCAP_B_RXTLS6 - 32)
+#define	IFCAP2_IPSEC_OFFLOAD	(IFCAP_B_IPSEC_OFFLOAD - 32)
 
 #define	IFCAP2_BIT(x)		(1UL << (x))
 

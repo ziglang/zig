@@ -45,12 +45,6 @@
 %#include <sys/errno.h>
 %#include <sys/param.h>
 %#include <sys/syslimits.h>
-#else
-%#ifndef lint
-%/*static char sccsid[] = "from: @(#)bootparam_prot.x 1.2 87/06/24 Copyr 1987 Sun Micro";*/
-%/*static char sccsid[] = "from: @(#)bootparam_prot.x	2.1 88/08/01 4.0 RPCSRC";*/
-%#endif /* not lint */
-%#include <sys/cdefs.h>
 #endif
 
 const MAX_MACHINE_NAME  = 255;

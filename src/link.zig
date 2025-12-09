@@ -1,19 +1,22 @@
-const std = @import("std");
-const build_options = @import("build_options");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
+
+const std = @import("std");
+const Io = std.Io;
 const assert = std.debug.assert;
 const fs = std.fs;
 const mem = std.mem;
 const log = std.log.scoped(.link);
-const trace = @import("tracy.zig").trace;
-const wasi_libc = @import("libs/wasi_libc.zig");
-
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 const Path = std.Build.Cache.Path;
 const Directory = std.Build.Cache.Directory;
 const Compilation = @import("Compilation.zig");
 const LibCInstallation = std.zig.LibCInstallation;
+
+const trace = @import("tracy.zig").trace;
+const wasi_libc = @import("libs/wasi_libc.zig");
+
 const Zcu = @import("Zcu.zig");
 const InternPool = @import("InternPool.zig");
 const Type = @import("Type.zig");
@@ -32,9 +35,9 @@ pub const Diags = struct {
     /// needing an allocator for things besides error reporting.
     gpa: Allocator,
     mutex: std.Thread.Mutex,
-    msgs: std.ArrayListUnmanaged(Msg),
+    msgs: std.ArrayList(Msg),
     flags: Flags,
-    lld: std.ArrayListUnmanaged(Lld),
+    lld: std.ArrayList(Lld),
 
     pub const SourceLocation = union(enum) {
         none,
@@ -48,10 +51,7 @@ pub const Diags = struct {
 
         const Int = blk: {
             const bits = @typeInfo(@This()).@"struct".fields.len;
-            break :blk @Type(.{ .int = .{
-                .signedness = .unsigned,
-                .bits = bits,
-            } });
+            break :blk @Int(.unsigned, bits);
         };
 
         pub fn anySet(ef: Flags) bool {
@@ -425,7 +425,7 @@ pub const File = struct {
         tsaware: bool,
         nxcompat: bool,
         dynamicbase: bool,
-        compress_debug_sections: Lld.Elf.CompressDebugSections,
+        compress_debug_sections: std.zig.CompressDebugSections,
         bind_global_refs_locally: bool,
         import_symbols: bool,
         import_table: bool,
@@ -445,7 +445,7 @@ pub const File = struct {
         allow_shlib_undefined: ?bool,
         allow_undefined_version: bool,
         enable_new_dtags: ?bool,
-        subsystem: ?std.Target.SubSystem,
+        subsystem: ?std.zig.Subsystem,
         linker_script: ?[]const u8,
         version_script: ?[]const u8,
         soname: ?[]const u8,
@@ -568,10 +568,31 @@ pub const File = struct {
         return if (dev.env.supports(tag.devFeature()) and base.tag == tag) @fieldParentPtr("base", base) else null;
     }
 
+    pub fn startProgress(base: *File, prog_node: std.Progress.Node) void {
+        switch (base.tag) {
+            else => {},
+            inline .elf2, .coff2 => |tag| {
+                dev.check(tag.devFeature());
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).startProgress(prog_node);
+            },
+        }
+    }
+
+    pub fn endProgress(base: *File) void {
+        switch (base.tag) {
+            else => {},
+            inline .elf2, .coff2 => |tag| {
+                dev.check(tag.devFeature());
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).endProgress();
+            },
+        }
+    }
+
     pub fn makeWritable(base: *File) !void {
         dev.check(.make_writable);
         const comp = base.comp;
         const gpa = comp.gpa;
+        const io = comp.io;
         switch (base.tag) {
             .lld => assert(base.file == null),
             .elf, .macho, .wasm => {
@@ -596,7 +617,7 @@ pub const File = struct {
                             .linux => std.posix.ptrace(std.os.linux.PTRACE.ATTACH, pid, 0, 0) catch |err| {
                                 log.warn("ptrace failure: {s}", .{@errorName(err)});
                             },
-                            .macos => {
+                            .maccatalyst, .macos => {
                                 const macho_file = base.cast(.macho).?;
                                 macho_file.ptraceAttach(pid) catch |err| {
                                     log.warn("attaching failed with error: {s}", .{@errorName(err)});
@@ -616,23 +637,10 @@ pub const File = struct {
                     &coff.mf
                 else
                     unreachable;
-                var attempt: u5 = 0;
-                mf.file = while (true) break base.emit.root_dir.handle.openFile(base.emit.sub_path, .{
+                mf.file = try base.emit.root_dir.handle.adaptToNewApi().openFile(io, base.emit.sub_path, .{
                     .mode = .read_write,
-                }) catch |err| switch (err) {
-                    error.AccessDenied => switch (builtin.os.tag) {
-                        .windows => {
-                            if (attempt == 13) return error.AccessDenied;
-                            // give the kernel a chance to finish closing the executable handle
-                            std.os.windows.kernel32.Sleep(@as(u32, 1) << attempt >> 1);
-                            attempt += 1;
-                            continue;
-                        },
-                        else => return error.AccessDenied,
-                    },
-                    else => |e| return e,
-                };
-                base.file = mf.file;
+                });
+                base.file = .adaptFromNewApi(mf.file);
                 try mf.ensureTotalCapacity(@intCast(mf.nodes.items[0].location().resolve(mf)[1]));
             },
             .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
@@ -657,6 +665,7 @@ pub const File = struct {
     pub fn makeExecutable(base: *File) !void {
         dev.check(.make_executable);
         const comp = base.comp;
+        const io = comp.io;
         switch (comp.config.output_mode) {
             .Obj => return,
             .Lib => switch (comp.config.link_mode) {
@@ -688,7 +697,7 @@ pub const File = struct {
 
                 if (base.child_pid) |pid| {
                     switch (builtin.os.tag) {
-                        .macos => {
+                        .maccatalyst, .macos => {
                             const macho_file = base.cast(.macho).?;
                             macho_file.ptraceDetach(pid) catch |err| {
                                 log.warn("detaching failed with error: {s}", .{@errorName(err)});
@@ -707,8 +716,8 @@ pub const File = struct {
                     unreachable;
                 mf.unmap();
                 assert(mf.file.handle == f.handle);
+                mf.file.close(io);
                 mf.file = undefined;
-                f.close();
                 base.file = null;
             },
             .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
@@ -1057,7 +1066,7 @@ pub const File = struct {
             errdefer archive.file.close();
             loadInput(base, .{ .archive = archive }) catch |err| switch (err) {
                 error.BadMagic, error.UnexpectedEndOfFile => {
-                    if (base.tag != .elf) return err;
+                    if (base.tag != .elf and base.tag != .elf2) return err;
                     try loadGnuLdScript(base, path, query, archive.file);
                     archive.file.close();
                     return;
@@ -1079,7 +1088,7 @@ pub const File = struct {
         errdefer dso.file.close();
         loadInput(base, .{ .dso = dso }) catch |err| switch (err) {
             error.BadMagic, error.UnexpectedEndOfFile => {
-                if (base.tag != .elf) return err;
+                if (base.tag != .elf and base.tag != .elf2) return err;
                 try loadGnuLdScript(base, path, query, dso.file);
                 dso.file.close();
                 return;
@@ -1089,8 +1098,9 @@ pub const File = struct {
     }
 
     fn loadGnuLdScript(base: *File, path: Path, parent_query: UnresolvedInput.Query, file: fs.File) anyerror!void {
-        const diags = &base.comp.link_diags;
-        const gpa = base.comp.gpa;
+        const comp = base.comp;
+        const diags = &comp.link_diags;
+        const gpa = comp.gpa;
         const stat = try file.stat();
         const size = std.math.cast(u32, stat.size) orelse return error.FileTooBig;
         const buf = try gpa.alloc(u8, size);
@@ -1112,7 +1122,11 @@ pub const File = struct {
                 @panic("TODO");
             } else {
                 if (fs.path.isAbsolute(arg.path)) {
-                    const new_path = Path.initCwd(try gpa.dupe(u8, arg.path));
+                    const new_path = Path.initCwd(path: {
+                        comp.mutex.lock();
+                        defer comp.mutex.unlock();
+                        break :path try comp.arena.dupe(u8, arg.path);
+                    });
                     switch (Compilation.classifyFileExt(arg.path)) {
                         .shared_library => try openLoadDso(base, new_path, query),
                         .object => try openLoadObject(base, new_path),
@@ -1129,7 +1143,7 @@ pub const File = struct {
     pub fn loadInput(base: *File, input: Input) anyerror!void {
         if (base.tag == .lld) return;
         switch (base.tag) {
-            inline .elf, .wasm => |tag| {
+            inline .elf, .elf2, .wasm => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).loadInput(input);
             },
@@ -1290,9 +1304,6 @@ pub const PrelinkTask = union(enum) {
     /// Tells the linker to load a shared library, possibly one that is a
     /// GNU ld script.
     load_dso: Path,
-    /// Tells the linker to load an input which could be an object file,
-    /// archive, or shared library.
-    load_input: Input,
 };
 pub const ZcuTask = union(enum) {
     /// Write the constant value for a Decl to the output file.
@@ -1468,20 +1479,6 @@ pub fn doPrelinkTask(comp: *Compilation, task: PrelinkTask) void {
             }) catch |err| switch (err) {
                 error.LinkFailure => return, // error reported via link_diags
                 else => |e| diags.addParseError(path, "failed to parse shared library: {s}", .{@errorName(e)}),
-            };
-        },
-        .load_input => |input| {
-            const prog_node = comp.link_prog_node.start("Parse Input", 0);
-            defer prog_node.end();
-            base.loadInput(input) catch |err| switch (err) {
-                error.LinkFailure => return, // error reported via link_diags
-                else => |e| {
-                    if (input.path()) |path| {
-                        diags.addParseError(path, "failed to parse linker input: {s}", .{@errorName(e)});
-                    } else {
-                        diags.addError("failed to {s}: {s}", .{ input.taskName(), @errorName(e) });
-                    }
-                },
             };
         },
     }
@@ -1775,19 +1772,19 @@ pub fn resolveInputs(
     target: *const std.Target,
     /// This function mutates this array but does not take ownership.
     /// Allocated with `gpa`.
-    unresolved_inputs: *std.ArrayListUnmanaged(UnresolvedInput),
+    unresolved_inputs: *std.ArrayList(UnresolvedInput),
     /// Allocated with `gpa`.
-    resolved_inputs: *std.ArrayListUnmanaged(Input),
+    resolved_inputs: *std.ArrayList(Input),
     lib_directories: []const Cache.Directory,
     color: std.zig.Color,
 ) Allocator.Error!void {
-    var checked_paths: std.ArrayListUnmanaged(u8) = .empty;
+    var checked_paths: std.ArrayList(u8) = .empty;
     defer checked_paths.deinit(gpa);
 
-    var ld_script_bytes: std.ArrayListUnmanaged(u8) = .empty;
+    var ld_script_bytes: std.ArrayList(u8) = .empty;
     defer ld_script_bytes.deinit(gpa);
 
-    var failed_libs: std.ArrayListUnmanaged(struct {
+    var failed_libs: std.ArrayList(struct {
         name: []const u8,
         strategy: UnresolvedInput.SearchStrategy,
         checked_paths: []const u8,
@@ -2007,13 +2004,13 @@ fn resolveLibInput(
     gpa: Allocator,
     arena: Allocator,
     /// Allocated via `gpa`.
-    unresolved_inputs: *std.ArrayListUnmanaged(UnresolvedInput),
+    unresolved_inputs: *std.ArrayList(UnresolvedInput),
     /// Allocated via `gpa`.
-    resolved_inputs: *std.ArrayListUnmanaged(Input),
+    resolved_inputs: *std.ArrayList(Input),
     /// Allocated via `gpa`.
-    checked_paths: *std.ArrayListUnmanaged(u8),
+    checked_paths: *std.ArrayList(u8),
     /// Allocated via `gpa`.
-    ld_script_bytes: *std.ArrayListUnmanaged(u8),
+    ld_script_bytes: *std.ArrayList(u8),
     lib_directory: Directory,
     name_query: UnresolvedInput.NameQuery,
     target: *const std.Target,
@@ -2097,7 +2094,7 @@ fn resolveLibInput(
 }
 
 fn finishResolveLibInput(
-    resolved_inputs: *std.ArrayListUnmanaged(Input),
+    resolved_inputs: *std.ArrayList(Input),
     path: Path,
     file: std.fs.File,
     link_mode: std.builtin.LinkMode,
@@ -2125,11 +2122,11 @@ fn resolvePathInput(
     gpa: Allocator,
     arena: Allocator,
     /// Allocated with `gpa`.
-    unresolved_inputs: *std.ArrayListUnmanaged(UnresolvedInput),
+    unresolved_inputs: *std.ArrayList(UnresolvedInput),
     /// Allocated with `gpa`.
-    resolved_inputs: *std.ArrayListUnmanaged(Input),
+    resolved_inputs: *std.ArrayList(Input),
     /// Allocated via `gpa`.
-    ld_script_bytes: *std.ArrayListUnmanaged(u8),
+    ld_script_bytes: *std.ArrayList(u8),
     target: *const std.Target,
     pq: UnresolvedInput.PathQuery,
     color: std.zig.Color,
@@ -2167,11 +2164,11 @@ fn resolvePathInputLib(
     gpa: Allocator,
     arena: Allocator,
     /// Allocated with `gpa`.
-    unresolved_inputs: *std.ArrayListUnmanaged(UnresolvedInput),
+    unresolved_inputs: *std.ArrayList(UnresolvedInput),
     /// Allocated with `gpa`.
-    resolved_inputs: *std.ArrayListUnmanaged(Input),
+    resolved_inputs: *std.ArrayList(Input),
     /// Allocated via `gpa`.
-    ld_script_bytes: *std.ArrayListUnmanaged(u8),
+    ld_script_bytes: *std.ArrayList(u8),
     target: *const std.Target,
     pq: UnresolvedInput.PathQuery,
     link_mode: std.builtin.LinkMode,
@@ -2224,7 +2221,7 @@ fn resolvePathInputLib(
             var error_bundle = try wip_errors.toOwnedBundle("");
             defer error_bundle.deinit(gpa);
 
-            error_bundle.renderToStdErr(color.renderOptions());
+            error_bundle.renderToStdErr(.{}, color);
 
             std.process.exit(1);
         }

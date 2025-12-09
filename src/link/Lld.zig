@@ -19,7 +19,7 @@ const Coff = struct {
     minor_subsystem_version: u16,
     lib_directories: []const Cache.Directory,
     module_definition_file: ?[]const u8,
-    subsystem: ?std.Target.SubSystem,
+    subsystem: ?std.zig.Subsystem,
     /// These flags are populated by `codegen.llvm.updateExports` to allow us to guess the subsystem.
     lld_export_flags: struct {
         c_main: bool,
@@ -95,11 +95,12 @@ pub const Elf = struct {
     soname: ?[]const u8,
     allow_undefined_version: bool,
     enable_new_dtags: ?bool,
-    compress_debug_sections: CompressDebugSections,
+    compress_debug_sections: std.zig.CompressDebugSections,
     bind_global_refs_locally: bool,
     pub const HashStyle = enum { sysv, gnu, both };
     pub const SortSection = enum { name, alignment };
-    pub const CompressDebugSections = enum { none, zlib, zstd };
+    /// Deprecated; use 'std.zig.CompressDebugSections' instead. To be removed after 0.16.0 is tagged.
+    pub const CompressDebugSections = std.zig.CompressDebugSections;
 
     fn init(comp: *Compilation, options: link.File.OpenOptions) !Elf {
         const PtrWidth = enum { p32, p64 };
@@ -311,7 +312,7 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
 
     const link_inputs = comp.link_inputs;
 
-    var object_files: std.ArrayListUnmanaged([*:0]const u8) = .empty;
+    var object_files: std.ArrayList([*:0]const u8) = .empty;
 
     try object_files.ensureUnusedCapacity(arena, link_inputs.len);
     for (link_inputs) |input| {
@@ -554,7 +555,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
             try argv.append(try allocPrint(arena, "-DEF:{s}", .{def}));
         }
 
-        const resolved_subsystem: ?std.Target.SubSystem = blk: {
+        const resolved_subsystem: ?std.zig.Subsystem = blk: {
             if (coff.subsystem) |explicit| break :blk explicit;
             switch (target.os.tag) {
                 .windows => {
@@ -565,13 +566,13 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
                             coff.lld_export_flags.winmain_crt_startup or
                             coff.lld_export_flags.wwinmain_crt_startup)
                         {
-                            break :blk .Console;
+                            break :blk .console;
                         }
                         if (coff.lld_export_flags.winmain or coff.lld_export_flags.wwinmain)
-                            break :blk .Windows;
+                            break :blk .windows;
                     }
                 },
-                .uefi => break :blk .EfiApplication,
+                .uefi => break :blk .efi_application,
                 else => {},
             }
             break :blk null;
@@ -580,60 +581,23 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
         const Mode = enum { uefi, win32 };
         const mode: Mode = mode: {
             if (resolved_subsystem) |subsystem| {
-                const subsystem_suffix = try allocPrint(arena, ",{d}.{d}", .{
-                    coff.major_subsystem_version, coff.minor_subsystem_version,
-                });
-
-                switch (subsystem) {
-                    .Console => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:console{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .win32;
-                    },
-                    .EfiApplication => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_application{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .uefi;
-                    },
-                    .EfiBootServiceDriver => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_boot_service_driver{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .uefi;
-                    },
-                    .EfiRom => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_rom{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .uefi;
-                    },
-                    .EfiRuntimeDriver => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_runtime_driver{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .uefi;
-                    },
-                    .Native => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:native{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .win32;
-                    },
-                    .Posix => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:posix{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .win32;
-                    },
-                    .Windows => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:windows{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .win32;
-                    },
-                }
+                try argv.append(try allocPrint(arena, "-SUBSYSTEM:{s},{d}.{d}", .{
+                    @tagName(subsystem),
+                    coff.major_subsystem_version,
+                    coff.minor_subsystem_version,
+                }));
+                break :mode switch (subsystem) {
+                    .console,
+                    .windows,
+                    .posix,
+                    .native,
+                    => .win32,
+                    .efi_application,
+                    .efi_boot_service_driver,
+                    .efi_rom,
+                    .efi_runtime_driver,
+                    => .uefi,
+                };
             } else if (target.os.tag == .uefi) {
                 break :mode .uefi;
             } else {
@@ -808,7 +772,6 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
     const link_mode = comp.config.link_mode;
     const is_dyn_lib = link_mode == .dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or output_mode == .Exe;
-    const have_dynamic_linker = link_mode == .dynamic and is_exe_or_dyn_lib;
     const target = &comp.root_mod.resolved_target.result;
     const compiler_rt_path: ?Cache.Path = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
@@ -1070,12 +1033,12 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
             }
         }
 
-        if (have_dynamic_linker and
-            (comp.config.link_libc or comp.root_mod.resolved_target.is_explicit_dynamic_linker))
-        {
+        if (output_mode == .Exe and link_mode == .dynamic) {
             if (target.dynamic_linker.get()) |dynamic_linker| {
-                try argv.append("-dynamic-linker");
+                try argv.append("--dynamic-linker");
                 try argv.append(dynamic_linker);
+            } else {
+                try argv.append("--no-dynamic-linker");
             }
         }
 
@@ -1227,8 +1190,12 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
                     }));
                 } else if (target.isFreeBSDLibC()) {
                     for (freebsd.libs) |lib| {
+                        if (lib.added_in) |add_in| {
+                            if (target.os.version_range.semver.min.order(add_in) == .lt) continue;
+                        }
+
                         const lib_path = try std.fmt.allocPrint(arena, "{f}{c}lib{s}.so.{d}", .{
-                            comp.freebsd_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
+                            comp.freebsd_so_files.?.dir_path, fs.path.sep, lib.name, lib.getSoVersion(&target.os),
                         });
                         try argv.append(lib_path);
                     }
@@ -1613,11 +1580,9 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
     }
 }
 
-fn spawnLld(
-    comp: *Compilation,
-    arena: Allocator,
-    argv: []const []const u8,
-) !void {
+fn spawnLld(comp: *Compilation, arena: Allocator, argv: []const []const u8) !void {
+    const io = comp.io;
+
     if (comp.verbose_link) {
         // Skip over our own name so that the LLD linker name is the first argv item.
         Compilation.dump_argv(argv[1..]);
@@ -1649,7 +1614,7 @@ fn spawnLld(
         child.stderr_behavior = .Pipe;
 
         child.spawn() catch |err| break :term err;
-        var stderr_reader = child.stderr.?.readerStreaming(&.{});
+        var stderr_reader = child.stderr.?.readerStreaming(io, &.{});
         stderr = try stderr_reader.interface.allocRemaining(comp.gpa, .unlimited);
         break :term child.wait();
     }) catch |first_err| term: {
@@ -1659,7 +1624,7 @@ fn spawnLld(
                 const rand_int = std.crypto.random.int(u64);
                 const rsp_path = "tmp" ++ s ++ std.fmt.hex(rand_int) ++ ".rsp";
 
-                const rsp_file = try comp.dirs.local_cache.handle.createFileZ(rsp_path, .{});
+                const rsp_file = try comp.dirs.local_cache.handle.createFile(rsp_path, .{});
                 defer comp.dirs.local_cache.handle.deleteFileZ(rsp_path) catch |err|
                     log.warn("failed to delete response file {s}: {s}", .{ rsp_path, @errorName(err) });
                 {
@@ -1699,7 +1664,7 @@ fn spawnLld(
                     rsp_child.stderr_behavior = .Pipe;
 
                     rsp_child.spawn() catch |err| break :err err;
-                    var stderr_reader = rsp_child.stderr.?.readerStreaming(&.{});
+                    var stderr_reader = rsp_child.stderr.?.readerStreaming(io, &.{});
                     stderr = try stderr_reader.interface.allocRemaining(comp.gpa, .unlimited);
                     break :term rsp_child.wait() catch |err| break :err err;
                 }

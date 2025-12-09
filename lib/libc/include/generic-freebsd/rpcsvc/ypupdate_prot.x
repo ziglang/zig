@@ -32,7 +32,6 @@
 % * Copyright (c) 1986, 1990 by Sun Microsystems, Inc.
 % */
 %
-%/* from @(#)ypupdate_prot.x	1.3 91/03/11 TIRPC 1.0 */
 #ifndef RPC_HDR
 %#include <sys/cdefs.h>
 #endif

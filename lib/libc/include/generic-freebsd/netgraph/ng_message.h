@@ -42,7 +42,10 @@
 #ifndef _NETGRAPH_NG_MESSAGE_H_
 #define _NETGRAPH_NG_MESSAGE_H_
 
-/* ASCII string size limits */
+/*
+ * ASCII string size limits
+ * Check with struct sockaddr_ng if changing.
+ */
 #define	NG_TYPESIZ	32	/* max type name len (including null) */
 #define	NG_HOOKSIZ	32	/* max hook name len (including null) */
 #define	NG_NODESIZ	32	/* max node name len (including null) */

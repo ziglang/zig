@@ -1,5 +1,8 @@
-const std = @import("std");
+const runner = @This();
 const builtin = @import("builtin");
+
+const std = @import("std");
+const Io = std.Io;
 const assert = std.debug.assert;
 const fmt = std.fmt;
 const mem = std.mem;
@@ -11,7 +14,6 @@ const WebServer = std.Build.WebServer;
 const Allocator = std.mem.Allocator;
 const fatal = std.process.fatal;
 const Writer = std.Io.Writer;
-const runner = @This();
 const tty = std.Io.tty;
 
 pub const root = @import("@build");
@@ -37,6 +39,10 @@ pub fn main() !void {
     const arena = thread_safe_arena.allocator();
 
     const args = try process.argsAlloc(arena);
+
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
 
     // skip my own exe name
     var arg_idx: usize = 1;
@@ -68,8 +74,10 @@ pub fn main() !void {
     };
 
     var graph: std.Build.Graph = .{
+        .io = io,
         .arena = arena,
         .cache = .{
+            .io = io,
             .gpa = arena,
             .manifest_dir = try local_cache_directory.handle.makeOpenPath("h", .{}),
         },
@@ -79,7 +87,7 @@ pub fn main() !void {
         .zig_lib_directory = zig_lib_directory,
         .host = .{
             .query = .{},
-            .result = try std.zig.system.resolveTargetQuery(.{}),
+            .result = try std.zig.system.resolveTargetQuery(io, .{}),
         },
         .time_report = false,
     };
@@ -99,7 +107,6 @@ pub fn main() !void {
 
     var targets = std.array_list.Managed([]const u8).init(arena);
     var debug_log_scopes = std.array_list.Managed([]const u8).init(arena);
-    var thread_pool_options: std.Thread.Pool.Options = .{ .allocator = arena };
 
     var install_prefix: ?[]const u8 = null;
     var dir_list = std.Build.DirList{};
@@ -116,7 +123,7 @@ pub fn main() !void {
     var watch = false;
     var fuzz: ?std.Build.Fuzz.Mode = null;
     var debounce_interval_ms: u16 = 50;
-    var webui_listen: ?std.net.Address = null;
+    var webui_listen: ?Io.net.IpAddress = null;
 
     if (try std.zig.EnvVar.ZIG_BUILD_ERROR_STYLE.get(arena)) |str| {
         if (std.meta.stringToEnum(ErrorStyle, str)) |style| {
@@ -283,11 +290,11 @@ pub fn main() !void {
                     });
                 };
             } else if (mem.eql(u8, arg, "--webui")) {
-                webui_listen = std.net.Address.parseIp("::1", 0) catch unreachable;
+                if (webui_listen == null) webui_listen = .{ .ip6 = .loopback(0) };
             } else if (mem.startsWith(u8, arg, "--webui=")) {
                 const addr_str = arg["--webui=".len..];
                 if (std.mem.eql(u8, addr_str, "-")) fatal("web interface cannot listen on stdio", .{});
-                webui_listen = std.net.Address.parseIpAndPort(addr_str) catch |err| {
+                webui_listen = Io.net.IpAddress.parseLiteral(addr_str) catch |err| {
                     fatal("invalid web UI address '{s}': {s}", .{ addr_str, @errorName(err) });
                 };
             } else if (mem.eql(u8, arg, "--debug-log")) {
@@ -329,14 +336,10 @@ pub fn main() !void {
                 watch = true;
             } else if (mem.eql(u8, arg, "--time-report")) {
                 graph.time_report = true;
-                if (webui_listen == null) {
-                    webui_listen = std.net.Address.parseIp("::1", 0) catch unreachable;
-                }
+                if (webui_listen == null) webui_listen = .{ .ip6 = .loopback(0) };
             } else if (mem.eql(u8, arg, "--fuzz")) {
                 fuzz = .{ .forever = undefined };
-                if (webui_listen == null) {
-                    webui_listen = std.net.Address.parseIp("::1", 0) catch unreachable;
-                }
+                if (webui_listen == null) webui_listen = .{ .ip6 = .loopback(0) };
             } else if (mem.startsWith(u8, arg, "--fuzz=")) {
                 const value = arg["--fuzz=".len..];
                 if (value.len == 0) fatal("missing argument to --fuzz", .{});
@@ -409,19 +412,11 @@ pub fn main() !void {
                 };
             } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
                 builder.reference_trace = null;
-            } else if (mem.startsWith(u8, arg, "-j")) {
-                const num = arg["-j".len..];
-                const n_jobs = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
-                    std.debug.print("unable to parse jobs count '{s}': {s}", .{
-                        num, @errorName(err),
-                    });
-                    process.exit(1);
-                };
-                if (n_jobs < 1) {
-                    std.debug.print("number of jobs must be at least 1\n", .{});
-                    process.exit(1);
-                }
-                thread_pool_options.n_jobs = n_jobs;
+            } else if (mem.cutPrefix(u8, arg, "-j")) |text| {
+                const n = std.fmt.parseUnsigned(u32, text, 10) catch |err|
+                    fatal("unable to parse jobs count '{s}': {t}", .{ text, err });
+                if (n < 1) fatal("number of jobs must be at least 1", .{});
+                threaded.setAsyncLimit(.limited(n));
             } else if (mem.eql(u8, arg, "--")) {
                 builder.args = argsRest(args, arg_idx);
                 break;
@@ -438,13 +433,7 @@ pub fn main() !void {
         if (builtin.single_threaded) fatal("'--webui' is not yet supported on single-threaded hosts", .{});
     }
 
-    const stderr: std.fs.File = .stderr();
-    const ttyconf = get_tty_conf(color, stderr);
-    switch (ttyconf) {
-        .no_color => try graph.env_map.put("NO_COLOR", "1"),
-        .escape_codes => try graph.env_map.put("CLICOLOR_FORCE", "1"),
-        .windows_api => {},
-    }
+    const ttyconf = color.detectTtyConf();
 
     const main_progress_node = std.Progress.start(.{
         .disable_printing = (color == .off),
@@ -461,7 +450,7 @@ pub fn main() !void {
     }
 
     if (graph.needed_lazy_dependencies.entries.len != 0) {
-        var buffer: std.ArrayListUnmanaged(u8) = .empty;
+        var buffer: std.ArrayList(u8) = .empty;
         for (graph.needed_lazy_dependencies.keys()) |k| {
             try buffer.appendSlice(arena, k);
             try buffer.append(arena, '\n');
@@ -505,7 +494,7 @@ pub fn main() !void {
 
         .max_rss = max_rss,
         .max_rss_is_default = false,
-        .max_rss_mutex = .{},
+        .max_rss_mutex = .init,
         .skip_oom_steps = skip_oom_steps,
         .unit_test_timeout_ns = test_timeout_ns,
 
@@ -518,9 +507,8 @@ pub fn main() !void {
         .error_style = error_style,
         .multiline_errors = multiline_errors,
         .summary = summary orelse if (watch or webui_listen != null) .line else .failures,
+
         .ttyconf = ttyconf,
-        .stderr = stderr,
-        .thread_pool = undefined,
     };
     defer {
         run.memory_blocked_steps.deinit(gpa);
@@ -545,33 +533,32 @@ pub fn main() !void {
 
     var w: Watch = w: {
         if (!watch) break :w undefined;
-        if (!Watch.have_impl) fatal("--watch not yet implemented for {s}", .{@tagName(builtin.os.tag)});
+        if (!Watch.have_impl) fatal("--watch not yet implemented for {t}", .{builtin.os.tag});
         break :w try .init();
     };
 
-    try run.thread_pool.init(thread_pool_options);
-    defer run.thread_pool.deinit();
+    const now = Io.Clock.Timestamp.now(io, .awake) catch |err| fatal("failed to collect timestamp: {t}", .{err});
 
     run.web_server = if (webui_listen) |listen_address| ws: {
         if (builtin.single_threaded) unreachable; // `fatal` above
         break :ws .init(.{
             .gpa = gpa,
-            .thread_pool = &run.thread_pool,
+            .ttyconf = ttyconf,
             .graph = &graph,
             .all_steps = run.step_stack.keys(),
-            .ttyconf = run.ttyconf,
             .root_prog_node = main_progress_node,
             .watch = watch,
             .listen_address = listen_address,
+            .base_timestamp = now,
         });
     } else null;
 
     if (run.web_server) |*ws| {
-        ws.start() catch |err| fatal("failed to start web server: {s}", .{@errorName(err)});
+        ws.start() catch |err| fatal("failed to start web server: {t}", .{err});
     }
 
     rebuild: while (true) : (if (run.error_style.clearOnUpdate()) {
-        const bw = std.debug.lockStderrWriter(&stdio_buffer_allocation);
+        const bw, _ = std.debug.lockStderrWriter(&stdio_buffer_allocation);
         defer std.debug.unlockStderrWriter();
         try bw.writeAll("\x1B[2J\x1B[3J\x1B[H");
     }) {
@@ -596,7 +583,7 @@ pub fn main() !void {
 
         if (run.web_server) |*ws| {
             assert(!watch); // fatal error after CLI parsing
-            while (true) switch (ws.wait()) {
+            while (true) switch (try ws.wait()) {
                 .rebuild => {
                     for (run.step_stack.keys()) |step| {
                         step.state = .precheck_done;
@@ -665,23 +652,23 @@ const Run = struct {
     gpa: Allocator,
     max_rss: u64,
     max_rss_is_default: bool,
-    max_rss_mutex: std.Thread.Mutex,
+    max_rss_mutex: Io.Mutex,
     skip_oom_steps: bool,
     unit_test_timeout_ns: ?u64,
     watch: bool,
     web_server: if (!builtin.single_threaded) ?WebServer else ?noreturn,
     /// Allocated into `gpa`.
-    memory_blocked_steps: std.ArrayListUnmanaged(*Step),
+    memory_blocked_steps: std.ArrayList(*Step),
     /// Allocated into `gpa`.
     step_stack: std.AutoArrayHashMapUnmanaged(*Step, void),
-    thread_pool: std.Thread.Pool,
+    /// Similar to the `tty.Config` returned by `std.debug.lockStderrWriter`,
+    /// but also respects the '--color' flag.
+    ttyconf: tty.Config,
 
     claimed_rss: usize,
     error_style: ErrorStyle,
     multiline_errors: MultilineErrors,
     summary: Summary,
-    ttyconf: tty.Config,
-    stderr: File,
 };
 
 fn prepare(
@@ -750,15 +737,15 @@ fn runStepNames(
     fuzz: ?std.Build.Fuzz.Mode,
 ) !void {
     const gpa = run.gpa;
+    const io = b.graph.io;
     const step_stack = &run.step_stack;
-    const thread_pool = &run.thread_pool;
 
     {
         const step_prog = parent_prog_node.start("steps", step_stack.count());
         defer step_prog.end();
 
-        var wait_group: std.Thread.WaitGroup = .{};
-        defer wait_group.wait();
+        var group: Io.Group = .init;
+        defer group.wait(io);
 
         // Here we spawn the initial set of tasks with a nice heuristic -
         // dependency order. Each worker when it finishes a step will then
@@ -768,9 +755,7 @@ fn runStepNames(
             const step = steps_slice[steps_slice.len - i - 1];
             if (step.state == .skipped_oom) continue;
 
-            thread_pool.spawnWg(&wait_group, workerMakeOneStep, .{
-                &wait_group, b, step, step_prog, run,
-            });
+            group.async(io, workerMakeOneStep, .{ &group, b, step, step_prog, run });
         }
     }
 
@@ -826,8 +811,6 @@ fn runStepNames(
         }
     }
 
-    const ttyconf = run.ttyconf;
-
     if (fuzz) |mode| blk: {
         switch (builtin.os.tag) {
             // Current implementation depends on two things that need to be ported to Windows:
@@ -853,10 +836,10 @@ fn runStepNames(
         assert(mode == .limit);
         var f = std.Build.Fuzz.init(
             gpa,
-            thread_pool,
+            io,
+            run.ttyconf,
             step_stack.keys(),
             parent_prog_node,
-            ttyconf,
             mode,
         ) catch |err| fatal("failed to start fuzzer: {s}", .{@errorName(err)});
         defer f.deinit();
@@ -881,8 +864,9 @@ fn runStepNames(
             .none => break :summary,
         }
 
-        const w = std.debug.lockStderrWriter(&stdio_buffer_allocation);
+        const w, _ = std.debug.lockStderrWriter(&stdio_buffer_allocation);
         defer std.debug.unlockStderrWriter();
+        const ttyconf = run.ttyconf;
 
         const total_count = success_count + failure_count + pending_count + skipped_count;
         ttyconf.setColor(w, .cyan) catch {};
@@ -1202,7 +1186,6 @@ fn printTreeStep(
     if (skip) return;
     try printPrefix(parent_node, stderr, ttyconf);
 
-    if (!first) try ttyconf.setColor(stderr, .dim);
     if (parent_node.parent != null) {
         if (parent_node.last) {
             try printChildNodePrefix(stderr, ttyconf);
@@ -1213,6 +1196,8 @@ fn printTreeStep(
             });
         }
     }
+
+    if (!first) try ttyconf.setColor(stderr, .dim);
 
     // dep_prefix omitted here because it is redundant with the tree.
     try stderr.writeAll(s.name);
@@ -1315,13 +1300,14 @@ fn constructGraphAndCheckForDependencyLoop(
 }
 
 fn workerMakeOneStep(
-    wg: *std.Thread.WaitGroup,
+    group: *Io.Group,
     b: *std.Build,
     s: *Step,
     prog_node: std.Progress.Node,
     run: *Run,
 ) void {
-    const thread_pool = &run.thread_pool;
+    const io = b.graph.io;
+    const gpa = run.gpa;
 
     // First, check the conditions for running this step. If they are not met,
     // then we return without doing the step, relying on another worker to
@@ -1344,8 +1330,8 @@ fn workerMakeOneStep(
     }
 
     if (s.max_rss != 0) {
-        run.max_rss_mutex.lock();
-        defer run.max_rss_mutex.unlock();
+        run.max_rss_mutex.lockUncancelable(io);
+        defer run.max_rss_mutex.unlock(io);
 
         // Avoid running steps twice.
         if (s.state != .precheck_done) {
@@ -1357,7 +1343,7 @@ fn workerMakeOneStep(
         if (new_claimed_rss > run.max_rss) {
             // Running this step right now could possibly exceed the allotted RSS.
             // Add this step to the queue of memory-blocked steps.
-            run.memory_blocked_steps.append(run.gpa, s) catch @panic("OOM");
+            run.memory_blocked_steps.append(gpa, s) catch @panic("OOM");
             return;
         }
 
@@ -1378,11 +1364,11 @@ fn workerMakeOneStep(
 
     const make_result = s.make(.{
         .progress_node = sub_prog_node,
-        .thread_pool = thread_pool,
         .watch = run.watch,
         .web_server = if (run.web_server) |*ws| ws else null,
+        .ttyconf = run.ttyconf,
         .unit_test_timeout_ns = run.unit_test_timeout_ns,
-        .gpa = run.gpa,
+        .gpa = gpa,
     });
 
     // No matter the result, we want to display error/warning messages.
@@ -1390,9 +1376,10 @@ fn workerMakeOneStep(
     const show_error_msgs = s.result_error_msgs.items.len > 0;
     const show_stderr = s.result_stderr.len > 0;
     if (show_error_msgs or show_compile_errors or show_stderr) {
-        const bw = std.debug.lockStderrWriter(&stdio_buffer_allocation);
+        const bw, _ = std.debug.lockStderrWriter(&stdio_buffer_allocation);
         defer std.debug.unlockStderrWriter();
-        printErrorMessages(run.gpa, s, .{ .ttyconf = run.ttyconf }, bw, run.error_style, run.multiline_errors) catch {};
+        const ttyconf = run.ttyconf;
+        printErrorMessages(gpa, s, .{}, bw, ttyconf, run.error_style, run.multiline_errors) catch {};
     }
 
     handle_result: {
@@ -1414,40 +1401,43 @@ fn workerMakeOneStep(
 
         // Successful completion of a step, so we queue up its dependants as well.
         for (s.dependants.items) |dep| {
-            thread_pool.spawnWg(wg, workerMakeOneStep, .{
-                wg, b, dep, prog_node, run,
-            });
+            group.async(io, workerMakeOneStep, .{ group, b, dep, prog_node, run });
         }
     }
 
     // If this is a step that claims resources, we must now queue up other
     // steps that are waiting for resources.
     if (s.max_rss != 0) {
-        run.max_rss_mutex.lock();
-        defer run.max_rss_mutex.unlock();
+        var dispatch_deps: std.ArrayList(*Step) = .empty;
+        defer dispatch_deps.deinit(gpa);
+        dispatch_deps.ensureUnusedCapacity(gpa, run.memory_blocked_steps.items.len) catch @panic("OOM");
 
-        // Give the memory back to the scheduler.
-        run.claimed_rss -= s.max_rss;
-        // Avoid kicking off too many tasks that we already know will not have
-        // enough resources.
-        var remaining = run.max_rss - run.claimed_rss;
-        var i: usize = 0;
-        var j: usize = 0;
-        while (j < run.memory_blocked_steps.items.len) : (j += 1) {
-            const dep = run.memory_blocked_steps.items[j];
-            assert(dep.max_rss != 0);
-            if (dep.max_rss <= remaining) {
-                remaining -= dep.max_rss;
+        {
+            run.max_rss_mutex.lockUncancelable(io);
+            defer run.max_rss_mutex.unlock(io);
 
-                thread_pool.spawnWg(wg, workerMakeOneStep, .{
-                    wg, b, dep, prog_node, run,
-                });
-            } else {
-                run.memory_blocked_steps.items[i] = dep;
-                i += 1;
+            // Give the memory back to the scheduler.
+            run.claimed_rss -= s.max_rss;
+            // Avoid kicking off too many tasks that we already know will not have
+            // enough resources.
+            var remaining = run.max_rss - run.claimed_rss;
+            var i: usize = 0;
+            for (run.memory_blocked_steps.items) |dep| {
+                assert(dep.max_rss != 0);
+                if (dep.max_rss <= remaining) {
+                    remaining -= dep.max_rss;
+                    dispatch_deps.appendAssumeCapacity(dep);
+                } else {
+                    run.memory_blocked_steps.items[i] = dep;
+                    i += 1;
+                }
             }
+            run.memory_blocked_steps.shrinkRetainingCapacity(i);
         }
-        run.memory_blocked_steps.shrinkRetainingCapacity(i);
+        for (dispatch_deps.items) |dep| {
+            // Must be called without max_rss_mutex held in case it executes recursively.
+            group.async(io, workerMakeOneStep, .{ group, b, dep, prog_node, run });
+        }
     }
 }
 
@@ -1456,15 +1446,14 @@ pub fn printErrorMessages(
     failing_step: *Step,
     options: std.zig.ErrorBundle.RenderOptions,
     stderr: *Writer,
+    ttyconf: tty.Config,
     error_style: ErrorStyle,
     multiline_errors: MultilineErrors,
 ) !void {
-    const ttyconf = options.ttyconf;
-
     if (error_style.verboseContext()) {
         // Provide context for where these error messages are coming from by
         // printing the corresponding Step subtree.
-        var step_stack: std.ArrayListUnmanaged(*Step) = .empty;
+        var step_stack: std.ArrayList(*Step) = .empty;
         defer step_stack.deinit(gpa);
         try step_stack.append(gpa, failing_step);
         while (step_stack.items[step_stack.items.len - 1].dependants.items.len != 0) {
@@ -1504,7 +1493,7 @@ pub fn printErrorMessages(
         }
     }
 
-    try failing_step.result_error_bundle.renderToWriter(options, stderr);
+    try failing_step.result_error_bundle.renderToWriter(options, stderr, ttyconf);
 
     for (failing_step.result_error_msgs.items) |msg| {
         try ttyconf.setColor(stderr, .red);
@@ -1749,14 +1738,6 @@ const ErrorStyle = enum {
 };
 const MultilineErrors = enum { indent, newline, none };
 const Summary = enum { all, new, failures, line, none };
-
-fn get_tty_conf(color: Color, stderr: File) tty.Config {
-    return switch (color) {
-        .auto => tty.detectConfig(stderr),
-        .on => .escape_codes,
-        .off => .no_color,
-    };
-}
 
 fn fatalWithHint(comptime f: []const u8, args: anytype) noreturn {
     std.debug.print(f ++ "\n  access the help menu with 'zig build -h'\n", args);

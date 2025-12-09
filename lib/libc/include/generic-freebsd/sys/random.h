@@ -85,24 +85,26 @@ enum random_entropy_source {
 	RANDOM_FS_ATIME,
 	RANDOM_UMA,	/* Special!! UMA/SLAB Allocator */
 	RANDOM_CALLOUT,
-	RANDOM_ENVIRONMENTAL_END = RANDOM_CALLOUT,
+	RANDOM_RANDOMDEV,
+	RANDOM_ENVIRONMENTAL_END = RANDOM_RANDOMDEV,
 	/* Fast hardware random-number sources from here on. */
 	RANDOM_PURE_START,
-	RANDOM_PURE_OCTEON = RANDOM_PURE_START,
-	RANDOM_PURE_SAFE,
-	RANDOM_PURE_GLXSB,
-	RANDOM_PURE_HIFN,
+	RANDOM_PURE_TPM = RANDOM_PURE_START,
 	RANDOM_PURE_RDRAND,
+	RANDOM_PURE_RDSEED,
 	RANDOM_PURE_NEHEMIAH,
 	RANDOM_PURE_RNDTEST,
 	RANDOM_PURE_VIRTIO,
 	RANDOM_PURE_BROADCOM,
 	RANDOM_PURE_CCP,
 	RANDOM_PURE_DARN,
-	RANDOM_PURE_TPM,
 	RANDOM_PURE_VMGENID,
 	RANDOM_PURE_QUALCOMM,
 	RANDOM_PURE_ARMV8,
+	RANDOM_PURE_ARM_TRNG,
+	RANDOM_PURE_SAFE,
+	RANDOM_PURE_GLXSB,
+	RANDOM_PURE_HIFN,
 	ENTROPYSOURCE
 };
 _Static_assert(ENTROPYSOURCE <= 32,
@@ -140,9 +142,6 @@ random_harvest_direct(const void *entropy, u_int size, enum random_entropy_sourc
 		random_harvest_direct_(entropy, size, origin);
 }
 
-void random_harvest_register_source(enum random_entropy_source);
-void random_harvest_deregister_source(enum random_entropy_source);
-
 #if defined(RANDOM_ENABLE_UMA)
 #define random_harvest_fast_uma(a, b, c)	random_harvest_fast(a, b, c)
 #else /* !defined(RANDOM_ENABLE_UMA) */
@@ -154,6 +153,12 @@ void random_harvest_deregister_source(enum random_entropy_source);
 #else /* !defined(RANDOM_ENABLE_ETHER) */
 #define random_harvest_queue_ether(a, b)	do {} while (0)
 #endif /* defined(RANDOM_ENABLE_ETHER) */
+
+#else /* !_KERNEL */
+
+#if defined(_FORTIFY_SOURCE) && _FORTIFY_SOURCE > 0
+#include <ssp/random.h>
+#endif
 
 #endif /* _KERNEL */
 

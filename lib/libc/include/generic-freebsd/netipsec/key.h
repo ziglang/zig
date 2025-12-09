@@ -36,6 +36,7 @@
 
 #ifdef _KERNEL
 
+struct mbuf;
 struct secpolicy;
 struct secpolicyindex;
 struct secasvar;
@@ -49,6 +50,7 @@ struct xformsw;
 
 struct secpolicy *key_newsp(void);
 struct secpolicy *key_allocsp(struct secpolicyindex *, u_int);
+struct secpolicy *key_do_allocsp(struct secpolicyindex *spidx, u_int dir);
 struct secpolicy *key_msg2sp(struct sadb_x_policy *, size_t, int *);
 int key_sp2msg(struct secpolicy *, void *, size_t *);
 void key_addref(struct secpolicy *);
@@ -59,6 +61,7 @@ int key_havesp_any(void);
 void key_bumpspgen(void);
 uint32_t key_getspgen(void);
 uint32_t key_newreqid(void);
+struct mbuf *key_setaccelif(const char *ifname);
 
 struct secasvar *key_allocsa(union sockaddr_union *, uint8_t, uint32_t);
 struct secasvar *key_allocsa_tunnel(union sockaddr_union *,
@@ -83,6 +86,10 @@ extern int key_parse(struct mbuf *, struct socket *);
 extern void key_sa_recordxfer(struct secasvar *, struct mbuf *);
 uint16_t key_portfromsaddr(struct sockaddr *);
 void key_porttosaddr(struct sockaddr *, uint16_t port);
+
+struct rm_priotracker;
+void ipsec_sahtree_runlock(struct rm_priotracker *);
+void ipsec_sahtree_rlock(struct rm_priotracker *);
 
 #ifdef MALLOC_DECLARE
 MALLOC_DECLARE(M_IPSEC_SA);

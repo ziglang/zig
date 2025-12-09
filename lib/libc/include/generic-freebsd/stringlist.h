@@ -30,7 +30,7 @@
 
 #ifndef _STRINGLIST_H
 #define _STRINGLIST_H 
-#include <sys/cdefs.h>
+
 #include <sys/types.h>
 
 /*

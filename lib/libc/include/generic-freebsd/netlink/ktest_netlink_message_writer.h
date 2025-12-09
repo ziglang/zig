@@ -30,28 +30,14 @@
 
 #if defined(_KERNEL) && defined(INVARIANTS)
 
-bool nlmsg_get_buf_type_wrapper(struct nl_writer *nw, int size, int type, bool waitok);
-void nlmsg_set_callback_wrapper(struct nl_writer *nw);
-struct mbuf *nl_get_mbuf_chain_wrapper(int len, int malloc_flags);
+bool nlmsg_get_buf_wrapper(struct nl_writer *nw, size_t size, bool waitok);
 
 #ifndef KTEST_CALLER
 
 bool
-nlmsg_get_buf_type_wrapper(struct nl_writer *nw, int size, int type, bool waitok)
+nlmsg_get_buf_wrapper(struct nl_writer *nw, size_t size, bool waitok)
 {
-	return (nlmsg_get_buf_type(nw, size, type, waitok));
-}
-
-void
-nlmsg_set_callback_wrapper(struct nl_writer *nw)
-{
-	nlmsg_set_callback(nw);
-}
-
-struct mbuf *
-nl_get_mbuf_chain_wrapper(int len, int malloc_flags)
-{
-	return (nl_get_mbuf_chain(len, malloc_flags));
+	return (nlmsg_get_buf(nw, size, waitok));
 }
 #endif
 

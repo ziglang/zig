@@ -105,7 +105,8 @@
 #define	PRIV_CRED_SETRESGID	58	/* setresgid. */
 #define	PRIV_SEEOTHERGIDS	59	/* Exempt bsd.seeothergids. */
 #define	PRIV_SEEOTHERUIDS	60	/* Exempt bsd.seeotheruids. */
-#define	PRIV_SEEJAILPROC        61      /* Exempt from bsd.see_jail_proc. */
+#define	PRIV_SEEJAILPROC	61	/* Exempt from bsd.see_jail_proc. */
+#define	PRIV_CRED_SETCRED	62	/* setcred. */
 
 /*
  * Debugging privileges.
@@ -114,6 +115,7 @@
 #define	PRIV_DEBUG_SUGID	81	/* Exempt debugging setuid proc. */
 #define	PRIV_DEBUG_UNPRIV	82	/* Exempt unprivileged debug limit. */
 #define	PRIV_DEBUG_DENIED	83	/* Exempt P2_NOTRACE. */
+#define	PRIV_DEBUG_DIFFJAIL	84	/* Exempt debugging other jails. */
 
 /*
  * Dtrace privileges.
@@ -192,6 +194,7 @@
 #define	PRIV_SCHED_CPUSET	206	/* Can manipulate cpusets. */
 #define	PRIV_SCHED_CPUSET_INTR	207	/* Can adjust IRQ to CPU binding. */
 #define	PRIV_SCHED_IDPRIO	208	/* Can set idle time scheduling. */
+#define	PRIV_SCHED_DIFFJAIL	209	/* Exempt scheduling other jails. */
 
 /*
  * POSIX semaphore privileges.
@@ -203,6 +206,7 @@
  */
 #define	PRIV_SIGNAL_DIFFCRED	230	/* Exempt signalling other users. */
 #define	PRIV_SIGNAL_SUGID	231	/* Non-conserv signal setuid proc. */
+#define	PRIV_SIGNAL_DIFFJAIL	232	/* Exempt signalling other jails. */
 
 /*
  * Sysctl privileges.
@@ -210,6 +214,7 @@
 #define	PRIV_SYSCTL_DEBUG	240	/* Can invoke sysctl.debug. */
 #define	PRIV_SYSCTL_WRITE	241	/* Can write sysctls. */
 #define	PRIV_SYSCTL_WRITEJAIL	242	/* Can write sysctls, jail permitted. */
+#define	PRIV_SYSCTL_MEMLOCK	243	/* Large requests are not serialized. */
 
 /*
  * TTY privileges.
@@ -404,6 +409,7 @@
 #define	PRIV_NETINET_SETHDROPTS	505	/* Set certain IPv4/6 header options. */
 #define	PRIV_NETINET_BINDANY	506	/* Allow bind to any address. */
 #define	PRIV_NETINET_HASHKEY	507	/* Get and set hash keys for IPv4/6. */
+#define	PRIV_NETINET_KTLSKEYS	508	/* Read ktls session keys. */
 
 /*
  * Placeholders for IPX/SPX privileges, not supported any more.
@@ -515,6 +521,7 @@
  */
 #define	PRIV_KMEM_READ		680	/* Open mem/kmem for reading. */
 #define	PRIV_KMEM_WRITE		681	/* Open mem/kmem for writing. */
+#define	PRIV_PROC_MEM_WRITE	682	/* Writes via proc_rwmem */
 
 /*
  * Kernel debugger privileges.

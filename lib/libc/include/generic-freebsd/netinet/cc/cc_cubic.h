@@ -83,26 +83,28 @@
 #define CUBICFLAG_RTO_EVENT		0x00000008	/* RTO experienced */
 #define CUBICFLAG_HYSTART_ENABLED	0x00000010	/* Hystart++ is enabled */
 #define CUBICFLAG_HYSTART_IN_CSS	0x00000020	/* We are in Hystart++ CSS */
+#define CUBICFLAG_IN_TF			0x00000040	/* We are in TCP friendly region */
 
 /* Kernel only bits */
 #ifdef _KERNEL
 struct cubic {
-	/* CUBIC K in fixed point form with CUBIC_SHIFT worth of precision. */
+	/*
+	 * CUBIC K in fixed point form with CUBIC_SHIFT worth of precision.
+	 * Also means the time period in seconds it takes to increase the
+	 * congestion window size at the beginning of the current congestion
+	 * avoidance stage to W_max.
+	 */
 	int64_t		K;
 	/* Sum of RTT samples across an epoch in usecs. */
 	int64_t		sum_rtt_usecs;
-	/* Size of cwnd just before cwnd was reduced in the last congestion event */
-	uint64_t	W_max;
-	/* An estimate for the congestion window in the Reno-friendly region */
-	uint64_t	W_est;
-	/* The cwnd at the beginning of the current congestion avoidance stage */
-	uint64_t	cwnd_epoch;
-	/*
-	 * Size of cwnd at the time of setting ssthresh most recently,
-	 * either upon exiting the first slow start, or just before cwnd
-	 * was reduced in the last congestion event
-	 */
-	uint64_t	cwnd_prior;
+	/* Size of cwnd (in bytes) just before cwnd was reduced in the last congestion event. */
+	uint32_t	W_max;
+	/* An estimate (in bytes) for the congestion window in the Reno-friendly region */
+	uint32_t	W_est;
+	/* An estimate (in bytes) for the congestion window in the CUBIC region */
+	uint32_t	W_cubic;
+	/* The cwnd (in bytes) at the beginning of the current congestion avoidance stage. */
+	uint32_t	cwnd_epoch;
 	/* various flags */
 	uint32_t	flags;
 	/* Minimum observed rtt in usecs. */
@@ -117,12 +119,8 @@ struct cubic {
 	int		undo_t_epoch;
 	/* Few variables to restore the state after RTO_ERR */
 	int64_t		undo_K;
-	uint64_t	undo_cwnd_prior;
-	uint64_t	undo_W_max;
-	uint64_t	undo_W_est;
-	uint64_t	undo_cwnd_epoch;
-	/* Number of congestion events experienced */
-	uint64_t	num_cong_events;
+	uint32_t	undo_W_max;
+	uint32_t	undo_cwnd_epoch;
 	uint32_t css_baseline_minrtt;
 	uint32_t css_current_round_minrtt;
 	uint32_t css_lastround_minrtt;
@@ -141,60 +139,103 @@ struct cubic {
 extern int hz;
 
 /*
- * Implementation based on the formulae found in the CUBIC Internet Draft
- * "draft-ietf-tcpm-cubic-04".
+ * Implementation based on the formulas in RFC9438.
  *
  */
 
-static __inline float
-theoretical_cubic_k(double wmax_pkts)
+
+/*
+ * Returns K, the time period in seconds it takes to increase the congestion
+ * window size at the beginning of the current congestion avoidance stage to
+ * W_max.
+ */
+static inline float
+theoretical_cubic_k(uint32_t wmax_segs, uint32_t cwnd_epoch_segs)
 {
 	double C;
 
 	C = 0.4;
+	if (wmax_segs <= cwnd_epoch_segs)
+		return 0.0;
 
-	return (pow((wmax_pkts * 0.3) / C, (1.0 / 3.0)) * pow(2, CUBIC_SHIFT));
+	/*
+	 * Figure 2: K = ((W_max - cwnd_epoch) / C)^(1/3)
+	 */
+	return (pow((wmax_segs - cwnd_epoch_segs) / C, (1.0 / 3.0)) * pow(2, CUBIC_SHIFT));
 }
 
-static __inline unsigned long
-theoretical_cubic_cwnd(int ticks_since_epoch, unsigned long wmax, uint32_t smss)
+/*
+ * Returns the congestion window in segments at time t in seconds based on the
+ * cubic increase function, where t is the elapsed time in seconds from the
+ * beginning of the current congestion avoidance stage, as described in RFC9438
+ * Section 4.2.
+ */
+static inline unsigned long
+theoretical_cubic_cwnd(int ticks_elapsed, uint32_t wmax_segs, uint32_t cwnd_epoch_segs)
 {
-	double C, wmax_pkts;
+	double C, t;
+	float K;
 
 	C = 0.4;
-	wmax_pkts = wmax / (double)smss;
+	t = ticks_elapsed / (double)hz;
+	K = theoretical_cubic_k(wmax_segs, cwnd_epoch_segs);
 
-	return (smss * (wmax_pkts +
-	    (C * pow(ticks_since_epoch / (double)hz -
-	    theoretical_cubic_k(wmax_pkts) / pow(2, CUBIC_SHIFT), 3.0))));
+	/*
+	 * Figure 1: W_cubic(t) = C * (t - K)^3 + W_max
+	 */
+	return (C * pow(t - K / pow(2, CUBIC_SHIFT), 3.0) + wmax_segs);
 }
 
-static __inline unsigned long
-theoretical_reno_cwnd(int ticks_since_epoch, int rtt_ticks, unsigned long wmax,
-    uint32_t smss)
+/*
+ * Returns estimated Reno congestion window in segments.
+ */
+static inline unsigned long
+theoretical_reno_cwnd(int ticks_elapsed, int rtt_ticks, uint32_t wmax_segs)
 {
 
-	return ((wmax * 0.5) + ((ticks_since_epoch / (float)rtt_ticks) * smss));
+	return (wmax_segs * 0.5 + ticks_elapsed / (float)rtt_ticks);
 }
 
-static __inline unsigned long
-theoretical_tf_cwnd(int ticks_since_epoch, int rtt_ticks, unsigned long wmax,
-    uint32_t smss)
+/*
+ * Returns an estimate for the congestion window in segments in the
+ * Reno-friendly region -- that is, an estimate for the congestion window of
+ * Reno, as described in RFC9438 Section 4.3, where:
+ * cwnd: Current congestion window in segments.
+ * cwnd_prior: Size of cwnd in segments at the time of setting ssthresh most
+ *             recently, either upon exiting the first slow start or just before
+ *             cwnd was reduced in the last congestion event.
+ * W_est: An estimate for the congestion window in segments in the Reno-friendly
+ *        region -- that is, an estimate for the congestion window of Reno.
+ */
+static inline unsigned long
+theoretical_tf_cwnd(unsigned long W_est, unsigned long segs_acked, unsigned long cwnd,
+    unsigned long cwnd_prior)
 {
+	float cubic_alpha, cubic_beta;
 
-	return ((wmax * 0.7) + ((3 * 0.3) / (2 - 0.3) *
-	    (ticks_since_epoch / (float)rtt_ticks) * smss));
+	/* RFC9438 Section 4.6: The parameter β_cubic SHOULD be set to 0.7. */
+	cubic_beta = 0.7;
+
+	if (W_est >= cwnd_prior)
+		cubic_alpha = 1.0;
+	else
+		cubic_alpha = (3.0 * (1.0 - cubic_beta)) / (1.0 + cubic_beta);
+
+	/*
+	 * Figure 4: W_est = W_est + α_cubic * segments_acked / cwnd
+	 */
+	return (W_est + cubic_alpha * segs_acked / cwnd);
 }
 
 #endif /* !_KERNEL */
 
 /*
  * Compute the CUBIC K value used in the cwnd calculation, using an
- * implementation of eqn 2 in the I-D. The method used
- * here is adapted from Apple Computer Technical Report #KT-32.
+ * implementation mentioned in Figure. 2 of RFC9438.
+ * The method used here is adapted from Apple Computer Technical Report #KT-32.
  */
-static __inline int64_t
-cubic_k(unsigned long wmax_pkts)
+static inline int64_t
+cubic_k(uint32_t wmax_segs, uint32_t cwnd_epoch_segs)
 {
 	int64_t s, K;
 	uint16_t p;
@@ -202,8 +243,13 @@ cubic_k(unsigned long wmax_pkts)
 	K = s = 0;
 	p = 0;
 
-	/* (wmax * beta)/C with CUBIC_SHIFT worth of precision. */
-	s = ((wmax_pkts * ONE_SUB_CUBIC_BETA) << CUBIC_SHIFT) / CUBIC_C_FACTOR;
+	/* Handle the corner case where W_max <= cwnd_epoch */
+	if (wmax_segs <= cwnd_epoch_segs) {
+		return 0;
+	}
+
+	/* (wmax - cwnd_epoch) / C with CUBIC_SHIFT worth of precision. */
+	s = ((wmax_segs - cwnd_epoch_segs) << (2 * CUBIC_SHIFT)) / CUBIC_C_FACTOR;
 
 	/* Rebase s to be between 1 and 1/8 with a shift of CUBIC_SHIFT. */
 	while (s >= 256) {
@@ -224,13 +270,14 @@ cubic_k(unsigned long wmax_pkts)
 }
 
 /*
- * Compute the new cwnd value using an implementation of eqn 1 from the I-D.
+ * Compute and return the new cwnd value in bytes using an implementation
+ * mentioned in Figure. 1 of RFC9438.
  * Thanks to Kip Macy for help debugging this function.
  *
  * XXXLAS: Characterise bounds for overflow.
  */
-static __inline unsigned long
-cubic_cwnd(int usecs_since_epoch, unsigned long wmax, uint32_t smss, int64_t K)
+static inline uint32_t
+cubic_cwnd(int usecs_since_epoch, uint32_t wmax, uint32_t smss, int64_t K)
 {
 	int64_t cwnd;
 
@@ -249,7 +296,7 @@ cubic_cwnd(int usecs_since_epoch, unsigned long wmax, uint32_t smss, int64_t K)
 	cwnd *= (cwnd * cwnd);
 
 	/*
-	 * C(t - K)^3 + wmax
+	 * Figure 1: C * (t - K)^3 + wmax
 	 * The down shift by CUBIC_SHIFT_4 is because cwnd has 4 lots of
 	 * CUBIC_SHIFT included in the value. 3 from the cubing of cwnd above,
 	 * and an extra from multiplying through by CUBIC_C_FACTOR.
@@ -264,46 +311,13 @@ cubic_cwnd(int usecs_since_epoch, unsigned long wmax, uint32_t smss, int64_t K)
 }
 
 /*
- * Compute an approximation of the NewReno cwnd some number of usecs after a
- * congestion event. RTT should be the average RTT estimate for the path
- * measured over the previous congestion epoch and wmax is the value of cwnd at
- * the last congestion event. The "TCP friendly" concept in the CUBIC I-D is
- * rather tricky to understand and it turns out this function is not required.
- * It is left here for reference.
- *
- * XXX: Not used
+ * Compute the "TCP friendly" cwnd by newreno in congestion avoidance state.
  */
-static __inline unsigned long
-reno_cwnd(int usecs_since_epoch, int rtt_usecs, unsigned long wmax,
-    uint32_t smss)
+static inline uint32_t
+tf_cwnd(struct cc_var *ccv)
 {
-
-	/*
-	 * For NewReno, beta = 0.5, therefore: W_tcp(t) = wmax*0.5 + t/RTT
-	 * W_tcp(t) deals with cwnd/wmax in pkts, so because our cwnd is in
-	 * bytes, we have to multiply by smss.
-	 */
-	return (((wmax * RENO_BETA) + (((usecs_since_epoch * smss)
-	    << CUBIC_SHIFT) / rtt_usecs)) >> CUBIC_SHIFT);
-}
-
-/*
- * Compute an approximation of the "TCP friendly" cwnd some number of usecs
- * after a congestion event that is designed to yield the same average cwnd as
- * NewReno while using CUBIC's beta of 0.7. RTT should be the average RTT
- * estimate for the path measured over the previous congestion epoch and wmax is
- * the value of cwnd at the last congestion event.
- */
-static __inline unsigned long
-tf_cwnd(int usecs_since_epoch, int rtt_usecs, unsigned long wmax,
-    uint32_t smss)
-{
-
-	/* Equation 4 of I-D. */
-	return (((wmax * CUBIC_BETA) +
-	    (((THREE_X_PT3 * (unsigned long)usecs_since_epoch *
-	    (unsigned long)smss) << CUBIC_SHIFT) / (TWO_SUB_PT3 * rtt_usecs)))
-	    >> CUBIC_SHIFT);
+	/* newreno is "TCP friendly" */
+	return newreno_cc_cwnd_in_cong_avoid(ccv);
 }
 
 #endif /* _NETINET_CC_CUBIC_H_ */

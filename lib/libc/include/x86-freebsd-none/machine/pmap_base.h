@@ -58,8 +58,8 @@ struct pmap_methods {
 	void *(*pm_bios16_enter)(void);
 	void (*pm_bios16_leave)(void *handle);
 	void (*pm_bootstrap)(vm_paddr_t firstaddr);
-	boolean_t (*pm_is_valid_memattr)(pmap_t, vm_memattr_t);
-	int (*pm_cache_bits)(pmap_t, int, boolean_t);
+	bool (*pm_is_valid_memattr)(pmap_t, vm_memattr_t);
+	int (*pm_cache_bits)(pmap_t, int, bool);
 	bool (*pm_ps_enabled)(pmap_t);
 	void (*pm_pinit0)(pmap_t);
 	int (*pm_pinit)(pmap_t);
@@ -84,13 +84,13 @@ struct pmap_methods {
 	void (*pm_object_init_pt)(pmap_t, vm_offset_t, vm_object_t,
 	    vm_pindex_t, vm_size_t);
 	void (*pm_unwire)(pmap_t, vm_offset_t, vm_offset_t);
-	boolean_t (*pm_page_exists_quick)(pmap_t, vm_page_t);
+	bool (*pm_page_exists_quick)(pmap_t, vm_page_t);
 	int (*pm_page_wired_mappings)(vm_page_t);
-	boolean_t (*pm_page_is_mapped)(vm_page_t);
+	bool (*pm_page_is_mapped)(vm_page_t);
 	void (*pm_remove_pages)(pmap_t);
-	boolean_t (*pm_is_modified)(vm_page_t);
-	boolean_t (*pm_is_prefaultable)(pmap_t, vm_offset_t);
-	boolean_t (*pm_is_referenced)(vm_page_t);
+	bool (*pm_is_modified)(vm_page_t);
+	bool (*pm_is_prefaultable)(pmap_t, vm_offset_t);
+	bool (*pm_is_referenced)(vm_page_t);
 	void (*pm_remove_write)(vm_page_t);
 	int (*pm_ts_referenced)(vm_page_t);
 	void *(*pm_mapdev_attr)(vm_paddr_t, vm_size_t, int, int);
@@ -107,7 +107,7 @@ struct pmap_methods {
 	void (*pm_remove_all)(vm_page_t);
 	void (*pm_init)(void);
 	void (*pm_init_pat)(void);
-	void (*pm_growkernel)(vm_offset_t);
+	int (*pm_growkernel)(vm_offset_t);
 	void (*pm_invalidate_page)(pmap_t, vm_offset_t);
 	void (*pm_invalidate_range)(pmap_t, vm_offset_t, vm_offset_t);
 	void (*pm_invalidate_all)(pmap_t);

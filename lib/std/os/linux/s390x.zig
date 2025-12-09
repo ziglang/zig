@@ -136,7 +136,13 @@ pub fn clone() callconv(.naked) u64 {
     );
 }
 
-pub const restore = restore_rt;
+pub fn restore() callconv(.naked) noreturn {
+    asm volatile (
+        \\svc 0
+        :
+        : [number] "{r1}" (@intFromEnum(SYS.sigreturn)),
+    );
+}
 
 pub fn restore_rt() callconv(.naked) noreturn {
     asm volatile (

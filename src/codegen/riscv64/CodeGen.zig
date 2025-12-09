@@ -90,7 +90,7 @@ scope_generation: u32,
 /// The value is an offset into the `Function` `code` from the beginning.
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
-exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
+exitlude_jump_relocs: std.ArrayList(usize) = .empty,
 
 reused_operands: std.StaticBitSet(Air.Liveness.bpi - 1) = undefined,
 
@@ -609,7 +609,7 @@ const FrameAlloc = struct {
 };
 
 const BlockData = struct {
-    relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
+    relocs: std.ArrayList(Mir.Inst.Index) = .empty,
     state: State,
 
     fn deinit(bd: *BlockData, gpa: Allocator) void {
@@ -1391,6 +1391,13 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
         const tag = air_tags[@intFromEnum(inst)];
         switch (tag) {
             // zig fmt: off
+
+            // No "scalarize" legalizations are enabled, so these instructions never appear.
+            .legalize_vec_elem_val   => unreachable,
+            .legalize_vec_store_elem => unreachable,
+            // No soft float legalizations are enabled.
+            .legalize_compiler_rt_call => unreachable,
+
             .add,
             .add_wrap,
             .sub,
@@ -1633,7 +1640,6 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
 
             .is_named_enum_value => return func.fail("TODO implement is_named_enum_value", .{}),
             .error_set_has_value => return func.fail("TODO implement error_set_has_value", .{}),
-            .vector_store_elem => return func.fail("TODO implement vector_store_elem", .{}),
 
             .c_va_arg => return func.fail("TODO implement c_va_arg", .{}),
             .c_va_copy => return func.fail("TODO implement c_va_copy", .{}),
@@ -6194,7 +6200,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
 
     const Label = struct {
         target: Mir.Inst.Index = undefined,
-        pending_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
+        pending_relocs: std.ArrayList(Mir.Inst.Index) = .empty,
 
         const Kind = enum { definition, reference };
 

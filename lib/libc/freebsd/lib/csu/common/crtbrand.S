@@ -36,7 +36,7 @@
  * for more information.
  */
 
-	.section .note.tag,"aG",%note,.freebsd.noteG,comdat
+	.section .note.tag,"aGR",%note,.freebsd.noteG,comdat
 	.p2align	2
 	.4byte		2f-1f
 	.4byte		4f-3f

@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)icmp_var.h	8.1 (Berkeley) 6/10/93
  */
 
 #ifndef _NETINET_ICMP_VAR_H_
@@ -59,22 +57,36 @@ struct	icmpstat {
 
 #ifdef _KERNEL
 #include <sys/counter.h>
+#include <netinet/in_kdtrace.h>
 
 VNET_PCPUSTAT_DECLARE(struct icmpstat, icmpstat);
 /*
  * In-kernel consumers can use these accessor macros directly to update
  * stats.
  */
-#define	ICMPSTAT_ADD(name, val)	\
-    VNET_PCPUSTAT_ADD(struct icmpstat, icmpstat, name, (val))
+#define ICMPSTAT_ADD(name, val)                                            \
+	do {                                                               \
+		MIB_SDT_PROBE1(icmp, count, name, (val));                  \
+		VNET_PCPUSTAT_ADD(struct icmpstat, icmpstat, name, (val)); \
+	} while (0)
+
 #define	ICMPSTAT_INC(name)	ICMPSTAT_ADD(name, 1)
+#define ICMPSTAT_INC2(name, type)                                            \
+	do {                                                                 \
+		MIB_SDT_PROBE2(icmp, count, name, 1, type);                  \
+		VNET_PCPUSTAT_ADD(struct icmpstat, icmpstat, name[type], 1); \
+	} while (0)
 
 /*
  * Kernel module consumers must use this accessor macro.
  */
 void	kmod_icmpstat_inc(int statnum);
-#define	KMOD_ICMPSTAT_INC(name)						\
-    kmod_icmpstat_inc(offsetof(struct icmpstat, name) / sizeof(uint64_t))
+#define KMOD_ICMPSTAT_INC(name)                                          \
+	do {                                                             \
+		MIB_SDT_PROBE1(icmp, count, name, 1);                    \
+		kmod_icmpstat_inc(                                       \
+		    offsetof(struct icmpstat, name) / sizeof(uint64_t)); \
+	} while (0)
 #endif
 
 /*
@@ -88,15 +100,13 @@ void	kmod_icmpstat_inc(int statnum);
 SYSCTL_DECL(_net_inet_icmp);
 
 extern int badport_bandlim(int);
-#define BANDLIM_UNLIMITED -1
 #define BANDLIM_ICMP_UNREACH 0
 #define BANDLIM_ICMP_ECHO 1
 #define BANDLIM_ICMP_TSTAMP 2
-#define BANDLIM_RST_CLOSEDPORT 3 /* No connection, and no listeners */
-#define BANDLIM_RST_OPENPORT 4   /* No connection, listener */
-#define BANDLIM_ICMP6_UNREACH 5
-#define BANDLIM_SCTP_OOTB 6
-#define BANDLIM_MAX 7
+#define BANDLIM_TCP_RST 3
+#define BANDLIM_ICMP6_UNREACH 4
+#define BANDLIM_SCTP_OOTB 5
+#define BANDLIM_MAX 6
 #endif
 
 #endif

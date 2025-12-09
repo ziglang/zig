@@ -439,10 +439,16 @@
 /* Do an NFSv4 Verify+Write. */
 #define	NFSPROC_APPENDWRITE	69
 
+/* Do a NFSv4 Openattr. */
+#define	NFSPROC_OPENATTR	70
+
+/* Do a NFSv4.2 Clone. */
+#define	NFSPROC_CLONE		71
+
 /*
  * Must be defined as one higher than the last NFSv4.2 Proc# above.
  */
-#define	NFSV42_NPROCS		70
+#define	NFSV42_NPROCS		72
 
 /* Value of NFSV42_NPROCS for old nfsstats structure. (Always 69) */
 #define	NFSV42_OLDNPROCS	69
@@ -474,7 +480,7 @@ struct nfsstatsv1 {
 	uint64_t	readlink_bios;
 	uint64_t	biocache_readdirs;
 	uint64_t	readdir_bios;
-	uint64_t	rpccnt[NFSV42_NPROCS + 10];
+	uint64_t	rpccnt[NFSV42_NPROCS + 8];
 	uint64_t	rpcretries;
 	uint64_t	srvrpccnt[NFSV42_NOPS + NFSV4OP_FAKENOPS + 15];
 	uint64_t	srvlayouts;
@@ -690,6 +696,7 @@ struct nfsvattr {
 #define	na_bytes	na_vattr.va_bytes
 #define	na_filerev	na_vattr.va_filerev
 #define	na_vaflags	na_vattr.va_vaflags
+#define	na_bsdflags	na_vattr.va_bsdflags
 
 #include <fs/nfsclient/nfsnode.h>
 
@@ -902,15 +909,6 @@ int nfsmsleep(void *, void *, int, const char *, struct timespec *);
 #define	NFSBZERO(s, l)		bzero((s), (l))
 
 /*
- * Some queue.h files don't have these dfined in them.
- */
-#ifndef LIST_END
-#define	LIST_END(head)		NULL
-#define	SLIST_END(head)		NULL
-#define	TAILQ_END(head)		NULL
-#endif
-
-/*
  * This must be defined to be a global variable that increments once
  * per second, but never stops or goes backwards, even when a "date"
  * command changes the TOD clock. It is used for delta times for
@@ -1019,7 +1017,7 @@ MALLOC_DECLARE(M_NEWNFSDSESSION);
 int nfscl_loadattrcache(struct vnode **, struct nfsvattr *, void *, int, int);
 int newnfs_realign(struct mbuf **, int);
 bool ncl_pager_setsize(struct vnode *vp, u_quad_t *nsizep);
-void ncl_copy_vattr(struct vattr *dst, struct vattr *src);
+void ncl_copy_vattr(struct vnode *vp, struct vattr *dst, struct vattr *src);
 
 /*
  * If the port runs on an SMP box that can enforce Atomic ops with low
@@ -1030,9 +1028,6 @@ void ncl_copy_vattr(struct vattr *dst, struct vattr *src);
 #define	NFSINCRGLOBAL(a)	((a)++)
 #define	NFSDECRGLOBAL(a)	((a)--)
 
-/*
- * Assorted funky stuff to make things work under Darwin8.
- */
 /*
  * These macros checks for a field in vattr being set.
  */
@@ -1180,9 +1175,11 @@ struct nfsreq {
  */
 #ifdef VV_DISABLEDELEG
 #define	NFSVNO_DELEGOK(v)						\
-	((v) == NULL || ((v)->v_vflag & VV_DISABLEDELEG) == 0)
+	((v) == NULL || ((v)->v_vflag & VV_DISABLEDELEG) == 0 ||	\
+	 (vn_irflag_read(v) & VIRF_NAMEDATTR) == 0)
 #else
-#define	NFSVNO_DELEGOK(v)	(1)
+#define	NFSVNO_DELEGOK(v)						\
+	((v) == NULL || (vn_irflag_read(v) & VIRF_NAMEDATTR) == 0)
 #endif
 
 /*

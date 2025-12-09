@@ -56,29 +56,16 @@ pub var argv: [][*:0]u8 = if (builtin.link_libc) undefined else switch (native_o
     else => undefined,
 };
 
-/// Call from Windows-specific code if you already have a WTF-16LE encoded, null terminated string.
-/// Otherwise use `access` or `accessZ`.
-pub fn accessW(path: [*:0]const u16) windows.GetFileAttributesError!void {
-    const ret = try windows.GetFileAttributesW(path);
-    if (ret != windows.INVALID_FILE_ATTRIBUTES) {
-        return;
-    }
-    switch (windows.GetLastError()) {
-        .FILE_NOT_FOUND => return error.FileNotFound,
-        .PATH_NOT_FOUND => return error.FileNotFound,
-        .ACCESS_DENIED => return error.AccessDenied,
-        else => |err| return windows.unexpectedError(err),
-    }
-}
-
 pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
     return switch (os.tag) {
         .windows,
-        .macos,
+        .driverkit,
         .ios,
-        .watchos,
+        .maccatalyst,
+        .macos,
         .tvos,
         .visionos,
+        .watchos,
         .linux,
         .illumos,
         .freebsd,
@@ -113,7 +100,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
             const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
             return out_buffer[0..end_index];
         },
-        .macos, .ios, .watchos, .tvos, .visionos => {
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
             // On macOS, we can use F.GETPATH fcntl command to query the OS for
             // the path to the file descriptor.
             @memset(out_buffer[0..max_path_bytes], 0);
@@ -137,8 +124,6 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
                 switch (err) {
                     error.NotLink => unreachable,
                     error.BadPathName => unreachable,
-                    error.InvalidUtf8 => unreachable, // WASI-only
-                    error.InvalidWtf8 => unreachable, // Windows-only
                     error.UnsupportedReparsePointType => unreachable, // Windows-only
                     error.NetworkNotFound => unreachable, // Windows-only
                     else => |e| return e,
@@ -153,7 +138,6 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
             const target = posix.readlinkZ(proc_path, out_buffer) catch |err| switch (err) {
                 error.UnsupportedReparsePointType => unreachable,
                 error.NotLink => unreachable,
-                error.InvalidUtf8 => unreachable, // WASI-only
                 else => |e| return e,
             };
             return target;
@@ -201,28 +185,13 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
     }
 }
 
-/// WASI-only. Same as `fstatat` but targeting WASI.
-/// `pathname` should be encoded as valid UTF-8.
-/// See also `fstatat`.
-pub fn fstatat_wasi(dirfd: posix.fd_t, pathname: []const u8, flags: wasi.lookupflags_t) posix.FStatAtError!wasi.filestat_t {
-    var stat: wasi.filestat_t = undefined;
-    switch (wasi.path_filestat_get(dirfd, flags, pathname.ptr, pathname.len, &stat)) {
-        .SUCCESS => return stat,
-        .INVAL => unreachable,
-        .BADF => unreachable, // Always a race condition.
-        .NOMEM => return error.SystemResources,
-        .ACCES => return error.AccessDenied,
-        .FAULT => unreachable,
-        .NAMETOOLONG => return error.NameTooLong,
-        .NOENT => return error.FileNotFound,
-        .NOTDIR => return error.FileNotFound,
-        .NOTCAPABLE => return error.AccessDenied,
-        .ILSEQ => return error.InvalidUtf8,
-        else => |err| return posix.unexpectedErrno(err),
-    }
-}
+pub const FstatError = error{
+    SystemResources,
+    AccessDenied,
+    Unexpected,
+};
 
-pub fn fstat_wasi(fd: posix.fd_t) posix.FStatError!wasi.filestat_t {
+pub fn fstat_wasi(fd: posix.fd_t) FstatError!wasi.filestat_t {
     var stat: wasi.filestat_t = undefined;
     switch (wasi.fd_filestat_get(fd, &stat)) {
         .SUCCESS => return stat,

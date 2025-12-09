@@ -36,13 +36,23 @@
 
 struct pthread;
 
+struct dtv_slot {
+	char			*dtvs_tls;
+};
+
+struct dtv {
+	uintptr_t		dtv_gen;
+	uintptr_t		dtv_size;
+	struct dtv_slot		dtv_slots[];
+};
+
 /*
  * Variant II tcb, first two members are required by rtld,
  * %fs (amd64) / %gs (i386) points to the structure.
  */
 struct tcb {
 	struct tcb		*tcb_self;	/* required by rtld */
-	uintptr_t		*tcb_dtv;	/* required by rtld */
+	struct dtv		*tcb_dtv;	/* required by rtld */
 	struct pthread		*tcb_thread;
 };
 
@@ -59,7 +69,7 @@ static __inline void
 _tcb_set(struct tcb *tcb)
 {
 #ifdef __amd64__
-	amd64_set_fsbase(tcb);
+	amd64_set_tlsbase(tcb);
 #else
  	i386_set_gsbase(tcb);
 #endif

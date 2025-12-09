@@ -41,21 +41,38 @@
 #define	CNTHCTL_EL1PCTEN	(1 << 0) /* Allow physical counter access */
 #define	CNTHCTL_EL1PCEN		(1 << 1) /* Allow physical timer access */
 /* Valid if HCR_EL2.E2H == 1 */
+#define	CNTHCTL_E2H_EL0PCTEN	(1 << 0) /* Allow EL0 physical counter access */
+#define	CNTHCTL_E2H_EL0VCTEN	(1 << 1) /* Allow EL0 virtual counter access */
+#define	CNTHCTL_E2H_EL0VTEN	(1 << 8)
+#define	CNTHCTL_E2H_EL0PTEN	(1 << 9)
 #define	CNTHCTL_E2H_EL1PCTEN	(1 << 10) /* Allow physical counter access */
 #define	CNTHCTL_E2H_EL1PTEN	(1 << 11) /* Allow physical timer access */
 /* Unconditionally valid */
 #define	CNTHCTL_EVNTDIR		(1 << 3) /* Control transition trigger bit */
 #define	CNTHCTL_EVNTEN		(1 << 2) /* Enable event stream */
 
+/* CNTPOFF_EL2 - Counter-timer Physical Offset Register */
+#define	CNTPOFF_EL2_REG			MRS_REG_ALT_NAME(CNTPOFF_EL2)
+#define	CNTPOFF_EL2_op0			3
+#define	CNTPOFF_EL2_op1			4
+#define	CNTPOFF_EL2_CRn			14
+#define	CNTPOFF_EL2_CRm			0
+#define	CNTPOFF_EL2_op2			6
+
 /* CPTR_EL2 - Architecture feature trap register */
 /* Valid if HCR_EL2.E2H == 0 */
+#define	CPTR_TRAP_ALL		0xc01037ff /* Enable all traps */
 #define	CPTR_RES0		0x7fefc800
 #define	CPTR_RES1		0x000032ff
+#define	CPTR_TZ			0x00000100
 #define	CPTR_TFP		0x00000400
-/* Valid if HCR_EL2.E2H == 1 */
-#define	CPTR_FPEN		0x00300000
-/* Unconditionally valid */
 #define	CPTR_TTA		0x00100000
+/* Valid if HCR_EL2.E2H == 1 */
+#define	CPTR_E2H_TRAP_ALL	0xd0000000
+#define	CPTR_E2H_ZPEN		0x00030000
+#define	CPTR_E2H_FPEN		0x00300000
+#define	CPTR_E2H_TTA		0x10000000
+/* Unconditionally valid */
 #define	CPTR_TCPAC		0x80000000
 
 /* HCR_EL2 - Hypervisor Config Register */
@@ -123,6 +140,41 @@
 #define	HCR_TWEDEn			(UL(0x1) << 59)
 #define	HCR_TWEDEL_MASK			(UL(0xf) << 60)
 
+/* HCRX_EL2 - Extended Hypervisor Configuration Register */
+#define HCRX_EL2_REG		MRS_REG_ALT_NAME(HCRX_EL2)
+#define HCRX_EL2_op0		3
+#define HCRX_EL2_op1		4
+#define HCRX_EL2_CRn		1
+#define HCRX_EL2_CRm		2
+#define HCRX_EL2_op2		2
+
+#define HCRX_EnAS0			(UL(0x1) << 0)
+#define HCRX_EnALS			(UL(0x1) << 1)
+#define HCRX_EnASR			(UL(0x1) << 2)
+#define HCRX_FnXS			(UL(0x1) << 3)
+#define HCRX_FGTnXS			(UL(0x1) << 4)
+#define HCRX_SMPME			(UL(0x1) << 5)
+#define HCRX_TALLINT			(UL(0x1) << 6)
+#define HCRX_VINMI			(UL(0x1) << 7)
+#define HCRX_VFNMI			(UL(0x1) << 8)
+#define HCRX_CMOW			(UL(0x1) << 9)
+#define HCRX_MCE2			(UL(0x1) << 10)
+#define HCRX_MSCEn			(UL(0x1) << 11)
+/* Bits 12 & 13 are reserved */
+#define HCRX_TCR2En			(UL(0x1) << 14)
+#define HCRX_SCTLR2En			(UL(0x1) << 15)
+#define HCRX_PTTWI			(UL(0x1) << 16)
+#define HCRX_D128En			(UL(0x1) << 17)
+#define HCRX_EnSNERR			(UL(0x1) << 18)
+#define HCRX_TMEA			(UL(0x1) << 19)
+#define HCRX_EnSDERR			(UL(0x1) << 20)
+#define HCRX_EnIDCP128			(UL(0x1) << 21)
+#define HCRX_GCSEn			(UL(0x1) << 22)
+#define HCRX_EnFPM			(UL(0x1) << 23)
+#define HCRX_PACMEn			(UL(0x1) << 24)
+/* Bit 25 is reserved */
+#define HCRX_SRMASKEn			(UL(0x1) << 26)
+
 /* HPFAR_EL2 - Hypervisor IPA Fault Address Register */
 #define	HPFAR_EL2_FIPA_SHIFT	4
 #define	HPFAR_EL2_FIPA_MASK	0xfffffffff0
@@ -137,6 +189,54 @@
 /* ICC_SRE_EL2 */
 #define	ICC_SRE_EL2_SRE		(1UL << 0)
 #define	ICC_SRE_EL2_EN		(1UL << 3)
+
+/* MDCR_EL2 - Hyp Debug Control Register */
+#define	MDCR_EL2_HPMN_MASK	0x1f
+#define	MDCR_EL2_HPMN_SHIFT	0
+#define	MDCR_EL2_TPMCR_SHIFT	5
+#define	MDCR_EL2_TPMCR		(0x1UL << MDCR_EL2_TPMCR_SHIFT)
+#define	MDCR_EL2_TPM_SHIFT	6
+#define	MDCR_EL2_TPM		(0x1UL << MDCR_EL2_TPM_SHIFT)
+#define	MDCR_EL2_HPME_SHIFT	7
+#define	MDCR_EL2_HPME		(0x1UL << MDCR_EL2_HPME_SHIFT)
+#define	MDCR_EL2_TDE_SHIFT	8
+#define	MDCR_EL2_TDE		(0x1UL << MDCR_EL2_TDE_SHIFT)
+#define	MDCR_EL2_TDA_SHIFT	9
+#define	MDCR_EL2_TDA		(0x1UL << MDCR_EL2_TDA_SHIFT)
+#define	MDCR_EL2_TDOSA_SHIFT	10
+#define	MDCR_EL2_TDOSA		(0x1UL << MDCR_EL2_TDOSA_SHIFT)
+#define	MDCR_EL2_TDRA_SHIFT	11
+#define	MDCR_EL2_TDRA		(0x1UL << MDCR_EL2_TDRA_SHIFT)
+#define	MDCR_EL2_E2PB_SHIFT	12
+#define	MDCR_EL2_E2PB_MASK	(0x3UL << MDCR_EL2_E2PB_SHIFT)
+#define	MDCR_EL2_TPMS_SHIFT	14
+#define	MDCR_EL2_TPMS		(0x1UL << MDCR_EL2_TPMS_SHIFT)
+#define	MDCR_EL2_EnSPM_SHIFT	15
+#define	MDCR_EL2_EnSPM		(0x1UL << MDCR_EL2_EnSPM_SHIFT)
+#define	MDCR_EL2_HPMD_SHIFT	17
+#define	MDCR_EL2_HPMD		(0x1UL << MDCR_EL2_HPMD_SHIFT)
+#define	MDCR_EL2_TTRF_SHIFT	19
+#define	MDCR_EL2_TTRF		(0x1UL << MDCR_EL2_TTRF_SHIFT)
+#define	MDCR_EL2_HCCD_SHIFT	23
+#define	MDCR_EL2_HCCD		(0x1UL << MDCR_EL2_HCCD_SHIFT)
+#define	MDCR_EL2_E2TB_SHIFT	24
+#define	MDCR_EL2_E2TB_MASK	(0x3UL << MDCR_EL2_E2TB_SHIFT)
+#define	MDCR_EL2_HLP_SHIFT	26
+#define	MDCR_EL2_HLP		(0x1UL << MDCR_EL2_HLP_SHIFT)
+#define	MDCR_EL2_TDCC_SHIFT	27
+#define	MDCR_EL2_TDCC		(0x1UL << MDCR_EL2_TDCC_SHIFT)
+#define	MDCR_EL2_MTPME_SHIFT	28
+#define	MDCR_EL2_MTPME		(0x1UL << MDCR_EL2_MTPME_SHIFT)
+#define	MDCR_EL2_HPMFZO_SHIFT	29
+#define	MDCR_EL2_HPMFZO		(0x1UL << MDCR_EL2_HPMFZO_SHIFT)
+#define	MDCR_EL2_PMSSE_SHIFT	30
+#define	MDCR_EL2_PMSSE_MASK	(0x3UL << MDCR_EL2_PMSSE_SHIFT)
+#define	MDCR_EL2_HPMFZS_SHIFT	36
+#define	MDCR_EL2_HPMFZS		(0x1UL << MDCR_EL2_HPMFZS_SHIFT)
+#define	MDCR_EL2_PMEE_SHIFT	40
+#define	MDCR_EL2_PMEE_MASK	(0x3UL << MDCR_EL2_PMEE_SHIFT)
+#define	MDCR_EL2_EBWE_SHIFT	43
+#define	MDCR_EL2_EBWE		(0x1UL << MDCR_EL2_EBWE_SHIFT)
 
 /* SCTLR_EL2 - System Control Register */
 #define	SCTLR_EL2_RES1		0x30c50830
@@ -237,59 +337,14 @@
 #define	 VTCR_EL2_PS_42BIT	(0x3UL << VTCR_EL2_PS_SHIFT)
 #define	 VTCR_EL2_PS_44BIT	(0x4UL << VTCR_EL2_PS_SHIFT)
 #define	 VTCR_EL2_PS_48BIT	(0x5UL << VTCR_EL2_PS_SHIFT)
+#define	 VTCR_EL2_PS_52BIT	(0x6UL << VTCR_EL2_PS_SHIFT)
+#define	VTCR_EL2_DS_SHIFT	32
+#define	VTCR_EL2_DS		(0x1UL << VTCR_EL2_DS_SHIFT)
 
 /* VTTBR_EL2 - Virtualization Translation Table Base Register */
 #define	VTTBR_VMID_MASK		0xffff000000000000
 #define	VTTBR_VMID_SHIFT	48
 /* Assumed to be 0 by locore.S */
 #define	VTTBR_HOST		0x0000000000000000
-
-/* MDCR_EL2 - Hyp Debug Control Register */
-#define	MDCR_EL2_HPMN_MASK	0x1f
-#define	MDCR_EL2_HPMN_SHIFT	0
-#define	MDCR_EL2_TPMCR_SHIFT	5
-#define	MDCR_EL2_TPMCR		(0x1UL << MDCR_EL2_TPMCR_SHIFT)
-#define	MDCR_EL2_TPM_SHIFT	6
-#define	MDCR_EL2_TPM		(0x1UL << MDCR_EL2_TPM_SHIFT)
-#define	MDCR_EL2_HPME_SHIFT	7
-#define	MDCR_EL2_HPME		(0x1UL << MDCR_EL2_HPME_SHIFT)
-#define	MDCR_EL2_TDE_SHIFT	8
-#define	MDCR_EL2_TDE		(0x1UL << MDCR_EL2_TDE_SHIFT)
-#define	MDCR_EL2_TDA_SHIFT	9
-#define	MDCR_EL2_TDA		(0x1UL << MDCR_EL2_TDA_SHIFT)
-#define	MDCR_EL2_TDOSA_SHIFT	10
-#define	MDCR_EL2_TDOSA		(0x1UL << MDCR_EL2_TDOSA_SHIFT)
-#define	MDCR_EL2_TDRA_SHIFT	11
-#define	MDCR_EL2_TDRA		(0x1UL << MDCR_EL2_TDRA_SHIFT)
-#define	MDCR_E2PB_SHIFT		12
-#define	MDCR_E2PB_MASK		(0x3UL << MDCR_E2PB_SHIFT)
-#define	MDCR_TPMS_SHIFT		14
-#define	MDCR_TPMS		(0x1UL << MDCR_TPMS_SHIFT)
-#define	MDCR_EnSPM_SHIFT	15
-#define	MDCR_EnSPM		(0x1UL << MDCR_EnSPM_SHIFT)
-#define	MDCR_HPMD_SHIFT		17
-#define	MDCR_HPMD		(0x1UL << MDCR_HPMD_SHIFT)
-#define	MDCR_TTRF_SHIFT		19
-#define	MDCR_TTRF		(0x1UL << MDCR_TTRF_SHIFT)
-#define	MDCR_HCCD_SHIFT		23
-#define	MDCR_HCCD		(0x1UL << MDCR_HCCD_SHIFT)
-#define	MDCR_E2TB_SHIFT		24
-#define	MDCR_E2TB_MASK		(0x3UL << MDCR_E2TB_SHIFT)
-#define	MDCR_HLP_SHIFT		26
-#define	MDCR_HLP		(0x1UL << MDCR_HLP_SHIFT)
-#define	MDCR_TDCC_SHIFT		27
-#define	MDCR_TDCC		(0x1UL << MDCR_TDCC_SHIFT)
-#define	MDCR_MTPME_SHIFT	28
-#define	MDCR_MTPME		(0x1UL << MDCR_MTPME_SHIFT)
-#define	MDCR_HPMFZO_SHIFT	29
-#define	MDCR_HPMFZO		(0x1UL << MDCR_HPMFZO_SHIFT)
-#define	MDCR_PMSSE_SHIFT	30
-#define	MDCR_PMSSE_MASK		(0x3UL << MDCR_PMSSE_SHIFT)
-#define	MDCR_HPMFZS_SHIFT	36
-#define	MDCR_HPMFZS		(0x1UL << MDCR_HPMFZS_SHIFT)
-#define	MDCR_PMEE_SHIFT		40
-#define	MDCR_PMEE_MASK		(0x3UL << MDCR_PMEE_SHIFT)
-#define	MDCR_EBWE_SHIFT		43
-#define	MDCR_EBWE		(0x1UL << MDCR_EBWE_SHIFT)
 
 #endif /* !_MACHINE_HYPERVISOR_H_ */

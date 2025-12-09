@@ -31,8 +31,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	from: @(#)vm_kern.h	8.1 (Berkeley) 6/11/93
- *
  *
  * Copyright (c) 1987, 1990 Carnegie-Mellon University.
  * All rights reserved.
@@ -71,13 +69,10 @@ extern struct vm_map exec_map_store;
 extern struct vm_map pipe_map_store;
 #define	pipe_map	(&pipe_map_store)
 extern struct vmem *kernel_arena;
-extern struct vmem *kmem_arena;
 extern struct vmem *buffer_arena;
 extern struct vmem *transient_arena;
 extern struct vmem *memguard_arena;
 extern u_long vm_kmem_size;
 extern u_int exec_map_entries;
 extern u_int exec_map_entry_size;
-extern vm_object_t kstack_object;
-
 #endif /* _VM_VM_KERN_H_ */

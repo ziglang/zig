@@ -23,7 +23,7 @@ pub const Transformation = union(enum) {
     delete_var_decl: struct {
         var_decl_node: Ast.Node.Index,
         /// Identifier nodes that reference the variable.
-        references: std.ArrayListUnmanaged(Ast.Node.Index),
+        references: std.ArrayList(Ast.Node.Index),
     },
     /// Replace an expression with `undefined`.
     replace_with_undef: Ast.Node.Index,
@@ -501,10 +501,6 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         .@"asm",
         => return walkAsm(w, ast.fullAsm(node).?),
 
-        .asm_legacy => {
-            return walkAsmLegacy(w, ast.legacyAsm(node).?);
-        },
-
         .enum_literal => {
             return walkIdentifier(w, ast.nodeMainToken(node)); // name
         },
@@ -877,11 +873,6 @@ fn walkIf(w: *Walk, node_index: Ast.Node.Index, if_node: Ast.full.If) Error!void
 }
 
 fn walkAsm(w: *Walk, asm_node: Ast.full.Asm) Error!void {
-    try walkExpression(w, asm_node.ast.template);
-    try walkExpressions(w, asm_node.ast.items);
-}
-
-fn walkAsmLegacy(w: *Walk, asm_node: Ast.full.AsmLegacy) Error!void {
     try walkExpression(w, asm_node.ast.template);
     try walkExpressions(w, asm_node.ast.items);
 }

@@ -27,8 +27,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)unpcb.h	8.1 (Berkeley) 6/2/93
  */
 
 #ifndef _SYS_UNPCB_H_
@@ -95,6 +93,7 @@ struct unpcb {
 	u_int	unp_msgcount;		/* (g) references from message queue */
 	u_int	unp_gcrefs;		/* (g) garbage collector refcount */
 	ino_t	unp_ino;		/* (g) fake inode number */
+	mode_t  unp_mode;		/* (g) initial pre-bind() mode */
 	LIST_ENTRY(unpcb) unp_dead;	/* (g) link in dead list */
 } __aligned(CACHE_LINE_SIZE);
 
@@ -109,8 +108,6 @@ struct unpcb {
 #define	UNP_HAVEPC			0x001
 #define	UNP_WANTCRED_ALWAYS		0x002	/* credentials wanted always */
 #define	UNP_WANTCRED_ONESHOT		0x004	/* credentials wanted once */
-#define	UNP_CONNWAIT			0x008	/* connect blocks until accepted */
-
 #define	UNP_WANTCRED_MASK	(UNP_WANTCRED_ONESHOT | UNP_WANTCRED_ALWAYS)
 
 /*

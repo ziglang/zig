@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2015-2017 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2015-2024 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
  *
  * Portions of this software were developed by SRI International and the
@@ -47,9 +47,15 @@
 #define	SCAUSE_STORE_ACCESS_FAULT	7
 #define	SCAUSE_ECALL_USER		8
 #define	SCAUSE_ECALL_SUPERVISOR		9
+#define	SCAUSE_VIRTUAL_SUPERVISOR_ECALL	10
+#define	SCAUSE_MACHINE_ECALL		11
 #define	SCAUSE_INST_PAGE_FAULT		12
 #define	SCAUSE_LOAD_PAGE_FAULT		13
 #define	SCAUSE_STORE_PAGE_FAULT		15
+#define	SCAUSE_FETCH_GUEST_PAGE_FAULT	20
+#define	SCAUSE_LOAD_GUEST_PAGE_FAULT	21
+#define	SCAUSE_VIRTUAL_INSTRUCTION	22
+#define	SCAUSE_STORE_GUEST_PAGE_FAULT	23
 
 #define	SSTATUS_UIE			(1 << 0)
 #define	SSTATUS_SIE			(1 << 1)
@@ -116,6 +122,17 @@
 #define	MSTATUS_PRV_H			2	/* hypervisor */
 #define	MSTATUS_PRV_M			3	/* machine */
 
+#define	HSTATUS_VSBE	(1 << 5)
+#define	HSTATUS_GVA	(1 << 6)
+#define	HSTATUS_SPV	(1 << 7)
+#define	HSTATUS_SPVP	(1 << 8)
+#define	HSTATUS_HU	(1 << 9)
+#define	HSTATUS_VGEIN_S	12
+#define	HSTATUS_VGEIN_M	(0xf << HSTATUS_VGEIN_S)
+#define	HSTATUS_VTVM	(1 << 20)
+#define	HSTATUS_VTW	(1 << 21)
+#define	HSTATUS_VTSR	(1 << 22)
+
 #define	MIE_USIE	(1 << 0)
 #define	MIE_SSIE	(1 << 1)
 #define	MIE_HSIE	(1 << 2)
@@ -143,9 +160,30 @@
 
 #define	MIP_SEIP	(1 << 9)
 
+#define	HVIP_VSSIP	(1 << 2)
+#define	HVIP_VSTIP	(1 << 6)
+#define	HVIP_VSEIP	(1 << 10)
+
+#define	HIE_VSSIE	(1 << 2)
+#define	HIE_VSTIE	(1 << 6)
+#define	HIE_VSEIE	(1 << 10)
+#define	HIE_SGEIE	(1 << 12)
+
 /* Note: sip register has no SIP_STIP bit in Spike simulator */
 #define	SIP_SSIP	(1 << 1)
 #define	SIP_STIP	(1 << 5)
+
+#define	HENVCFG_STCE	(1UL << 63)
+#define	HENVCFG_PBMTE	(1UL << 62)
+#define	HENVCFG_CBZE	(1UL << 7)
+#define	HENVCFG_CBCFE	(1UL << 6)
+#define	HENVCFG_CBIE_S	4
+#define	HENVCFG_CBIE_M	(0x3 << HENVCFG_CBIE_S)
+#define	HENVCFG_FIOM	(1UL << 0)
+
+#define	HCOUNTEREN_CY	(1UL << 0) /* Cycle */
+#define	HCOUNTEREN_TM	(1UL << 1) /* Time */
+#define	HCOUNTEREN_IR	(1UL << 2) /* Instret */
 
 #define	SATP_PPN_S	0
 #define	SATP_PPN_M	(0xfffffffffffUL << SATP_PPN_S)
@@ -189,13 +227,14 @@
 	(__builtin_constant_p(val) && ((u_long)(val) < 32))
 
 #define	csr_swap(csr, val)						\
-({	if (CSR_ZIMM(val))  						\
+({	u_long ret;							\
+	if (CSR_ZIMM(val))  						\
 		__asm __volatile("csrrwi %0, " #csr ", %1"		\
-				: "=r" (val) : "i" (val));		\
+				: "=r" (ret) : "i" (val));		\
 	else 								\
 		__asm __volatile("csrrw %0, " #csr ", %1"		\
-				: "=r" (val) : "r" (val));		\
-	val;								\
+				: "=r" (ret) : "r" (val));		\
+	ret;								\
 })
 
 #define	csr_write(csr, val)						\

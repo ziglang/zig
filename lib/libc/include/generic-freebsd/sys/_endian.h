@@ -69,8 +69,10 @@
 
 /*
  * POSIX Issue 8 will require these for endian.h. Define them there and in the
- * traditional BSD compilation environment. Since issue 8 doesn't yet have an
- * assigned date, use strictly greater than issue 7's date.
+ * traditional BSD compilation environment. PDP_ENDIAN isn't strictly in Issue
+ * 8, but is allowed as implementations can define any *_ENDIAN symbol. Since
+ * issue 8 doesn't yet have an assigned date, use strictly greater than issue
+ * 7's date.
  */
 #if __BSD_VISIBLE || _POSIX_C_SOURCE > 200809
 #define	LITTLE_ENDIAN   _LITTLE_ENDIAN

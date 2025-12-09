@@ -1,4 +1,5 @@
 const std = @import("std");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 
@@ -10,6 +11,12 @@ pub fn main() !void {
     var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
+
+    const gpa = arena;
+
+    var threaded: Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
 
     var opt_zig_exe: ?[]const u8 = null;
     var opt_input_file_name: ?[]const u8 = null;
@@ -53,7 +60,7 @@ pub fn main() !void {
     const input_file_name = opt_input_file_name orelse fatal("missing input file\n{s}", .{usage});
 
     const input_file_bytes = try std.fs.cwd().readFileAlloc(input_file_name, arena, .limited(std.math.maxInt(u32)));
-    const case = try Case.parse(arena, input_file_bytes);
+    const case = try Case.parse(arena, io, input_file_bytes);
 
     // Check now: if there are any targets using the `cbe` backend, we need the lib dir.
     if (opt_lib_dir == null) {
@@ -86,23 +93,22 @@ pub fn main() !void {
     else
         null;
 
-    const host = try std.zig.system.resolveTargetQuery(.{});
+    const host = try std.zig.system.resolveTargetQuery(io, .{});
 
     const debug_log_verbose = debug_zcu or debug_dwarf or debug_link;
 
     for (case.targets) |target| {
         const target_prog_node = node: {
             var name_buf: [std.Progress.Node.max_name_len]u8 = undefined;
-            const name = std.fmt.bufPrint(&name_buf, "{s}-{s}", .{ target.query, @tagName(target.backend) }) catch &name_buf;
+            const name = std.fmt.bufPrint(&name_buf, "{s}-{t}", .{ target.query, target.backend }) catch &name_buf;
             break :node prog_node.start(name, case.updates.len);
         };
         defer target_prog_node.end();
 
         if (debug_log_verbose) {
-            std.log.scoped(.status).info("target: '{s}-{s}'", .{ target.query, @tagName(target.backend) });
+            std.log.scoped(.status).info("target: '{s}-{t}'", .{ target.query, target.backend });
         }
-
-        var child_args: std.ArrayListUnmanaged([]const u8) = .empty;
+        var child_args: std.ArrayList([]const u8) = .empty;
         try child_args.appendSlice(arena, &.{
             resolved_zig_exe,
             "build-exe",
@@ -114,8 +120,10 @@ pub fn main() !void {
             ".local-cache",
             "--global-cache-dir",
             ".global-cache",
-            "--listen=-",
         });
+        if (target.resolved.os.tag == .windows) try child_args.append(arena, "-lws2_32");
+        try child_args.append(arena, "--listen=-");
+
         if (opt_resolved_lib_dir) |resolved_lib_dir| {
             try child_args.appendSlice(arena, &.{ "--zig-lib-dir", resolved_lib_dir });
         }
@@ -153,7 +161,7 @@ pub fn main() !void {
         child.cwd_dir = tmp_dir;
         child.cwd = tmp_dir_path;
 
-        var cc_child_args: std.ArrayListUnmanaged([]const u8) = .empty;
+        var cc_child_args: std.ArrayList([]const u8) = .empty;
         if (target.backend == .cbe) {
             const resolved_cc_zig_exe = if (opt_cc_zig) |cc_zig_exe|
                 try std.fs.path.relative(arena, tmp_dir_path, cc_zig_exe)
@@ -167,8 +175,12 @@ pub fn main() !void {
                 target.query,
                 "-I",
                 opt_resolved_lib_dir.?, // verified earlier
-                "-o",
             });
+
+            if (target.resolved.os.tag == .windows)
+                try cc_child_args.append(arena, "-lws2_32");
+
+            try cc_child_args.append(arena, "-o");
         }
 
         var eval: Eval = .{
@@ -185,8 +197,11 @@ pub fn main() !void {
         };
 
         try child.spawn();
+        errdefer {
+            _ = child.kill() catch {};
+        }
 
-        var poller = std.Io.poll(arena, Eval.StreamEnum, .{
+        var poller = Io.poll(arena, Eval.StreamEnum, .{
             .stdout = child.stdout.?,
             .stderr = child.stderr.?,
         });
@@ -223,10 +238,10 @@ const Eval = struct {
     preserve_tmp_on_fatal: bool,
     /// When `target.backend == .cbe`, this contains the first few arguments to `zig cc` to build the generated binary.
     /// The arguments `out.c in.c` must be appended before spawning the subprocess.
-    cc_child_args: *std.ArrayListUnmanaged([]const u8),
+    cc_child_args: *std.ArrayList([]const u8),
 
     const StreamEnum = enum { stdout, stderr };
-    const Poller = std.Io.Poller(StreamEnum);
+    const Poller = Io.Poller(StreamEnum);
 
     /// Currently this function assumes the previous updates have already been written.
     fn write(eval: *Eval, update: Case.Update) void {
@@ -275,9 +290,8 @@ const Eval = struct {
                     return;
                 },
                 .emit_digest => {
-                    const EbpHdr = std.zig.Server.Message.EmitDigest;
-                    const ebp_hdr = @as(*align(1) const EbpHdr, @ptrCast(body));
-                    _ = ebp_hdr;
+                    var r: std.Io.Reader = .fixed(body);
+                    _ = r.takeStruct(std.zig.Server.Message.EmitDigest, .little) catch unreachable;
                     if (stderr.bufferedLen() > 0) {
                         const stderr_data = try poller.toOwnedSlice(.stderr);
                         if (eval.allow_stderr) {
@@ -292,7 +306,7 @@ const Eval = struct {
                         // This message indicates the end of the update.
                     }
 
-                    const digest = body[@sizeOf(EbpHdr)..][0..Cache.bin_digest_len];
+                    const digest = r.takeArray(Cache.bin_digest_len) catch unreachable;
                     const result_dir = ".local-cache" ++ std.fs.path.sep_str ++ "o" ++ std.fs.path.sep_str ++ Cache.binToHex(digest.*);
 
                     const bin_name = try std.zig.EmitArtifact.bin.cacheName(arena, .{
@@ -328,8 +342,7 @@ const Eval = struct {
             .unknown => return,
             .compile_errors => |ce| ce,
             .stdout, .exit_code => {
-                const color: std.zig.Color = .auto;
-                error_bundle.renderToStdErr(color.renderOptions());
+                error_bundle.renderToStdErr(.{}, .auto);
                 eval.fatal("update '{s}': unexpected compile errors", .{update.name});
             },
         };
@@ -338,8 +351,7 @@ const Eval = struct {
 
         for (error_bundle.getMessages()) |err_idx| {
             if (expected_idx == expected.errors.len) {
-                const color: std.zig.Color = .auto;
-                error_bundle.renderToStdErr(color.renderOptions());
+                error_bundle.renderToStdErr(.{}, .auto);
                 eval.fatal("update '{s}': more errors than expected", .{update.name});
             }
             try eval.checkOneError(update, error_bundle, expected.errors[expected_idx], false, err_idx);
@@ -347,8 +359,7 @@ const Eval = struct {
 
             for (error_bundle.getNotes(err_idx)) |note_idx| {
                 if (expected_idx == expected.errors.len) {
-                    const color: std.zig.Color = .auto;
-                    error_bundle.renderToStdErr(color.renderOptions());
+                    error_bundle.renderToStdErr(.{}, .auto);
                     eval.fatal("update '{s}': more error notes than expected", .{update.name});
                 }
                 try eval.checkOneError(update, error_bundle, expected.errors[expected_idx], true, note_idx);
@@ -357,8 +368,7 @@ const Eval = struct {
         }
 
         if (!std.mem.eql(u8, error_bundle.getCompileLogOutput(), expected.compile_log_output)) {
-            const color: std.zig.Color = .auto;
-            error_bundle.renderToStdErr(color.renderOptions());
+            error_bundle.renderToStdErr(.{}, .auto);
             eval.fatal("update '{s}': unexpected compile log output", .{update.name});
         }
     }
@@ -392,8 +402,7 @@ const Eval = struct {
             expected.column != src.column + 1 or
             !std.mem.eql(u8, expected.msg, msg))
         {
-            const color: std.zig.Color = .auto;
-            eb.renderToStdErr(color.renderOptions());
+            eb.renderToStdErr(.{}, .auto);
             eval.fatal("update '{s}': compile error did not match expected error", .{update.name});
         }
     }
@@ -509,7 +518,10 @@ const Eval = struct {
             .tag = .update,
             .bytes_len = 0,
         };
-        try eval.child.stdin.?.writeAll(std.mem.asBytes(&header));
+        var w = eval.child.stdin.?.writer(&.{});
+        w.interface.writeStruct(header, .little) catch |err| switch (err) {
+            error.WriteFailed => return w.err.?,
+        };
     }
 
     fn end(eval: *Eval, poller: *Poller) !void {
@@ -578,6 +590,8 @@ const Eval = struct {
     fn fatal(eval: *Eval, comptime fmt: []const u8, args: anytype) noreturn {
         eval.tmp_dir.close();
         if (!eval.preserve_tmp_on_fatal) {
+            // Kill the child since it holds an open handle to its CWD which is the tmp dir path
+            _ = eval.child.kill() catch {};
             std.fs.cwd().deleteTree(eval.tmp_dir_path) catch |err| {
                 std.log.warn("failed to delete tree '{s}': {s}", .{ eval.tmp_dir_path, @errorName(err) });
             };
@@ -647,14 +661,14 @@ const Case = struct {
         msg: []const u8,
     };
 
-    fn parse(arena: Allocator, bytes: []const u8) !Case {
+    fn parse(arena: Allocator, io: Io, bytes: []const u8) !Case {
         const fatal = std.process.fatal;
 
-        var targets: std.ArrayListUnmanaged(Target) = .empty;
-        var modules: std.ArrayListUnmanaged(Module) = .empty;
-        var updates: std.ArrayListUnmanaged(Update) = .empty;
-        var changes: std.ArrayListUnmanaged(FullContents) = .empty;
-        var deletes: std.ArrayListUnmanaged([]const u8) = .empty;
+        var targets: std.ArrayList(Target) = .empty;
+        var modules: std.ArrayList(Module) = .empty;
+        var updates: std.ArrayList(Update) = .empty;
+        var changes: std.ArrayList(FullContents) = .empty;
+        var deletes: std.ArrayList([]const u8) = .empty;
         var it = std.mem.splitScalar(u8, bytes, '\n');
         var line_n: usize = 1;
         var root_source_file: ?[]const u8 = null;
@@ -683,7 +697,7 @@ const Case = struct {
                         },
                     }) catch fatal("line {d}: invalid target query '{s}'", .{ line_n, query });
 
-                    const resolved = try std.zig.system.resolveTargetQuery(parsed_query);
+                    const resolved = try std.zig.system.resolveTargetQuery(io, parsed_query);
 
                     try targets.append(arena, .{
                         .query = query,
@@ -717,7 +731,7 @@ const Case = struct {
 
                     // Because Windows is so excellent, we need to convert CRLF to LF, so
                     // can't just slice into the input here. How delightful!
-                    var src: std.ArrayListUnmanaged(u8) = .empty;
+                    var src: std.ArrayList(u8) = .empty;
 
                     while (true) {
                         const next_line_raw = it.peek() orelse fatal("line {d}: unexpected EOF", .{line_n});
@@ -753,7 +767,7 @@ const Case = struct {
                     const last_update = &updates.items[updates.items.len - 1];
                     if (last_update.outcome != .unknown) fatal("line {d}: conflicting expect directive", .{line_n});
 
-                    var errors: std.ArrayListUnmanaged(ExpectedError) = .empty;
+                    var errors: std.ArrayList(ExpectedError) = .empty;
                     try errors.append(arena, parseExpectedError(val, line_n));
                     while (true) {
                         const next_line = it.peek() orelse break;
@@ -769,7 +783,7 @@ const Case = struct {
                         try errors.append(arena, parseExpectedError(new_val, line_n));
                     }
 
-                    var compile_log_output: std.ArrayListUnmanaged(u8) = .empty;
+                    var compile_log_output: std.ArrayList(u8) = .empty;
                     while (true) {
                         const next_line = it.peek() orelse break;
                         if (!std.mem.startsWith(u8, next_line, "#")) break;
@@ -824,9 +838,12 @@ fn requestExit(child: *std.process.Child, eval: *Eval) void {
         .tag = .exit,
         .bytes_len = 0,
     };
-    child.stdin.?.writeAll(std.mem.asBytes(&header)) catch |err| switch (err) {
-        error.BrokenPipe => {},
-        else => eval.fatal("failed to send exit: {s}", .{@errorName(err)}),
+    var w = eval.child.stdin.?.writer(&.{});
+    w.interface.writeStruct(header, .little) catch |err| switch (err) {
+        error.WriteFailed => switch (w.err.?) {
+            error.BrokenPipe => {},
+            else => |e| eval.fatal("failed to send exit: {s}", .{@errorName(e)}),
+        },
     };
 
     // Send EOF to stdin.

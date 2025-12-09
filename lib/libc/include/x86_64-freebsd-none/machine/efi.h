@@ -29,6 +29,8 @@
 #ifndef __AMD64_INCLUDE_EFI_H_
 #define __AMD64_INCLUDE_EFI_H_
 
+#include <sys/types.h>
+
 /*
  * XXX: from gcc 6.2 manual:
  * Note, the ms_abi attribute for Microsoft Windows 64-bit targets
@@ -51,6 +53,10 @@
 #define	EFI_TIME_OWNED()	mtx_assert(&atrtc_time_lock, MA_OWNED)
 
 #define	EFI_RT_HANDLE_FAULTS_DEFAULT	1
+
+#define EFI_MAP_BOOTTYPE_ALLOWED(type) (((efi_map_regs >> (type)) & 1) != 0)
+
+extern uint32_t efi_map_regs;
 #endif
 
 struct efirt_callinfo {

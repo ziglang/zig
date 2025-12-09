@@ -32,8 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)buf.h	8.9 (Berkeley) 3/30/95
  */
 
 #ifndef _SYS_BIO_H_
@@ -77,7 +75,6 @@
 #ifdef _KERNEL
 struct disk;
 struct bio;
-struct vm_map;
 
 typedef void bio_task_t(void *);
 
@@ -146,7 +143,6 @@ struct bio_queue_head {
 	int batched;
 };
 
-extern struct vm_map *bio_transient_map;
 extern int bio_transient_maxcnt;
 
 void biodone(struct bio *bp);

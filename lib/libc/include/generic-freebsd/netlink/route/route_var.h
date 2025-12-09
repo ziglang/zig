@@ -69,6 +69,7 @@ struct nl_parsed_link {
 	char		*ifla_cloner;
 	char		*ifla_ifalias;
 	struct nlattr	*ifla_idata;
+	struct nlattr	*ifla_address;
 	unsigned short	ifi_type;
 	int		ifi_index;
 	uint32_t	ifla_link;

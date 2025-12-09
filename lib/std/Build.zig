@@ -1,5 +1,7 @@
-const std = @import("std.zig");
 const builtin = @import("builtin");
+
+const std = @import("std.zig");
+const Io = std.Io;
 const fs = std.fs;
 const mem = std.mem;
 const debug = std.debug;
@@ -77,7 +79,7 @@ enable_rosetta: bool = false,
 enable_wasmtime: bool = false,
 /// Use system Wine installation to run cross compiled Windows build artifacts.
 enable_wine: bool = false,
-/// After following the steps in https://github.com/ziglang/zig/wiki/Updating-libc#glibc,
+/// After following the steps in https://codeberg.org/ziglang/infra/src/branch/master/libc-update/glibc.md,
 /// this will be the directory $glibc-build-dir/install/glibcs
 /// Given the example of the aarch64 target, this is the directory
 /// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
@@ -110,6 +112,7 @@ pub const ReleaseMode = enum {
 /// Shared state among all Build instances.
 /// Settings that are here rather than in Build are not configurable per-package.
 pub const Graph = struct {
+    io: Io,
     arena: Allocator,
     system_library_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .empty,
     system_package_mode: bool = false,
@@ -413,7 +416,7 @@ fn createChildOnly(
 fn userInputOptionsFromArgs(arena: Allocator, args: anytype) UserInputOptionsMap {
     var map = UserInputOptionsMap.init(arena);
     inline for (@typeInfo(@TypeOf(args)).@"struct".fields) |field| {
-        if (field.type == @Type(.null)) continue;
+        if (field.type == @TypeOf(null)) continue;
         addUserInputOptionFromArg(arena, &map, field, field.type, @field(args, field.name));
     }
     return map;
@@ -523,16 +526,11 @@ fn addUserInputOptionFromArg(
             .pointer => |ptr_info| switch (ptr_info.size) {
                 .one => switch (@typeInfo(ptr_info.child)) {
                     .array => |array_info| {
-                        comptime var slice_info = ptr_info;
-                        slice_info.size = .slice;
-                        slice_info.is_const = true;
-                        slice_info.child = array_info.child;
-                        slice_info.sentinel_ptr = null;
                         addUserInputOptionFromArg(
                             arena,
                             map,
                             field,
-                            @Type(.{ .pointer = slice_info }),
+                            @Pointer(.slice, .{ .@"const" = true }, array_info.child, null),
                             maybe_value orelse null,
                         );
                         return;
@@ -550,14 +548,11 @@ fn addUserInputOptionFromArg(
                         }) catch @panic("OOM");
                     },
                     else => {
-                        comptime var slice_info = ptr_info;
-                        slice_info.is_const = true;
-                        slice_info.sentinel_ptr = null;
                         addUserInputOptionFromArg(
                             arena,
                             map,
                             field,
-                            @Type(.{ .pointer = slice_info }),
+                            @Pointer(ptr_info.size, .{ .@"const" = true }, ptr_info.child, null),
                             maybe_value orelse null,
                         );
                         return;
@@ -1834,6 +1829,8 @@ pub fn runAllowFail(
     if (!process.can_spawn)
         return error.ExecNotSupported;
 
+    const io = b.graph.io;
+
     const max_output_size = 400 * 1024;
     var child = std.process.Child.init(argv, b.allocator);
     child.stdin_behavior = .Ignore;
@@ -1844,7 +1841,7 @@ pub fn runAllowFail(
     try Step.handleVerbose2(b, null, child.env_map, argv);
     try child.spawn();
 
-    var stdout_reader = child.stdout.?.readerStreaming(&.{});
+    var stdout_reader = child.stdout.?.readerStreaming(io, &.{});
     const stdout = stdout_reader.interface.allocRemaining(b.allocator, .limited(max_output_size)) catch {
         return error.ReadFailure;
     };
@@ -2252,8 +2249,8 @@ pub const GeneratedFile = struct {
 
     pub fn getPath2(gen: GeneratedFile, src_builder: *Build, asking_step: ?*Step) []const u8 {
         return gen.path orelse {
-            const w = debug.lockStderrWriter(&.{});
-            dumpBadGetPathHelp(gen.step, w, .detect(.stderr()), src_builder, asking_step) catch {};
+            const w, const ttyconf = debug.lockStderrWriter(&.{});
+            dumpBadGetPathHelp(gen.step, w, ttyconf, src_builder, asking_step) catch {};
             debug.unlockStderrWriter();
             @panic("misconfigured build script");
         };
@@ -2461,8 +2458,8 @@ pub const LazyPath = union(enum) {
                 var file_path: Cache.Path = .{
                     .root_dir = Cache.Directory.cwd(),
                     .sub_path = gen.file.path orelse {
-                        const w = debug.lockStderrWriter(&.{});
-                        dumpBadGetPathHelp(gen.file.step, w, .detect(.stderr()), src_builder, asking_step) catch {};
+                        const w, const ttyconf = debug.lockStderrWriter(&.{});
+                        dumpBadGetPathHelp(gen.file.step, w, ttyconf, src_builder, asking_step) catch {};
                         debug.unlockStderrWriter();
                         @panic("misconfigured build script");
                     },
@@ -2553,12 +2550,10 @@ fn dumpBadDirnameHelp(
     comptime msg: []const u8,
     args: anytype,
 ) anyerror!void {
-    const w = debug.lockStderrWriter(&.{});
+    const w, const tty_config = debug.lockStderrWriter(&.{});
     defer debug.unlockStderrWriter();
 
     try w.print(msg, args);
-
-    const tty_config = std.Io.tty.detectConfig(.stderr());
 
     if (fail_step) |s| {
         tty_config.setColor(w, .red) catch {};
@@ -2666,9 +2661,10 @@ pub fn resolveTargetQuery(b: *Build, query: Target.Query) ResolvedTarget {
         // Hot path. This is faster than querying the native CPU and OS again.
         return b.graph.host;
     }
+    const io = b.graph.io;
     return .{
         .query = query,
-        .result = std.zig.system.resolveTargetQuery(query) catch
+        .result = std.zig.system.resolveTargetQuery(io, query) catch
             @panic("unable to resolve target query"),
     };
 }

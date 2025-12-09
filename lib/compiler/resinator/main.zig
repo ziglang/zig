@@ -1,5 +1,9 @@
-const std = @import("std");
 const builtin = @import("builtin");
+
+const std = @import("std");
+const Io = std.Io;
+const Allocator = std.mem.Allocator;
+
 const removeComments = @import("comments.zig").removeComments;
 const parseAndRemoveLineCommands = @import("source_mapping.zig").parseAndRemoveLineCommands;
 const compile = @import("compile.zig").compile;
@@ -16,22 +20,19 @@ const aro = @import("aro");
 const compiler_util = @import("../util.zig");
 
 pub fn main() !void {
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    defer std.debug.assert(gpa.deinit() == .ok);
-    const allocator = gpa.allocator();
+    var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    defer std.debug.assert(debug_allocator.deinit() == .ok);
+    const gpa = debug_allocator.allocator();
 
-    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const stderr = std.fs.File.stderr();
-    const stderr_config = std.Io.tty.detectConfig(stderr);
-
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const args = try std.process.argsAlloc(arena);
 
     if (args.len < 2) {
-        try renderErrorMessage(std.debug.lockStderrWriter(&.{}), stderr_config, .err, "expected zig lib dir as first argument", .{});
+        const w, const ttyconf = std.debug.lockStderrWriter(&.{});
+        try renderErrorMessage(w, ttyconf, .err, "expected zig lib dir as first argument", .{});
         std.process.exit(1);
     }
     const zig_lib_dir = args[1];
@@ -53,17 +54,15 @@ pub fn main() !void {
                 .in = undefined, // won't be receiving messages
             },
         },
-        false => .{
-            .tty = stderr_config,
-        },
+        false => .stderr,
     };
 
     var options = options: {
-        var cli_diagnostics = cli.Diagnostics.init(allocator);
+        var cli_diagnostics = cli.Diagnostics.init(gpa);
         defer cli_diagnostics.deinit();
-        var options = cli.parse(allocator, cli_args, &cli_diagnostics) catch |err| switch (err) {
+        var options = cli.parse(gpa, cli_args, &cli_diagnostics) catch |err| switch (err) {
             error.ParseError => {
-                try error_handler.emitCliDiagnostics(allocator, cli_args, &cli_diagnostics);
+                try error_handler.emitCliDiagnostics(gpa, cli_args, &cli_diagnostics);
                 std.process.exit(1);
             },
             else => |e| return e,
@@ -72,17 +71,23 @@ pub fn main() !void {
 
         if (!zig_integration) {
             // print any warnings/notes
-            cli_diagnostics.renderToStdErr(cli_args, stderr_config);
+            cli_diagnostics.renderToStdErr(cli_args);
             // If there was something printed, then add an extra newline separator
             // so that there is a clear separation between the cli diagnostics and whatever
             // gets printed after
             if (cli_diagnostics.errors.items.len > 0) {
-                try stderr.writeAll("\n");
+                const stderr, _ = std.debug.lockStderrWriter(&.{});
+                defer std.debug.unlockStderrWriter();
+                try stderr.writeByte('\n');
             }
         }
         break :options options;
     };
     defer options.deinit();
+
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
 
     if (options.print_help_and_exit) {
         try cli.writeUsage(stdout, "zig rc");
@@ -99,12 +104,13 @@ pub fn main() !void {
         try stdout.flush();
     }
 
-    var dependencies = Dependencies.init(allocator);
+    var dependencies = Dependencies.init(gpa);
     defer dependencies.deinit();
     const maybe_dependencies: ?*Dependencies = if (options.depfile_path != null) &dependencies else null;
 
     var include_paths = LazyIncludePaths{
         .arena = arena,
+        .io = io,
         .auto_includes_option = options.auto_includes,
         .zig_lib_dir = zig_lib_dir,
         .target_machine_type = options.coff_options.target,
@@ -112,29 +118,30 @@ pub fn main() !void {
 
     const full_input = full_input: {
         if (options.input_format == .rc and options.preprocess != .no) {
-            var preprocessed_buf: std.Io.Writer.Allocating = .init(allocator);
+            var preprocessed_buf: std.Io.Writer.Allocating = .init(gpa);
             errdefer preprocessed_buf.deinit();
 
             // We're going to throw away everything except the final preprocessed output anyway,
             // so we can use a scoped arena for everything else.
-            var aro_arena_state = std.heap.ArenaAllocator.init(allocator);
+            var aro_arena_state = std.heap.ArenaAllocator.init(gpa);
             defer aro_arena_state.deinit();
             const aro_arena = aro_arena_state.allocator();
 
             var stderr_buf: [512]u8 = undefined;
-            var stderr_writer = stderr.writer(&stderr_buf);
-            var diagnostics: aro.Diagnostics = switch (zig_integration) {
-                false => .{ .output = .{ .to_writer = .{
-                    .writer = &stderr_writer.interface,
-                    .color = stderr_config,
-                } } },
-                true => .{ .output = .{ .to_list = .{
-                    .arena = .init(allocator),
-                } } },
-            };
-            defer diagnostics.deinit();
+            var diagnostics: aro.Diagnostics = .{ .output = output: {
+                if (zig_integration) break :output .{ .to_list = .{ .arena = .init(gpa) } };
+                const w, const ttyconf = std.debug.lockStderrWriter(&stderr_buf);
+                break :output .{ .to_writer = .{
+                    .writer = w,
+                    .color = ttyconf,
+                } };
+            } };
+            defer {
+                diagnostics.deinit();
+                if (!zig_integration) std.debug.unlockStderrWriter();
+            }
 
-            var comp = aro.Compilation.init(aro_arena, aro_arena, &diagnostics, std.fs.cwd());
+            var comp = aro.Compilation.init(aro_arena, aro_arena, io, &diagnostics, std.fs.cwd());
             defer comp.deinit();
 
             var argv: std.ArrayList([]const u8) = .empty;
@@ -159,20 +166,20 @@ pub fn main() !void {
 
             preprocess.preprocess(&comp, &preprocessed_buf.writer, argv.items, maybe_dependencies) catch |err| switch (err) {
                 error.GeneratedSourceError => {
-                    try error_handler.emitAroDiagnostics(allocator, "failed during preprocessor setup (this is always a bug)", &comp);
+                    try error_handler.emitAroDiagnostics(gpa, "failed during preprocessor setup (this is always a bug)", &comp);
                     std.process.exit(1);
                 },
                 // ArgError can occur if e.g. the .rc file is not found
                 error.ArgError, error.PreprocessError => {
-                    try error_handler.emitAroDiagnostics(allocator, "failed during preprocessing", &comp);
+                    try error_handler.emitAroDiagnostics(gpa, "failed during preprocessing", &comp);
                     std.process.exit(1);
                 },
                 error.FileTooBig => {
-                    try error_handler.emitMessage(allocator, .err, "failed during preprocessing: maximum file size exceeded", .{});
+                    try error_handler.emitMessage(gpa, .err, "failed during preprocessing: maximum file size exceeded", .{});
                     std.process.exit(1);
                 },
                 error.WriteFailed => {
-                    try error_handler.emitMessage(allocator, .err, "failed during preprocessing: error writing the preprocessed output", .{});
+                    try error_handler.emitMessage(gpa, .err, "failed during preprocessing: error writing the preprocessed output", .{});
                     std.process.exit(1);
                 },
                 error.OutOfMemory => |e| return e,
@@ -182,22 +189,22 @@ pub fn main() !void {
         } else {
             switch (options.input_source) {
                 .stdio => |file| {
-                    var file_reader = file.reader(&.{});
-                    break :full_input file_reader.interface.allocRemaining(allocator, .unlimited) catch |err| {
-                        try error_handler.emitMessage(allocator, .err, "unable to read input from stdin: {s}", .{@errorName(err)});
+                    var file_reader = file.reader(io, &.{});
+                    break :full_input file_reader.interface.allocRemaining(gpa, .unlimited) catch |err| {
+                        try error_handler.emitMessage(gpa, .err, "unable to read input from stdin: {s}", .{@errorName(err)});
                         std.process.exit(1);
                     };
                 },
                 .filename => |input_filename| {
-                    break :full_input std.fs.cwd().readFileAlloc(input_filename, allocator, .unlimited) catch |err| {
-                        try error_handler.emitMessage(allocator, .err, "unable to read input file path '{s}': {s}", .{ input_filename, @errorName(err) });
+                    break :full_input std.fs.cwd().readFileAlloc(input_filename, gpa, .unlimited) catch |err| {
+                        try error_handler.emitMessage(gpa, .err, "unable to read input file path '{s}': {s}", .{ input_filename, @errorName(err) });
                         std.process.exit(1);
                     };
                 },
             }
         }
     };
-    defer allocator.free(full_input);
+    defer gpa.free(full_input);
 
     if (options.preprocess == .only) {
         switch (options.output_source) {
@@ -221,55 +228,55 @@ pub fn main() !void {
             }
         else if (options.input_format == .res)
             IoStream.fromIoSource(options.input_source, .input) catch |err| {
-                try error_handler.emitMessage(allocator, .err, "unable to read res file path '{s}': {s}", .{ options.input_source.filename, @errorName(err) });
+                try error_handler.emitMessage(gpa, .err, "unable to read res file path '{s}': {s}", .{ options.input_source.filename, @errorName(err) });
                 std.process.exit(1);
             }
         else
             IoStream.fromIoSource(options.output_source, .output) catch |err| {
-                try error_handler.emitMessage(allocator, .err, "unable to create output file '{s}': {s}", .{ options.output_source.filename, @errorName(err) });
+                try error_handler.emitMessage(gpa, .err, "unable to create output file '{s}': {s}", .{ options.output_source.filename, @errorName(err) });
                 std.process.exit(1);
             };
-        defer res_stream.deinit(allocator);
+        defer res_stream.deinit(gpa);
 
         const res_data = res_data: {
             if (options.input_format != .res) {
                 // Note: We still want to run this when no-preprocess is set because:
                 //   1. We want to print accurate line numbers after removing multiline comments
                 //   2. We want to be able to handle an already-preprocessed input with #line commands in it
-                var mapping_results = parseAndRemoveLineCommands(allocator, full_input, full_input, .{ .initial_filename = options.input_source.filename }) catch |err| switch (err) {
+                var mapping_results = parseAndRemoveLineCommands(gpa, full_input, full_input, .{ .initial_filename = options.input_source.filename }) catch |err| switch (err) {
                     error.InvalidLineCommand => {
                         // TODO: Maybe output the invalid line command
-                        try error_handler.emitMessage(allocator, .err, "invalid line command in the preprocessed source", .{});
+                        try error_handler.emitMessage(gpa, .err, "invalid line command in the preprocessed source", .{});
                         if (options.preprocess == .no) {
-                            try error_handler.emitMessage(allocator, .note, "line commands must be of the format: #line <num> \"<path>\"", .{});
+                            try error_handler.emitMessage(gpa, .note, "line commands must be of the format: #line <num> \"<path>\"", .{});
                         } else {
-                            try error_handler.emitMessage(allocator, .note, "this is likely to be a bug, please report it", .{});
+                            try error_handler.emitMessage(gpa, .note, "this is likely to be a bug, please report it", .{});
                         }
                         std.process.exit(1);
                     },
                     error.LineNumberOverflow => {
                         // TODO: Better error message
-                        try error_handler.emitMessage(allocator, .err, "line number count exceeded maximum of {}", .{std.math.maxInt(usize)});
+                        try error_handler.emitMessage(gpa, .err, "line number count exceeded maximum of {}", .{std.math.maxInt(usize)});
                         std.process.exit(1);
                     },
                     error.OutOfMemory => |e| return e,
                 };
-                defer mapping_results.mappings.deinit(allocator);
+                defer mapping_results.mappings.deinit(gpa);
 
                 const default_code_page = options.default_code_page orelse .windows1252;
                 const has_disjoint_code_page = hasDisjointCodePage(mapping_results.result, &mapping_results.mappings, default_code_page);
 
                 const final_input = try removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
 
-                var diagnostics = Diagnostics.init(allocator);
+                var diagnostics = Diagnostics.init(gpa, io);
                 defer diagnostics.deinit();
 
                 var output_buffer: [4096]u8 = undefined;
-                var res_stream_writer = res_stream.source.writer(allocator, &output_buffer);
+                var res_stream_writer = res_stream.source.writer(gpa, &output_buffer);
                 defer res_stream_writer.deinit(&res_stream.source);
                 const output_buffered_stream = res_stream_writer.interface();
 
-                compile(allocator, final_input, output_buffered_stream, .{
+                compile(gpa, io, final_input, output_buffered_stream, .{
                     .cwd = std.fs.cwd(),
                     .diagnostics = &diagnostics,
                     .source_mappings = &mapping_results.mappings,
@@ -287,7 +294,7 @@ pub fn main() !void {
                     .warn_instead_of_error_on_invalid_code_page = options.warn_instead_of_error_on_invalid_code_page,
                 }) catch |err| switch (err) {
                     error.ParseError, error.CompileError => {
-                        try error_handler.emitDiagnostics(allocator, std.fs.cwd(), final_input, &diagnostics, mapping_results.mappings);
+                        try error_handler.emitDiagnostics(gpa, std.fs.cwd(), final_input, &diagnostics, mapping_results.mappings);
                         // Delete the output file on error
                         res_stream.cleanupAfterError();
                         std.process.exit(1);
@@ -299,13 +306,13 @@ pub fn main() !void {
 
                 // print any warnings/notes
                 if (!zig_integration) {
-                    diagnostics.renderToStdErr(std.fs.cwd(), final_input, stderr_config, mapping_results.mappings);
+                    diagnostics.renderToStdErr(std.fs.cwd(), final_input, mapping_results.mappings);
                 }
 
                 // write the depfile
                 if (options.depfile_path) |depfile_path| {
                     var depfile = std.fs.cwd().createFile(depfile_path, .{}) catch |err| {
-                        try error_handler.emitMessage(allocator, .err, "unable to create depfile '{s}': {s}", .{ depfile_path, @errorName(err) });
+                        try error_handler.emitMessage(gpa, .err, "unable to create depfile '{s}': {s}", .{ depfile_path, @errorName(err) });
                         std.process.exit(1);
                     };
                     defer depfile.close();
@@ -332,41 +339,41 @@ pub fn main() !void {
 
             if (options.output_format != .coff) return;
 
-            break :res_data res_stream.source.readAll(allocator) catch |err| {
-                try error_handler.emitMessage(allocator, .err, "unable to read res from '{s}': {s}", .{ res_stream.name, @errorName(err) });
+            break :res_data res_stream.source.readAll(gpa, io) catch |err| {
+                try error_handler.emitMessage(gpa, .err, "unable to read res from '{s}': {s}", .{ res_stream.name, @errorName(err) });
                 std.process.exit(1);
             };
         };
         // No need to keep the res_data around after parsing the resources from it
-        defer res_data.deinit(allocator);
+        defer res_data.deinit(gpa);
 
         std.debug.assert(options.output_format == .coff);
 
         // TODO: Maybe use a buffered file reader instead of reading file into memory -> fbs
         var res_reader: std.Io.Reader = .fixed(res_data.bytes);
-        break :resources cvtres.parseRes(allocator, &res_reader, .{ .max_size = res_data.bytes.len }) catch |err| {
+        break :resources cvtres.parseRes(gpa, &res_reader, .{ .max_size = res_data.bytes.len }) catch |err| {
             // TODO: Better errors
-            try error_handler.emitMessage(allocator, .err, "unable to parse res from '{s}': {s}", .{ res_stream.name, @errorName(err) });
+            try error_handler.emitMessage(gpa, .err, "unable to parse res from '{s}': {s}", .{ res_stream.name, @errorName(err) });
             std.process.exit(1);
         };
     };
     defer resources.deinit();
 
     var coff_stream = IoStream.fromIoSource(options.output_source, .output) catch |err| {
-        try error_handler.emitMessage(allocator, .err, "unable to create output file '{s}': {s}", .{ options.output_source.filename, @errorName(err) });
+        try error_handler.emitMessage(gpa, .err, "unable to create output file '{s}': {s}", .{ options.output_source.filename, @errorName(err) });
         std.process.exit(1);
     };
-    defer coff_stream.deinit(allocator);
+    defer coff_stream.deinit(gpa);
 
     var coff_output_buffer: [4096]u8 = undefined;
-    var coff_output_buffered_stream = coff_stream.source.writer(allocator, &coff_output_buffer);
+    var coff_output_buffered_stream = coff_stream.source.writer(gpa, &coff_output_buffer);
 
     var cvtres_diagnostics: cvtres.Diagnostics = .{ .none = {} };
-    cvtres.writeCoff(allocator, coff_output_buffered_stream.interface(), resources.list.items, options.coff_options, &cvtres_diagnostics) catch |err| {
+    cvtres.writeCoff(gpa, coff_output_buffered_stream.interface(), resources.list.items, options.coff_options, &cvtres_diagnostics) catch |err| {
         switch (err) {
             error.DuplicateResource => {
                 const duplicate_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
-                try error_handler.emitMessage(allocator, .err, "duplicate resource [id: {f}, type: {f}, language: {f}]", .{
+                try error_handler.emitMessage(gpa, .err, "duplicate resource [id: {f}, type: {f}, language: {f}]", .{
                     duplicate_resource.name_value,
                     fmtResourceType(duplicate_resource.type_value),
                     duplicate_resource.language,
@@ -374,8 +381,8 @@ pub fn main() !void {
             },
             error.ResourceDataTooLong => {
                 const overflow_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
-                try error_handler.emitMessage(allocator, .err, "resource has a data length that is too large to be written into a coff section", .{});
-                try error_handler.emitMessage(allocator, .note, "the resource with the invalid size is [id: {f}, type: {f}, language: {f}]", .{
+                try error_handler.emitMessage(gpa, .err, "resource has a data length that is too large to be written into a coff section", .{});
+                try error_handler.emitMessage(gpa, .note, "the resource with the invalid size is [id: {f}, type: {f}, language: {f}]", .{
                     overflow_resource.name_value,
                     fmtResourceType(overflow_resource.type_value),
                     overflow_resource.language,
@@ -383,15 +390,15 @@ pub fn main() !void {
             },
             error.TotalResourceDataTooLong => {
                 const overflow_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
-                try error_handler.emitMessage(allocator, .err, "total resource data exceeds the maximum of the coff 'size of raw data' field", .{});
-                try error_handler.emitMessage(allocator, .note, "size overflow occurred when attempting to write this resource: [id: {f}, type: {f}, language: {f}]", .{
+                try error_handler.emitMessage(gpa, .err, "total resource data exceeds the maximum of the coff 'size of raw data' field", .{});
+                try error_handler.emitMessage(gpa, .note, "size overflow occurred when attempting to write this resource: [id: {f}, type: {f}, language: {f}]", .{
                     overflow_resource.name_value,
                     fmtResourceType(overflow_resource.type_value),
                     overflow_resource.language,
                 });
             },
             else => {
-                try error_handler.emitMessage(allocator, .err, "unable to write coff output file '{s}': {s}", .{ coff_stream.name, @errorName(err) });
+                try error_handler.emitMessage(gpa, .err, "unable to write coff output file '{s}': {s}", .{ coff_stream.name, @errorName(err) });
             },
         }
         // Delete the output file on error
@@ -423,7 +430,7 @@ const IoStream = struct {
         };
     }
 
-    pub fn deinit(self: *IoStream, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *IoStream, allocator: Allocator) void {
         self.source.deinit(allocator);
     }
 
@@ -458,7 +465,7 @@ const IoStream = struct {
             }
         }
 
-        pub fn deinit(self: *Source, allocator: std.mem.Allocator) void {
+        pub fn deinit(self: *Source, allocator: Allocator) void {
             switch (self.*) {
                 .file => |file| file.close(),
                 .stdio => {},
@@ -471,18 +478,18 @@ const IoStream = struct {
             bytes: []const u8,
             needs_free: bool,
 
-            pub fn deinit(self: Data, allocator: std.mem.Allocator) void {
+            pub fn deinit(self: Data, allocator: Allocator) void {
                 if (self.needs_free) {
                     allocator.free(self.bytes);
                 }
             }
         };
 
-        pub fn readAll(self: Source, allocator: std.mem.Allocator) !Data {
+        pub fn readAll(self: Source, allocator: Allocator, io: Io) !Data {
             return switch (self) {
                 inline .file, .stdio => |file| .{
                     .bytes = b: {
-                        var file_reader = file.reader(&.{});
+                        var file_reader = file.reader(io, &.{});
                         break :b try file_reader.interface.allocRemaining(allocator, .unlimited);
                     },
                     .needs_free = true,
@@ -496,7 +503,7 @@ const IoStream = struct {
             file: std.fs.File.Writer,
             allocating: std.Io.Writer.Allocating,
 
-            pub const Error = std.mem.Allocator.Error || std.fs.File.WriteError;
+            pub const Error = Allocator.Error || std.fs.File.WriteError;
 
             pub fn interface(this: *@This()) *std.Io.Writer {
                 return switch (this.*) {
@@ -514,7 +521,7 @@ const IoStream = struct {
             }
         };
 
-        pub fn writer(source: *Source, allocator: std.mem.Allocator, buffer: []u8) Writer {
+        pub fn writer(source: *Source, allocator: Allocator, buffer: []u8) Writer {
             return switch (source.*) {
                 .file, .stdio => |file| .{ .file = file.writer(buffer) },
                 .memory => |*list| .{ .allocating = .fromArrayList(allocator, list) },
@@ -525,17 +532,20 @@ const IoStream = struct {
 };
 
 const LazyIncludePaths = struct {
-    arena: std.mem.Allocator,
+    arena: Allocator,
+    io: Io,
     auto_includes_option: cli.Options.AutoIncludes,
     zig_lib_dir: []const u8,
     target_machine_type: std.coff.IMAGE.FILE.MACHINE,
     resolved_include_paths: ?[]const []const u8 = null,
 
     pub fn get(self: *LazyIncludePaths, error_handler: *ErrorHandler) ![]const []const u8 {
+        const io = self.io;
+
         if (self.resolved_include_paths) |include_paths|
             return include_paths;
 
-        return getIncludePaths(self.arena, self.auto_includes_option, self.zig_lib_dir, self.target_machine_type) catch |err| switch (err) {
+        return getIncludePaths(self.arena, io, self.auto_includes_option, self.zig_lib_dir, self.target_machine_type) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             else => |e| {
                 switch (e) {
@@ -556,7 +566,13 @@ const LazyIncludePaths = struct {
     }
 };
 
-fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.AutoIncludes, zig_lib_dir: []const u8, target_machine_type: std.coff.IMAGE.FILE.MACHINE) ![]const []const u8 {
+fn getIncludePaths(
+    arena: Allocator,
+    io: Io,
+    auto_includes_option: cli.Options.AutoIncludes,
+    zig_lib_dir: []const u8,
+    target_machine_type: std.coff.IMAGE.FILE.MACHINE,
+) ![]const []const u8 {
     if (auto_includes_option == .none) return &[_][]const u8{};
 
     const includes_arch: std.Target.Cpu.Arch = switch (target_machine_type) {
@@ -600,7 +616,7 @@ fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.A
                     .cpu_arch = includes_arch,
                     .abi = .msvc,
                 };
-                const target = std.zig.resolveTargetQueryOrFatal(target_query);
+                const target = std.zig.resolveTargetQueryOrFatal(io, target_query);
                 const is_native_abi = target_query.isNativeAbi();
                 const detected_libc = std.zig.LibCDirs.detect(arena, zig_lib_dir, &target, is_native_abi, true, null) catch {
                     if (includes == .any) {
@@ -626,7 +642,7 @@ fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.A
                     .cpu_arch = includes_arch,
                     .abi = .gnu,
                 };
-                const target = std.zig.resolveTargetQueryOrFatal(target_query);
+                const target = std.zig.resolveTargetQueryOrFatal(io, target_query);
                 const is_native_abi = target_query.isNativeAbi();
                 const detected_libc = std.zig.LibCDirs.detect(arena, zig_lib_dir, &target, is_native_abi, true, null) catch |err| switch (err) {
                     error.OutOfMemory => |e| return e,
@@ -643,11 +659,11 @@ const SourceMappings = @import("source_mapping.zig").SourceMappings;
 
 const ErrorHandler = union(enum) {
     server: std.zig.Server,
-    tty: std.Io.tty.Config,
+    stderr,
 
     pub fn emitCliDiagnostics(
         self: *ErrorHandler,
-        allocator: std.mem.Allocator,
+        allocator: Allocator,
         args: []const []const u8,
         diagnostics: *cli.Diagnostics,
     ) !void {
@@ -658,15 +674,13 @@ const ErrorHandler = union(enum) {
 
                 try server.serveErrorBundle(error_bundle);
             },
-            .tty => {
-                diagnostics.renderToStdErr(args, self.tty);
-            },
+            .stderr => diagnostics.renderToStdErr(args),
         }
     }
 
     pub fn emitAroDiagnostics(
         self: *ErrorHandler,
-        allocator: std.mem.Allocator,
+        allocator: Allocator,
         fail_msg: []const u8,
         comp: *aro.Compilation,
     ) !void {
@@ -681,18 +695,18 @@ const ErrorHandler = union(enum) {
 
                 try server.serveErrorBundle(error_bundle);
             },
-            .tty => {
+            .stderr => {
                 // aro errors have already been emitted
-                const stderr = std.debug.lockStderrWriter(&.{});
+                const stderr, const ttyconf = std.debug.lockStderrWriter(&.{});
                 defer std.debug.unlockStderrWriter();
-                try renderErrorMessage(stderr, self.tty, .err, "{s}", .{fail_msg});
+                try renderErrorMessage(stderr, ttyconf, .err, "{s}", .{fail_msg});
             },
         }
     }
 
     pub fn emitDiagnostics(
         self: *ErrorHandler,
-        allocator: std.mem.Allocator,
+        allocator: Allocator,
         cwd: std.fs.Dir,
         source: []const u8,
         diagnostics: *Diagnostics,
@@ -705,15 +719,13 @@ const ErrorHandler = union(enum) {
 
                 try server.serveErrorBundle(error_bundle);
             },
-            .tty => {
-                diagnostics.renderToStdErr(cwd, source, self.tty, mappings);
-            },
+            .stderr => diagnostics.renderToStdErr(cwd, source, mappings),
         }
     }
 
     pub fn emitMessage(
         self: *ErrorHandler,
-        allocator: std.mem.Allocator,
+        allocator: Allocator,
         msg_type: @import("utils.zig").ErrorMessageType,
         comptime format: []const u8,
         args: anytype,
@@ -728,17 +740,17 @@ const ErrorHandler = union(enum) {
 
                 try server.serveErrorBundle(error_bundle);
             },
-            .tty => {
-                const stderr = std.debug.lockStderrWriter(&.{});
+            .stderr => {
+                const stderr, const ttyconf = std.debug.lockStderrWriter(&.{});
                 defer std.debug.unlockStderrWriter();
-                try renderErrorMessage(stderr, self.tty, msg_type, format, args);
+                try renderErrorMessage(stderr, ttyconf, msg_type, format, args);
             },
         }
     }
 };
 
 fn cliDiagnosticsToErrorBundle(
-    gpa: std.mem.Allocator,
+    gpa: Allocator,
     diagnostics: *cli.Diagnostics,
 ) !ErrorBundle {
     @branchHint(.cold);
@@ -783,7 +795,7 @@ fn cliDiagnosticsToErrorBundle(
 }
 
 fn diagnosticsToErrorBundle(
-    gpa: std.mem.Allocator,
+    gpa: Allocator,
     source: []const u8,
     diagnostics: *Diagnostics,
     mappings: SourceMappings,
@@ -870,7 +882,7 @@ fn diagnosticsToErrorBundle(
     return try bundle.toOwnedBundle("");
 }
 
-fn errorStringToErrorBundle(allocator: std.mem.Allocator, comptime format: []const u8, args: anytype) !ErrorBundle {
+fn errorStringToErrorBundle(allocator: Allocator, comptime format: []const u8, args: anytype) !ErrorBundle {
     @branchHint(.cold);
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(allocator);

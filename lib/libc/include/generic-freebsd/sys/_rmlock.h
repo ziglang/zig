@@ -32,6 +32,14 @@
 #ifndef _SYS__RMLOCK_H_
 #define	_SYS__RMLOCK_H_
 
+#include <sys/_cpuset.h>
+#include <sys/_lock.h>
+#include <sys/_mutex.h>
+#include <sys/queue.h>
+#include <sys/_sx.h>
+
+struct thread;
+
 /*
  * Mostly reader/occasional writer lock.
  */
@@ -65,8 +73,6 @@ struct rm_priotracker {
 	int rmp_flags;
 	LIST_ENTRY(rm_priotracker) rmp_qentry;
 };
-
-#include <sys/_mutex.h>
 
 struct rmslock_pcpu;
 

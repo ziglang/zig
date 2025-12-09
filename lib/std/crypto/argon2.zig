@@ -7,12 +7,11 @@ const builtin = @import("builtin");
 
 const blake2 = crypto.hash.blake2;
 const crypto = std.crypto;
+const Io = std.Io;
 const math = std.math;
 const mem = std.mem;
 const phc_format = pwhash.phc_format;
 const pwhash = crypto.pwhash;
-
-const Thread = std.Thread;
 const Blake2b512 = blake2.Blake2b512;
 const Blocks = std.array_list.AlignedManaged([block_length]u64, .@"16");
 const H0 = [Blake2b512.digest_length + 8]u8;
@@ -204,20 +203,20 @@ fn initBlocks(
 }
 
 fn processBlocks(
-    allocator: mem.Allocator,
     blocks: *Blocks,
     time: u32,
     memory: u32,
     threads: u24,
     mode: Mode,
-) KdfError!void {
+    io: Io,
+) void {
     const lanes = memory / threads;
     const segments = lanes / sync_points;
 
     if (builtin.single_threaded or threads == 1) {
         processBlocksSt(blocks, time, memory, threads, mode, lanes, segments);
     } else {
-        try processBlocksMt(allocator, blocks, time, memory, threads, mode, lanes, segments);
+        processBlocksMt(blocks, time, memory, threads, mode, lanes, segments, io);
     }
 }
 
@@ -243,7 +242,6 @@ fn processBlocksSt(
 }
 
 fn processBlocksMt(
-    allocator: mem.Allocator,
     blocks: *Blocks,
     time: u32,
     memory: u32,
@@ -251,26 +249,20 @@ fn processBlocksMt(
     mode: Mode,
     lanes: u32,
     segments: u32,
-) KdfError!void {
-    var threads_list = try std.array_list.Managed(Thread).initCapacity(allocator, threads);
-    defer threads_list.deinit();
-
+    io: Io,
+) void {
     var n: u32 = 0;
     while (n < time) : (n += 1) {
         var slice: u32 = 0;
         while (slice < sync_points) : (slice += 1) {
+            var group: Io.Group = .init;
             var lane: u24 = 0;
             while (lane < threads) : (lane += 1) {
-                const thread = try Thread.spawn(.{}, processSegment, .{
+                group.async(io, processSegment, .{
                     blocks, time, memory, threads, mode, lanes, segments, n, slice, lane,
                 });
-                threads_list.appendAssumeCapacity(thread);
             }
-            lane = 0;
-            while (lane < threads) : (lane += 1) {
-                threads_list.items[lane].join();
-            }
-            threads_list.clearRetainingCapacity();
+            group.wait(io);
         }
     }
 }
@@ -489,6 +481,7 @@ pub fn kdf(
     salt: []const u8,
     params: Params,
     mode: Mode,
+    io: Io,
 ) KdfError!void {
     if (derived_key.len < 4) return KdfError.WeakParameters;
     if (derived_key.len > max_int) return KdfError.OutputTooLong;
@@ -510,7 +503,7 @@ pub fn kdf(
     blocks.appendNTimesAssumeCapacity(@splat(0), memory);
 
     initBlocks(&blocks, &h0, memory, params.p);
-    try processBlocks(allocator, &blocks, params.t, memory, params.p, mode);
+    processBlocks(&blocks, params.t, memory, params.p, mode, io);
     finalize(&blocks, memory, params.p, derived_key);
 }
 
@@ -533,6 +526,7 @@ const PhcFormatHasher = struct {
         params: Params,
         mode: Mode,
         buf: []u8,
+        io: Io,
     ) HasherError![]const u8 {
         if (params.secret != null or params.ad != null) return HasherError.InvalidEncoding;
 
@@ -540,7 +534,7 @@ const PhcFormatHasher = struct {
         crypto.random.bytes(&salt);
 
         var hash: [default_hash_len]u8 = undefined;
-        try kdf(allocator, &hash, password, &salt, params, mode);
+        try kdf(allocator, &hash, password, &salt, params, mode, io);
 
         return phc_format.serialize(HashResult{
             .alg_id = @tagName(mode),
@@ -557,6 +551,7 @@ const PhcFormatHasher = struct {
         allocator: mem.Allocator,
         str: []const u8,
         password: []const u8,
+        io: Io,
     ) HasherError!void {
         const hash_result = try phc_format.deserialize(HashResult, str);
 
@@ -572,7 +567,7 @@ const PhcFormatHasher = struct {
         if (expected_hash.len > hash_buf.len) return HasherError.InvalidEncoding;
         const hash = hash_buf[0..expected_hash.len];
 
-        try kdf(allocator, hash, password, hash_result.salt.constSlice(), params, mode);
+        try kdf(allocator, hash, password, hash_result.salt.constSlice(), params, mode, io);
         if (!mem.eql(u8, hash, expected_hash)) return HasherError.PasswordVerificationFailed;
     }
 };
@@ -595,6 +590,7 @@ pub fn strHash(
     password: []const u8,
     options: HashOptions,
     out: []u8,
+    io: Io,
 ) Error![]const u8 {
     const allocator = options.allocator orelse return Error.AllocatorRequired;
     switch (options.encoding) {
@@ -604,6 +600,7 @@ pub fn strHash(
             options.params,
             options.mode,
             out,
+            io,
         ),
         .crypt => return Error.InvalidEncoding,
     }
@@ -621,9 +618,10 @@ pub fn strVerify(
     str: []const u8,
     password: []const u8,
     options: VerifyOptions,
+    io: Io,
 ) Error!void {
     const allocator = options.allocator orelse return Error.AllocatorRequired;
-    return PhcFormatHasher.verify(allocator, str, password);
+    return PhcFormatHasher.verify(allocator, str, password, io);
 }
 
 test "argon2d" {
@@ -640,6 +638,7 @@ test "argon2d" {
         &salt,
         .{ .t = 3, .m = 32, .p = 4, .secret = &secret, .ad = &ad },
         .argon2d,
+        std.testing.io,
     );
 
     const want = [_]u8{
@@ -665,6 +664,7 @@ test "argon2i" {
         &salt,
         .{ .t = 3, .m = 32, .p = 4, .secret = &secret, .ad = &ad },
         .argon2i,
+        std.testing.io,
     );
 
     const want = [_]u8{
@@ -690,6 +690,7 @@ test "argon2id" {
         &salt,
         .{ .t = 3, .m = 32, .p = 4, .secret = &secret, .ad = &ad },
         .argon2id,
+        std.testing.io,
     );
 
     const want = [_]u8{
@@ -800,44 +801,44 @@ test "kdf" {
         .{
             .mode = .argon2i,
             .time = 4,
-            .memory = 4096,
+            .memory = 256,
             .threads = 4,
-            .hash = "a11f7b7f3f93f02ad4bddb59ab62d121e278369288a0d0e7",
+            .hash = "f7dbbacbf16999e3700817a7e06f65a8db2e9fa9504ede4c",
         },
         .{
             .mode = .argon2d,
             .time = 4,
-            .memory = 4096,
+            .memory = 256,
             .threads = 4,
-            .hash = "935598181aa8dc2b720914aa6435ac8d3e3a4210c5b0fb2d",
+            .hash = "ea2970501cf49faa5ba1d2e6370204e9b57ca90a8fea937b",
         },
         .{
             .mode = .argon2id,
             .time = 4,
-            .memory = 4096,
+            .memory = 256,
             .threads = 4,
-            .hash = "145db9733a9f4ee43edf33c509be96b934d505a4efb33c5a",
+            .hash = "fbd40d5a8cb92f88c20bda4b3cdb1f9d5af1efa937032410",
         },
         .{
             .mode = .argon2i,
             .time = 4,
-            .memory = 1024,
+            .memory = 256,
             .threads = 8,
-            .hash = "0cdd3956aa35e6b475a7b0c63488822f774f15b43f6e6e17",
+            .hash = "15d3c398364e53f68fd12d19baf3f21432d964254fe27467",
         },
         .{
             .mode = .argon2d,
             .time = 4,
-            .memory = 1024,
+            .memory = 256,
             .threads = 8,
-            .hash = "83604fc2ad0589b9d055578f4d3cc55bc616df3578a896e9",
+            .hash = "23c9adc06f06e21e4612c1466a1be02627690932b02c0df0",
         },
         .{
             .mode = .argon2id,
             .time = 4,
-            .memory = 1024,
+            .memory = 256,
             .threads = 8,
-            .hash = "8dafa8e004f8ea96bf7c0f93eecf67a6047476143d15577f",
+            .hash = "f22802f8ca47be93f9954e4ce20c1e944e938fbd4a125d9d",
         },
         .{
             .mode = .argon2i,
@@ -863,23 +864,23 @@ test "kdf" {
         .{
             .mode = .argon2i,
             .time = 3,
-            .memory = 1024,
+            .memory = 256,
             .threads = 6,
-            .hash = "d236b29c2b2a09babee842b0dec6aa1e83ccbdea8023dced",
+            .hash = "ebc8f91964abd8ceab49a12963b0a9e57d635bfa2aad2884",
         },
         .{
             .mode = .argon2d,
             .time = 3,
-            .memory = 1024,
+            .memory = 256,
             .threads = 6,
-            .hash = "a3351b0319a53229152023d9206902f4ef59661cdca89481",
+            .hash = "1dd7202fd68da6675f769f4034b7a1db30d8785331954117",
         },
         .{
             .mode = .argon2id,
             .time = 3,
-            .memory = 1024,
+            .memory = 256,
             .threads = 6,
-            .hash = "1640b932f4b60e272f5d2207b9a9c626ffa1bd88d2349016",
+            .hash = "424436b6ee22a66b04b9d0cf78f190305c5c166bae8baa09",
         },
     };
     for (test_vectors) |v| {
@@ -894,6 +895,7 @@ test "kdf" {
             salt,
             .{ .t = v.time, .m = v.memory, .p = v.threads },
             v.mode,
+            std.testing.io,
         );
 
         try std.testing.expectEqualSlices(u8, &dk, &want);
@@ -903,6 +905,7 @@ test "kdf" {
 test "phc format hasher" {
     const allocator = std.testing.allocator;
     const password = "testpass";
+    const io = std.testing.io;
 
     var buf: [128]u8 = undefined;
     const hash = try PhcFormatHasher.create(
@@ -911,25 +914,29 @@ test "phc format hasher" {
         .{ .t = 3, .m = 32, .p = 4 },
         .argon2id,
         &buf,
+        io,
     );
-    try PhcFormatHasher.verify(allocator, hash, password);
+    try PhcFormatHasher.verify(allocator, hash, password, io);
 }
 
 test "password hash and password verify" {
     const allocator = std.testing.allocator;
     const password = "testpass";
+    const io = std.testing.io;
 
     var buf: [128]u8 = undefined;
     const hash = try strHash(
         password,
         .{ .allocator = allocator, .params = .{ .t = 3, .m = 32, .p = 4 } },
         &buf,
+        io,
     );
-    try strVerify(hash, password, .{ .allocator = allocator });
+    try strVerify(hash, password, .{ .allocator = allocator }, io);
 }
 
 test "kdf derived key length" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
 
     const password = "testpass";
     const salt = "saltsalt";
@@ -937,11 +944,11 @@ test "kdf derived key length" {
     const mode = Mode.argon2id;
 
     var dk1: [11]u8 = undefined;
-    try kdf(allocator, &dk1, password, salt, params, mode);
+    try kdf(allocator, &dk1, password, salt, params, mode, io);
 
     var dk2: [77]u8 = undefined;
-    try kdf(allocator, &dk2, password, salt, params, mode);
+    try kdf(allocator, &dk2, password, salt, params, mode, io);
 
     var dk3: [111]u8 = undefined;
-    try kdf(allocator, &dk3, password, salt, params, mode);
+    try kdf(allocator, &dk3, password, salt, params, mode, io);
 }

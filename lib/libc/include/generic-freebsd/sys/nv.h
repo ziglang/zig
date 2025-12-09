@@ -34,6 +34,7 @@
 #define	_NV_H_
 
 #include <sys/cdefs.h>
+#include <sys/_nv.h>
 
 #ifndef _KERNEL
 #include <stdarg.h>
@@ -41,13 +42,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <sys/nv_namespace.h>
-#endif
-
-#ifndef	_NVLIST_T_DECLARED
-#define	_NVLIST_T_DECLARED
-struct nvlist;
-
-typedef struct nvlist nvlist_t;
 #endif
 
 #define	NV_NAME_MAX	2048

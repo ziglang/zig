@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2015 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2015-2024 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
  *
  * Portions of this software were developed by SRI International and the
@@ -105,8 +105,6 @@ atomic_fcmpset_rel_##WIDTH(__volatile uint##WIDTH##_t *p,		\
 
 ATOMIC_CMPSET_ACQ_REL(8);
 ATOMIC_FCMPSET_ACQ_REL(8);
-ATOMIC_CMPSET_ACQ_REL(16);
-ATOMIC_FCMPSET_ACQ_REL(16);
 
 #define	atomic_cmpset_char		atomic_cmpset_8
 #define	atomic_cmpset_acq_char		atomic_cmpset_acq_8
@@ -116,11 +114,40 @@ ATOMIC_FCMPSET_ACQ_REL(16);
 #define	atomic_fcmpset_rel_char		atomic_fcmpset_rel_8
 
 #define	atomic_cmpset_short		atomic_cmpset_16
-#define	atomic_cmpset_acq_short		atomic_cmpset_acq_16
-#define	atomic_cmpset_rel_short		atomic_cmpset_rel_16
 #define	atomic_fcmpset_short		atomic_fcmpset_16
+
+ATOMIC_CMPSET_ACQ_REL(16);
+ATOMIC_FCMPSET_ACQ_REL(16);
+
+#define	atomic_load_acq_16	atomic_load_acq_16
+static __inline uint16_t
+atomic_load_acq_16(const volatile uint16_t *p)
+{
+	uint16_t ret;
+
+	ret = *p;
+
+	fence();
+
+	return (ret);
+}
+
+static __inline void
+atomic_store_rel_16(volatile uint16_t *p, uint16_t val)
+{
+
+	fence();
+
+	*p = val;
+}
+
+#define	atomic_cmpset_acq_short		atomic_cmpset_acq_16
 #define	atomic_fcmpset_acq_short	atomic_fcmpset_acq_16
+#define	atomic_load_acq_short		atomic_load_acq_16
+
+#define	atomic_cmpset_rel_short		atomic_cmpset_rel_16
 #define	atomic_fcmpset_rel_short	atomic_fcmpset_rel_16
+#define	atomic_store_rel_short		atomic_store_rel_16
 
 static __inline void
 atomic_add_32(volatile uint32_t *p, uint32_t val)
@@ -239,6 +266,34 @@ atomic_readandclear_32(volatile uint32_t *p)
 	return (ret);
 }
 
+static __inline int
+atomic_testandclear_32(volatile uint32_t *p, u_int val)
+{
+	uint32_t mask, old;
+
+	mask = 1u << (val & 31);
+	__asm __volatile("amoand.w %0, %2, %1"
+			: "=&r" (old), "+A" (*p)
+			: "r" (~mask)
+			: "memory");
+
+	return ((old & mask) != 0);
+}
+
+static __inline int
+atomic_testandset_32(volatile uint32_t *p, u_int val)
+{
+	uint32_t mask, old;
+
+	mask = 1u << (val & 31);
+	__asm __volatile("amoor.w %0, %2, %1"
+			: "=&r" (old), "+A" (*p)
+			: "r" (mask)
+			: "memory");
+
+	return ((old & mask) != 0);
+}
+
 #define	atomic_add_int		atomic_add_32
 #define	atomic_clear_int	atomic_clear_32
 #define	atomic_cmpset_int	atomic_cmpset_32
@@ -257,7 +312,7 @@ ATOMIC_CMPSET_ACQ_REL(32);
 ATOMIC_FCMPSET_ACQ_REL(32);
 
 static __inline uint32_t
-atomic_load_acq_32(volatile uint32_t *p)
+atomic_load_acq_32(const volatile uint32_t *p)
 {
 	uint32_t ret;
 
@@ -410,6 +465,48 @@ atomic_readandclear_64(volatile uint64_t *p)
 	return (ret);
 }
 
+static __inline int
+atomic_testandclear_64(volatile uint64_t *p, u_int val)
+{
+	uint64_t mask, old;
+
+	mask = 1ul << (val & 63);
+	__asm __volatile("amoand.d %0, %2, %1"
+			: "=&r" (old), "+A" (*p)
+			: "r" (~mask)
+			: "memory");
+
+	return ((old & mask) != 0);
+}
+
+static __inline int
+atomic_testandset_64(volatile uint64_t *p, u_int val)
+{
+	uint64_t mask, old;
+
+	mask = 1ul << (val & 63);
+	__asm __volatile("amoor.d %0, %2, %1"
+			: "=&r" (old), "+A" (*p)
+			: "r" (mask)
+			: "memory");
+
+	return ((old & mask) != 0);
+}
+
+static __inline int
+atomic_testandset_acq_64(volatile uint64_t *p, u_int val)
+{
+	uint64_t mask, old;
+
+	mask = 1ul << (val & 63);
+	__asm __volatile("amoor.d.aq %0, %2, %1"
+			: "=&r" (old), "+A" (*p)
+			: "r" (mask)
+			: "memory");
+
+	return ((old & mask) != 0);
+}
+
 static __inline uint32_t
 atomic_swap_32(volatile uint32_t *p, uint32_t val)
 {
@@ -447,6 +544,9 @@ atomic_swap_64(volatile uint64_t *p, uint64_t val)
 #define	atomic_set_long			atomic_set_64
 #define	atomic_subtract_long		atomic_subtract_64
 #define	atomic_swap_long		atomic_swap_64
+#define	atomic_testandclear_long	atomic_testandclear_64
+#define	atomic_testandset_long		atomic_testandset_64
+#define	atomic_testandset_acq_long	atomic_testandset_acq_64
 
 #define	atomic_add_ptr			atomic_add_64
 #define	atomic_clear_ptr		atomic_clear_64
@@ -457,6 +557,8 @@ atomic_swap_64(volatile uint64_t *p, uint64_t val)
 #define	atomic_set_ptr			atomic_set_64
 #define	atomic_subtract_ptr		atomic_subtract_64
 #define	atomic_swap_ptr			atomic_swap_64
+#define	atomic_testandclear_ptr		atomic_testandclear_64
+#define	atomic_testandset_ptr		atomic_testandset_64
 
 ATOMIC_ACQ_REL(set, 64)
 ATOMIC_ACQ_REL(clear, 64)
@@ -467,7 +569,7 @@ ATOMIC_CMPSET_ACQ_REL(64);
 ATOMIC_FCMPSET_ACQ_REL(64);
 
 static __inline uint64_t
-atomic_load_acq_64(volatile uint64_t *p)
+atomic_load_acq_64(const volatile uint64_t *p)
 {
 	uint64_t ret;
 
@@ -553,5 +655,8 @@ atomic_thread_fence_seq_cst(void)
 #define	atomic_store_rel_ptr		atomic_store_rel_64
 
 #include <sys/_atomic_subword.h>
+
+#define	atomic_set_short		atomic_set_16
+#define	atomic_clear_short		atomic_clear_16
 
 #endif /* _MACHINE_ATOMIC_H_ */

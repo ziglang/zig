@@ -39,7 +39,7 @@ v2.2.5.
 
 The file `lib/libc/glibc/abilist` is a Zig-specific binary blob that
 defines the supported glibc versions and the set of symbols each version
-must define.  See https://github.com/ziglang/glibc-abi-tool for the
+must define.  See https://codeberg.org/ziglang/libc-abi-tools for the
 tooling to generate this blob.  The code in `glibc.zig` parses the abilist
 to build version-specific stub libraries on demand.
 

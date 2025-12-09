@@ -35,9 +35,11 @@
 #ifndef _MACHINE_CPU_H_
 #define	_MACHINE_CPU_H_
 
+#ifndef LOCORE
 #include <machine/atomic.h>
 #include <machine/cpufunc.h>
 #include <machine/frame.h>
+#endif
 
 #define	TRAPF_PC(tfp)		((tfp)->tf_sepc)
 #define	TRAPF_USERMODE(tfp)	(((tfp)->tf_sstatus & SSTATUS_SPP) == 0)
@@ -46,8 +48,6 @@
 #define	cpu_setstack(td, sp)	((td)->td_frame->tf_sp = (sp))
 #define	cpu_spinwait()		/* nothing */
 #define	cpu_lock_delay()	DELAY(1)
-
-#ifdef _KERNEL
 
 /*
  * Core manufacturer IDs, as reported by the mvendorid CSR.
@@ -80,6 +80,7 @@
 
 /* SiFive marchid values */
 #define	MARCHID_SIFIVE_U7	MARCHID_COMMERCIAL(7)
+#define	MARCHID_SIFIVE_P5	MARCHID_COMMERCIAL(8)
 
 /*
  * MMU virtual-addressing modes. Support for each level implies the previous,
@@ -88,6 +89,9 @@
 #define	MMU_SV39	0x1	/* 3-level paging */
 #define	MMU_SV48	0x2	/* 4-level paging */
 #define	MMU_SV57	0x4	/* 5-level paging */
+
+#ifdef _KERNEL
+#ifndef LOCORE
 
 extern char btext[];
 extern char etext[];
@@ -105,6 +109,7 @@ get_cyclecount(void)
 	return (rdcycle());
 }
 
-#endif
+#endif /* !LOCORE */
+#endif /* _KERNEL */
 
 #endif /* !_MACHINE_CPU_H_ */

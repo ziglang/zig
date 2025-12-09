@@ -212,7 +212,7 @@ struct denode {
 	     ((dep)->de_Attributes & ATTR_DIRECTORY) ? 0 : (dep)->de_FileSize), \
 	 putushort((dp)->deHighClust, (dep)->de_StartCluster >> 16))
 
-#if defined(_KERNEL) || defined(MAKEFS)
+#if defined(_KERNEL) || defined(_WANT_MSDOSFS_INTERNALS)
 
 #define	VTODE(vp)	((struct denode *)(vp)->v_data)
 #define	DETOV(de)	((de)->de_vnode)
@@ -294,5 +294,5 @@ int removede(struct denode *pdep, struct denode *dep);
 int detrunc(struct denode *dep, u_long length, int flags, struct ucred *cred);
 int doscheckpath( struct denode *source, struct denode *target,
     daddr_t *wait_scn);
-#endif	/* _KERNEL || MAKEFS */
+#endif	/* _KERNEL || _WANT_MSDOSFS_INTERNALS */
 #endif	/* !_FS_MSDOSFS_DENODE_H_ */

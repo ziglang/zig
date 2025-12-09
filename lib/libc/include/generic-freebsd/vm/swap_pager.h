@@ -32,8 +32,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	from: @(#)swap_pager.h	7.1 (Berkeley) 12/5/90
  */
 
 #ifndef	_VM_SWAP_PAGER_H_
@@ -70,13 +68,16 @@ struct swdevt {
 
 #ifdef _KERNEL
 
+extern bool swap_pager_almost_full;
 extern int swap_pager_avail;
 extern int nsw_cluster_max;
 
 struct xswdev;
 int swap_dev_info(int name, struct xswdev *xs, char *devname, size_t len);
 void swap_pager_copy(vm_object_t, vm_object_t, vm_pindex_t, int);
-vm_pindex_t swap_pager_find_least(vm_object_t object, vm_pindex_t pindex);
+bool swap_pager_scan_all_shadowed(vm_object_t object);
+vm_pindex_t swap_pager_seek_data(vm_object_t object, vm_pindex_t pindex);
+vm_pindex_t swap_pager_seek_hole(vm_object_t object, vm_pindex_t pindex);
 void swap_pager_freespace(vm_object_t object, vm_pindex_t start,
     vm_size_t size, vm_size_t *freed);
 void swap_pager_swap_init(void);

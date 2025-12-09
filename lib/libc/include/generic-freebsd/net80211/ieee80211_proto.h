@@ -123,6 +123,10 @@ struct mbuf *	ieee80211_ff_encap1(struct ieee80211vap *, struct mbuf *,
 		const struct ether_header *);
 void	ieee80211_tx_complete(struct ieee80211_node *,
 		struct mbuf *, int);
+void	ieee80211_output_seqno_assign(struct ieee80211_node *,
+		int, struct mbuf *);
+void	ieee80211_output_beacon_seqno_assign(struct ieee80211_node *,
+		struct mbuf *);
 
 /*
  * The formation of ProbeResponse frames requires guidance to
