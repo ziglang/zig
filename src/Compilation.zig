@@ -263,7 +263,7 @@ llvm_opt_bisect_limit: c_int,
 
 time_report: ?TimeReport,
 
-file_system_inputs: ?*std.ArrayListUnmanaged(u8),
+file_system_inputs: ?*std.ArrayList(u8),
 
 /// This is the digest of the cache for the current compilation.
 /// This digest will be known after update() is called.
@@ -1166,8 +1166,8 @@ pub const CObject = struct {
                     category: u32 = 0,
                     msg: []const u8 = &.{},
                     src_loc: SrcLoc = .{},
-                    src_ranges: std.ArrayListUnmanaged(SrcRange) = .empty,
-                    sub_diags: std.ArrayListUnmanaged(Diag) = .empty,
+                    src_ranges: std.ArrayList(SrcRange) = .empty,
+                    sub_diags: std.ArrayList(Diag) = .empty,
 
                     fn deinit(wip_diag: *@This(), allocator: Allocator) void {
                         allocator.free(wip_diag.msg);
@@ -1197,7 +1197,7 @@ pub const CObject = struct {
                     category_names.deinit(gpa);
                 }
 
-                var stack: std.ArrayListUnmanaged(WipDiag) = .empty;
+                var stack: std.ArrayList(WipDiag) = .empty;
                 defer {
                     for (stack.items) |*wip_diag| wip_diag.deinit(gpa);
                     stack.deinit(gpa);
@@ -1784,7 +1784,7 @@ pub const CreateOptions = struct {
     global_cc_argv: []const []const u8 = &.{},
 
     /// Tracks all files that can cause the Compilation to be invalidated and need a rebuild.
-    file_system_inputs: ?*std.ArrayListUnmanaged(u8) = null,
+    file_system_inputs: ?*std.ArrayList(u8) = null,
 
     parent_whole_cache: ?ParentWholeCache = null,
 
@@ -2851,6 +2851,7 @@ fn cleanupAfterUpdate(comp: *Compilation, tmp_dir_rand_int: u64) void {
 
 pub const UpdateError = error{
     OutOfMemory,
+    Canceled,
     Unexpected,
     CurrentWorkingDirectoryUnlinked,
 };
@@ -2930,6 +2931,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
                     },
                 },
                 error.OutOfMemory => return error.OutOfMemory,
+                error.Canceled => return error.Canceled,
                 error.InvalidFormat => return comp.setMiscFailure(
                     .check_whole_cache,
                     "failed to check cache: invalid manifest file format",
@@ -3935,17 +3937,13 @@ pub fn getAllErrorsAlloc(comp: *Compilation) error{OutOfMemory}!ErrorBundle {
         for (zcu.failed_imports.items) |failed| {
             assert(zcu.alive_files.contains(failed.file_index)); // otherwise it wouldn't have been added
             const file = zcu.fileByIndex(failed.file_index);
-            const source = file.getSource(zcu) catch |err| {
-                try unableToLoadZcuFile(zcu, &bundle, file, err);
-                continue;
-            };
             const tree = file.getTree(zcu) catch |err| {
                 try unableToLoadZcuFile(zcu, &bundle, file, err);
                 continue;
             };
             const start = tree.tokenStart(failed.import_token);
             const end = start + tree.tokenSlice(failed.import_token).len;
-            const loc = std.zig.findLineColumn(source.bytes, start);
+            const loc = std.zig.findLineColumn(tree.source, start);
             try bundle.addRootErrorMessage(.{
                 .msg = switch (failed.kind) {
                     .file_outside_module_root => try bundle.addString("import of file outside module path"),
@@ -4154,7 +4152,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) error{OutOfMemory}!ErrorBundle {
 
         const refs = try zcu.resolveReferences();
 
-        var messages: std.ArrayListUnmanaged(Zcu.ErrorMsg) = .empty;
+        var messages: std.ArrayList(Zcu.ErrorMsg) = .empty;
         defer messages.deinit(gpa);
         for (zcu.compile_logs.keys(), zcu.compile_logs.values()) |logging_unit, compile_log| {
             if (!refs.contains(logging_unit)) continue;
@@ -4201,7 +4199,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) error{OutOfMemory}!ErrorBundle {
             }
         }
 
-        var log_text: std.ArrayListUnmanaged(u8) = .empty;
+        var log_text: std.ArrayList(u8) = .empty;
         defer log_text.deinit(gpa);
 
         // Index 0 will be the root message; the rest will be notes.
@@ -4254,7 +4252,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) error{OutOfMemory}!ErrorBundle {
 }
 
 /// Writes all compile log lines belonging to `logging_unit` into `log_text` using `zcu.gpa`.
-fn appendCompileLogLines(log_text: *std.ArrayListUnmanaged(u8), zcu: *Zcu, logging_unit: InternPool.AnalUnit) Allocator.Error!void {
+fn appendCompileLogLines(log_text: *std.ArrayList(u8), zcu: *Zcu, logging_unit: InternPool.AnalUnit) Allocator.Error!void {
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     var opt_line_idx = zcu.compile_logs.get(logging_unit).?.first_line.toOptional();
@@ -4338,9 +4336,9 @@ pub fn addModuleErrorMsg(
     const err_span = err_src_loc.span(zcu) catch |err| {
         return unableToLoadZcuFile(zcu, eb, err_src_loc.file_scope, err);
     };
-    const err_loc = std.zig.findLineColumn(err_source.bytes, err_span.main);
+    const err_loc = std.zig.findLineColumn(err_source, err_span.main);
 
-    var ref_traces: std.ArrayListUnmanaged(ErrorBundle.ReferenceTrace) = .empty;
+    var ref_traces: std.ArrayList(ErrorBundle.ReferenceTrace) = .empty;
     defer ref_traces.deinit(gpa);
 
     rt: {
@@ -4434,7 +4432,7 @@ pub fn addModuleErrorMsg(
         const span = note_src_loc.span(zcu) catch |err| {
             return unableToLoadZcuFile(zcu, eb, note_src_loc.file_scope, err);
         };
-        const loc = std.zig.findLineColumn(source.bytes, span.main);
+        const loc = std.zig.findLineColumn(source, span.main);
 
         const omit_source_line = loc.eql(err_loc) or (last_note_loc != null and loc.eql(last_note_loc.?));
         last_note_loc = loc;
@@ -4474,7 +4472,7 @@ pub fn addModuleErrorMsg(
 fn addReferenceTraceFrame(
     zcu: *Zcu,
     eb: *ErrorBundle.Wip,
-    ref_traces: *std.ArrayListUnmanaged(ErrorBundle.ReferenceTrace),
+    ref_traces: *std.ArrayList(ErrorBundle.ReferenceTrace),
     name: []const u8,
     lazy_src: Zcu.LazySrcLoc,
     inlined: bool,
@@ -4489,7 +4487,7 @@ fn addReferenceTraceFrame(
         try unableToLoadZcuFile(zcu, eb, src.file_scope, err);
         return error.AlreadyReported;
     };
-    const loc = std.zig.findLineColumn(source.bytes, span.main);
+    const loc = std.zig.findLineColumn(source, span.main);
     try ref_traces.append(gpa, .{
         .decl_name = try eb.printString("{s}{s}", .{ name, if (inlined) " [inlined]" else "" }),
         .src_loc = try eb.addSourceLocation(.{
@@ -4545,8 +4543,13 @@ pub fn unableToLoadZcuFile(
     file: *Zcu.File,
     err: Zcu.File.GetSourceError,
 ) Allocator.Error!void {
+    const msg = switch (err) {
+        error.OutOfMemory => |e| return e,
+        error.FileChanged => try eb.addString("file contents changed during update"),
+        else => |e| try eb.printString("unable to load: {t}", .{e}),
+    };
     try eb.addRootErrorMessage(.{
-        .msg = try eb.printString("unable to load: {t}", .{err}),
+        .msg = msg,
         .src_loc = try file.errorBundleWholeFileSrc(zcu, eb),
     });
 }
@@ -5009,7 +5012,7 @@ fn performAllTheWork(
     }
 }
 
-const JobError = Allocator.Error;
+const JobError = Allocator.Error || Io.Cancelable;
 
 pub fn queueJob(comp: *Compilation, job: Job) !void {
     try comp.work_queues[Job.stage(job)].pushBack(comp.gpa, job);
@@ -5116,6 +5119,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
 
             pt.ensureFuncBodyUpToDate(func) catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
+                error.Canceled => |e| return e,
                 error.AnalysisFail => return,
             };
         },
@@ -5136,6 +5140,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
             };
             maybe_err catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
+                error.Canceled => |e| return e,
                 error.AnalysisFail => return,
             };
 
@@ -5165,7 +5170,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
             const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
             defer pt.deactivate();
             Type.fromInterned(ty).resolveFully(pt) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory, error.Canceled => |e| return e,
                 error.AnalysisFail => return,
             };
         },
@@ -5176,7 +5181,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
             const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
             defer pt.deactivate();
             pt.semaMod(mod) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+                error.OutOfMemory, error.Canceled => |e| return e,
                 error.AnalysisFail => return,
             };
         },
@@ -5189,8 +5194,8 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
                 // TODO Surface more error details.
                 comp.lockAndSetMiscFailure(
                     .windows_import_lib,
-                    "unable to generate DLL import .lib file for {s}: {s}",
-                    .{ link_lib, @errorName(err) },
+                    "unable to generate DLL import .lib file for {s}: {t}",
+                    .{ link_lib, err },
                 );
             };
         },
@@ -5677,7 +5682,7 @@ pub fn translateC(
         try argv.appendSlice(&[_][]const u8{ "-target", try target.zigTriple(arena) });
 
         const mcpu = mcpu: {
-            var buf: std.ArrayListUnmanaged(u8) = .empty;
+            var buf: std.ArrayList(u8) = .empty;
             defer buf.deinit(gpa);
 
             try buf.print(gpa, "-mcpu={s}", .{target.cpu.model.name});
@@ -5692,7 +5697,7 @@ pub fn translateC(
                 const plus_or_minus = "-+"[@intFromBool(is_enabled)];
                 try buf.print(gpa, "{c}{s}", .{ plus_or_minus, feature.name });
             }
-            break :mcpu try buf.toOwnedSlice(arena);
+            break :mcpu try arena.dupe(u8, buf.items);
         };
         try argv.append(mcpu);
 
@@ -6065,14 +6070,10 @@ fn buildLibZigC(comp: *Compilation, prog_node: std.Progress.Node) void {
     };
 }
 
-fn reportRetryableCObjectError(
-    comp: *Compilation,
-    c_object: *CObject,
-    err: anyerror,
-) error{OutOfMemory}!void {
+fn reportRetryableCObjectError(comp: *Compilation, c_object: *CObject, err: anyerror) error{OutOfMemory}!void {
     c_object.status = .failure_retryable;
 
-    switch (comp.failCObj(c_object, "{s}", .{@errorName(err)})) {
+    switch (comp.failCObj(c_object, "{t}", .{err})) {
         error.AnalysisFail => return,
         else => |e| return e,
     }
@@ -6670,7 +6671,7 @@ fn spawnZigRc(
     argv: []const []const u8,
     child_progress_node: std.Progress.Node,
 ) !void {
-    var node_name: std.ArrayListUnmanaged(u8) = .empty;
+    var node_name: std.ArrayList(u8) = .empty;
     defer node_name.deinit(arena);
 
     var child = std.process.Child.init(argv, arena);
@@ -6985,7 +6986,7 @@ fn addCommonCCArgs(
             }
 
             if (is_clang) {
-                var san_arg: std.ArrayListUnmanaged(u8) = .empty;
+                var san_arg: std.ArrayList(u8) = .empty;
                 const prefix = "-fsanitize=";
                 if (mod.sanitize_c != .off) {
                     if (san_arg.items.len == 0) try san_arg.appendSlice(arena, prefix);
@@ -7316,7 +7317,7 @@ fn failCObj(
     c_object: *CObject,
     comptime format: []const u8,
     args: anytype,
-) SemaError {
+) error{ OutOfMemory, AnalysisFail } {
     @branchHint(.cold);
     const diag_bundle = blk: {
         const diag_bundle = try comp.gpa.create(CObject.Diag.Bundle);
@@ -7340,7 +7341,7 @@ fn failCObjWithOwnedDiagBundle(
     comp: *Compilation,
     c_object: *CObject,
     diag_bundle: *CObject.Diag.Bundle,
-) SemaError {
+) error{ OutOfMemory, AnalysisFail } {
     @branchHint(.cold);
     assert(diag_bundle.diags.len > 0);
     {
@@ -7356,7 +7357,7 @@ fn failCObjWithOwnedDiagBundle(
     return error.AnalysisFail;
 }
 
-fn failWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, comptime format: []const u8, args: anytype) SemaError {
+fn failWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, comptime format: []const u8, args: anytype) error{ OutOfMemory, AnalysisFail } {
     @branchHint(.cold);
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(comp.gpa);
@@ -7383,7 +7384,7 @@ fn failWin32ResourceWithOwnedBundle(
     comp: *Compilation,
     win32_resource: *Win32Resource,
     err_bundle: ErrorBundle,
-) SemaError {
+) error{ OutOfMemory, AnalysisFail } {
     @branchHint(.cold);
     {
         comp.mutex.lock();

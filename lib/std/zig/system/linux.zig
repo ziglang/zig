@@ -11,7 +11,6 @@ const assert = std.debug.assert;
 
 const SparcCpuinfoImpl = struct {
     model: ?*const Target.Cpu.Model = null,
-    is_64bit: bool = false,
 
     const cpu_names = .{
         .{ "SuperSparc", &Target.sparc.cpu.supersparc },
@@ -41,17 +40,12 @@ const SparcCpuinfoImpl = struct {
                     break;
                 }
             }
-        } else if (mem.eql(u8, key, "type")) {
-            self.is_64bit = mem.eql(u8, value, "sun4u") or mem.eql(u8, value, "sun4v");
         }
 
         return true;
     }
 
     fn finalize(self: *const SparcCpuinfoImpl, arch: Target.Cpu.Arch) ?Target.Cpu {
-        // At the moment we only support 64bit SPARC systems.
-        assert(self.is_64bit);
-
         const model = self.model orelse return null;
         return Target.Cpu{
             .arch = arch,
@@ -191,6 +185,77 @@ test "cpuinfo: PowerPC" {
         \\cpu       : POWER8 (raw), altivec supported
         \\clock     : 2926.000000MHz
         \\revision  : 2.0 (pvr 004d 0200)
+    );
+}
+
+const S390xCpuinfoImpl = struct {
+    model: ?*const Target.Cpu.Model = null,
+
+    const cpu_names = .{
+        // z900: 2064, 2066
+        // z990: 2084, 2086
+        // z9: 2094, 2096
+
+        .{ "2097", &Target.s390x.cpu.z10 },
+        .{ "2098", &Target.s390x.cpu.z10 },
+        .{ "2817", &Target.s390x.cpu.z196 },
+        .{ "2818", &Target.s390x.cpu.z196 },
+        .{ "2827", &Target.s390x.cpu.zEC12 },
+        .{ "2828", &Target.s390x.cpu.zEC12 },
+        .{ "2964", &Target.s390x.cpu.z13 },
+        .{ "2965", &Target.s390x.cpu.z13 },
+        .{ "3906", &Target.s390x.cpu.z14 },
+        .{ "3907", &Target.s390x.cpu.z14 },
+        .{ "8561", &Target.s390x.cpu.z15 },
+        .{ "8562", &Target.s390x.cpu.z15 },
+        .{ "3931", &Target.s390x.cpu.z16 },
+        .{ "3932", &Target.s390x.cpu.z16 },
+        .{ "9175", &Target.s390x.cpu.z17 },
+        .{ "9176", &Target.s390x.cpu.z17 },
+    };
+
+    fn line_hook(self: *S390xCpuinfoImpl, key: []const u8, value: []const u8) !bool {
+        if (mem.eql(u8, key, "machine")) {
+            inline for (cpu_names) |pair| {
+                if (mem.eql(u8, value, pair[0])) {
+                    self.model = pair[1];
+                    break;
+                }
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+
+    fn finalize(self: *const S390xCpuinfoImpl, arch: Target.Cpu.Arch) ?Target.Cpu {
+        const model = self.model orelse return null;
+        return Target.Cpu{
+            .arch = arch,
+            .model = model,
+            .features = model.features,
+        };
+    }
+};
+
+const S390xCpuinfoParser = CpuinfoParser(S390xCpuinfoImpl);
+
+test "cpuinfo: S390x" {
+    try testParser(S390xCpuinfoParser, .s390x, &Target.s390x.cpu.z15,
+        \\physical id     : 5
+        \\core id         : 5
+        \\book id         : 5
+        \\drawer id       : 5
+        \\dedicated       : 0
+        \\address         : 5
+        \\siblings        : 1
+        \\cpu cores       : 1
+        \\version         : FF
+        \\identification  : 09DD98
+        \\machine         : 8561
+        \\cpu MHz dynamic : 5200
+        \\cpu MHz static  : 5200
     );
 }
 
@@ -411,7 +476,7 @@ pub fn detectNativeCpuAndFeatures(io: Io) ?Target.Cpu {
             const core = @import("arm.zig").aarch64.detectNativeCpuAndFeatures(current_arch, registers);
             return core;
         },
-        .sparc64 => {
+        .sparc, .sparc64 => {
             return SparcCpuinfoParser.parse(current_arch, &file_reader.interface) catch null;
         },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => {
@@ -419,6 +484,9 @@ pub fn detectNativeCpuAndFeatures(io: Io) ?Target.Cpu {
         },
         .riscv64, .riscv32 => {
             return RiscvCpuinfoParser.parse(current_arch, &file_reader.interface) catch null;
+        },
+        .s390x => {
+            return S390xCpuinfoParser.parse(current_arch, &file_reader.interface) catch null;
         },
         else => {},
     }

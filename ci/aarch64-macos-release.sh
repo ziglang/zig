@@ -27,7 +27,7 @@ export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
 mkdir build-release
 cd build-release
 
-PATH="$HOME/local/bin:$PATH" cmake .. \
+cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-release" \
   -DCMAKE_PREFIX_PATH="$PREFIX" \
   -DCMAKE_BUILD_TYPE=Release \
@@ -39,7 +39,7 @@ PATH="$HOME/local/bin:$PATH" cmake .. \
   -DZIG_NO_LIB=ON \
   -GNinja
 
-$HOME/local/bin/ninja install
+ninja install
 
 stage3-release/bin/zig build test docs \
   --zig-lib-dir "$PWD/../lib" \

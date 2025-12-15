@@ -41,7 +41,7 @@ test "coercion between unions and enums" {
     try expect(u_4.tag() == 1);
 
     // The following example is invalid.
-    // error: coercion from enum '@TypeOf(.enum_literal)' to union 'test_coerce_unions_enum.U2' must initialize 'f32' field 'b'
+    // error: coercion from enum '@EnumLiteral()' to union 'test_coerce_unions_enum.U2' must initialize 'f32' field 'b'
     //var u_5: U2 = .b;
     //try expect(u_5.tag() == 2);
 }

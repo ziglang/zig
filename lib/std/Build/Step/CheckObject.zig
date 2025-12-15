@@ -721,18 +721,18 @@ const MachODumper = struct {
         gpa: Allocator,
         data: []const u8,
         header: macho.mach_header_64,
-        segments: std.ArrayListUnmanaged(macho.segment_command_64) = .empty,
-        sections: std.ArrayListUnmanaged(macho.section_64) = .empty,
-        symtab: std.ArrayListUnmanaged(macho.nlist_64) = .empty,
-        strtab: std.ArrayListUnmanaged(u8) = .empty,
-        indsymtab: std.ArrayListUnmanaged(u32) = .empty,
-        imports: std.ArrayListUnmanaged([]const u8) = .empty,
+        segments: std.ArrayList(macho.segment_command_64) = .empty,
+        sections: std.ArrayList(macho.section_64) = .empty,
+        symtab: std.ArrayList(macho.nlist_64) = .empty,
+        strtab: std.ArrayList(u8) = .empty,
+        indsymtab: std.ArrayList(u32) = .empty,
+        imports: std.ArrayList([]const u8) = .empty,
 
         fn parse(ctx: *ObjectContext) !void {
-            var it = ctx.getLoadCommandIterator();
+            var it = try ctx.getLoadCommandIterator();
             var i: usize = 0;
-            while (it.next()) |cmd| {
-                switch (cmd.cmd()) {
+            while (try it.next()) |cmd| {
+                switch (cmd.hdr.cmd) {
                     .SEGMENT_64 => {
                         const seg = cmd.cast(macho.segment_command_64).?;
                         try ctx.segments.append(ctx.gpa, seg);
@@ -771,14 +771,13 @@ const MachODumper = struct {
             return mem.sliceTo(@as([*:0]const u8, @ptrCast(ctx.strtab.items.ptr + off)), 0);
         }
 
-        fn getLoadCommandIterator(ctx: ObjectContext) macho.LoadCommandIterator {
-            const data = ctx.data[@sizeOf(macho.mach_header_64)..][0..ctx.header.sizeofcmds];
-            return .{ .ncmds = ctx.header.ncmds, .buffer = data };
+        fn getLoadCommandIterator(ctx: ObjectContext) !macho.LoadCommandIterator {
+            return .init(&ctx.header, ctx.data[@sizeOf(macho.mach_header_64)..]);
         }
 
-        fn getLoadCommand(ctx: ObjectContext, cmd: macho.LC) ?macho.LoadCommandIterator.LoadCommand {
-            var it = ctx.getLoadCommandIterator();
-            while (it.next()) |lc| if (lc.cmd() == cmd) {
+        fn getLoadCommand(ctx: ObjectContext, cmd: macho.LC) !?macho.LoadCommandIterator.LoadCommand {
+            var it = try ctx.getLoadCommandIterator();
+            while (try it.next()) |lc| if (lc.hdr.cmd == cmd) {
                 return lc;
             };
             return null;
@@ -872,9 +871,9 @@ const MachODumper = struct {
                 \\LC {d}
                 \\cmd {s}
                 \\cmdsize {d}
-            , .{ index, @tagName(lc.cmd()), lc.cmdsize() });
+            , .{ index, @tagName(lc.hdr.cmd), lc.hdr.cmdsize });
 
-            switch (lc.cmd()) {
+            switch (lc.hdr.cmd) {
                 .SEGMENT_64 => {
                     const seg = lc.cast(macho.segment_command_64).?;
                     try writer.writeByte('\n');
@@ -1592,9 +1591,9 @@ const MachODumper = struct {
             .headers => {
                 try ObjectContext.dumpHeader(ctx.header, writer);
 
-                var it = ctx.getLoadCommandIterator();
+                var it = try ctx.getLoadCommandIterator();
                 var i: usize = 0;
-                while (it.next()) |cmd| {
+                while (try it.next()) |cmd| {
                     try ObjectContext.dumpLoadCommand(cmd, i, writer);
                     try writer.writeByte('\n');
 
@@ -1615,7 +1614,7 @@ const MachODumper = struct {
             .dyld_weak_bind,
             .dyld_lazy_bind,
             => {
-                const cmd = ctx.getLoadCommand(.DYLD_INFO_ONLY) orelse
+                const cmd = try ctx.getLoadCommand(.DYLD_INFO_ONLY) orelse
                     return step.fail("no dyld info found", .{});
                 const lc = cmd.cast(macho.dyld_info_command).?;
 
@@ -1649,7 +1648,7 @@ const MachODumper = struct {
             },
 
             .exports => blk: {
-                if (ctx.getLoadCommand(.DYLD_INFO_ONLY)) |cmd| {
+                if (try ctx.getLoadCommand(.DYLD_INFO_ONLY)) |cmd| {
                     const lc = cmd.cast(macho.dyld_info_command).?;
                     if (lc.export_size > 0) {
                         const data = ctx.data[lc.export_off..][0..lc.export_size];
@@ -1768,9 +1767,9 @@ const ElfDumper = struct {
     const ArchiveContext = struct {
         gpa: Allocator,
         data: []const u8,
-        symtab: std.ArrayListUnmanaged(ArSymtabEntry) = .empty,
+        symtab: std.ArrayList(ArSymtabEntry) = .empty,
         strtab: []const u8,
-        objects: std.ArrayListUnmanaged(struct { name: []const u8, off: usize, len: usize }) = .empty,
+        objects: std.ArrayList(struct { name: []const u8, off: usize, len: usize }) = .empty,
 
         fn parseSymtab(ctx: *ArchiveContext, raw: []const u8, ptr_width: enum { p32, p64 }) !void {
             var reader: std.Io.Reader = .fixed(raw);
@@ -1857,15 +1856,26 @@ const ElfDumper = struct {
 
     fn parseAndDumpObject(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        var reader: std.Io.Reader = .fixed(bytes);
 
-        const hdr = try reader.takeStruct(elf.Elf64_Ehdr, .little);
-        if (!mem.eql(u8, hdr.e_ident[0..4], "\x7fELF")) {
-            return error.InvalidMagicNumber;
+        // `std.elf.Header` takes care of endianness issues for us.
+        var reader: std.Io.Reader = .fixed(bytes);
+        const hdr = try elf.Header.read(&reader);
+
+        var shdrs = try gpa.alloc(elf.Elf64_Shdr, hdr.shnum);
+        defer gpa.free(shdrs);
+        {
+            var shdr_it = hdr.iterateSectionHeadersBuffer(bytes);
+            var shdr_i: usize = 0;
+            while (try shdr_it.next()) |shdr| : (shdr_i += 1) shdrs[shdr_i] = shdr;
         }
 
-        const shdrs = @as([*]align(1) const elf.Elf64_Shdr, @ptrCast(bytes.ptr + hdr.e_shoff))[0..hdr.e_shnum];
-        const phdrs = @as([*]align(1) const elf.Elf64_Phdr, @ptrCast(bytes.ptr + hdr.e_phoff))[0..hdr.e_phnum];
+        var phdrs = try gpa.alloc(elf.Elf64_Phdr, hdr.shnum);
+        defer gpa.free(phdrs);
+        {
+            var phdr_it = hdr.iterateProgramHeadersBuffer(bytes);
+            var phdr_i: usize = 0;
+            while (try phdr_it.next()) |phdr| : (phdr_i += 1) phdrs[phdr_i] = phdr;
+        }
 
         var ctx = ObjectContext{
             .gpa = gpa,
@@ -1875,13 +1885,21 @@ const ElfDumper = struct {
             .phdrs = phdrs,
             .shstrtab = undefined,
         };
-        ctx.shstrtab = ctx.getSectionContents(ctx.hdr.e_shstrndx);
+        ctx.shstrtab = ctx.getSectionContents(ctx.hdr.shstrndx);
+
+        defer gpa.free(ctx.symtab.symbols);
+        defer gpa.free(ctx.dysymtab.symbols);
+        defer gpa.free(ctx.dyns);
 
         for (ctx.shdrs, 0..) |shdr, i| switch (shdr.sh_type) {
             elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
                 const raw = ctx.getSectionContents(i);
                 const nsyms = @divExact(raw.len, @sizeOf(elf.Elf64_Sym));
-                const symbols = @as([*]align(1) const elf.Elf64_Sym, @ptrCast(raw.ptr))[0..nsyms];
+                const symbols = try gpa.alloc(elf.Elf64_Sym, nsyms);
+
+                var r: std.Io.Reader = .fixed(raw);
+                for (0..nsyms) |si| symbols[si] = r.takeStruct(elf.Elf64_Sym, ctx.hdr.endian) catch unreachable;
+
                 const strings = ctx.getSectionContents(shdr.sh_link);
 
                 switch (shdr.sh_type) {
@@ -1899,6 +1917,17 @@ const ElfDumper = struct {
                     },
                     else => unreachable,
                 }
+            },
+            elf.SHT_DYNAMIC => {
+                const raw = ctx.getSectionContents(i);
+                const ndyns = @divExact(raw.len, @sizeOf(elf.Elf64_Dyn));
+                const dyns = try gpa.alloc(elf.Elf64_Dyn, ndyns);
+
+                var r: std.Io.Reader = .fixed(raw);
+                for (0..ndyns) |si| dyns[si] = r.takeStruct(elf.Elf64_Dyn, ctx.hdr.endian) catch unreachable;
+
+                ctx.dyns = dyns;
+                ctx.dyns_strings = ctx.getSectionContents(shdr.sh_link);
             },
 
             else => {},
@@ -1923,9 +1952,9 @@ const ElfDumper = struct {
                 try ctx.dumpSymtab(.dysymtab, writer);
             } else return step.fail("no dynamic symbol table found", .{}),
 
-            .dynamic_section => if (ctx.getSectionByName(".dynamic")) |shndx| {
-                try ctx.dumpDynamicSection(shndx, writer);
-            } else return step.fail("no .dynamic section found", .{}),
+            .dynamic_section => if (ctx.dyns.len > 0) {
+                try ctx.dumpDynamicSection(writer);
+            } else return step.fail("no dynamic section found", .{}),
 
             .dump_section => {
                 const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(check.data.items.ptr + check.payload.dump_section)), 0);
@@ -1942,17 +1971,19 @@ const ElfDumper = struct {
     const ObjectContext = struct {
         gpa: Allocator,
         data: []const u8,
-        hdr: elf.Elf64_Ehdr,
-        shdrs: []align(1) const elf.Elf64_Shdr,
-        phdrs: []align(1) const elf.Elf64_Phdr,
+        hdr: elf.Header,
+        shdrs: []const elf.Elf64_Shdr,
+        phdrs: []const elf.Elf64_Phdr,
         shstrtab: []const u8,
         symtab: Symtab = .{},
         dysymtab: Symtab = .{},
+        dyns: []const elf.Elf64_Dyn = &.{},
+        dyns_strings: []const u8 = &.{},
 
         fn dumpHeader(ctx: ObjectContext, writer: anytype) !void {
             try writer.writeAll("header\n");
-            try writer.print("type {s}\n", .{@tagName(ctx.hdr.e_type)});
-            try writer.print("entry {x}\n", .{ctx.hdr.e_entry});
+            try writer.print("type {s}\n", .{@tagName(ctx.hdr.type)});
+            try writer.print("entry {x}\n", .{ctx.hdr.entry});
         }
 
         fn dumpPhdrs(ctx: ObjectContext, writer: anytype) !void {
@@ -2011,16 +2042,10 @@ const ElfDumper = struct {
             }
         }
 
-        fn dumpDynamicSection(ctx: ObjectContext, shndx: usize, writer: anytype) !void {
-            const shdr = ctx.shdrs[shndx];
-            const strtab = ctx.getSectionContents(shdr.sh_link);
-            const data = ctx.getSectionContents(shndx);
-            const nentries = @divExact(data.len, @sizeOf(elf.Elf64_Dyn));
-            const entries = @as([*]align(1) const elf.Elf64_Dyn, @ptrCast(data.ptr))[0..nentries];
-
+        fn dumpDynamicSection(ctx: ObjectContext, writer: anytype) !void {
             try writer.writeAll(ElfDumper.dynamic_section_label ++ "\n");
 
-            for (entries) |entry| {
+            for (ctx.dyns) |entry| {
                 const key = @as(u64, @bitCast(entry.d_tag));
                 const value = entry.d_val;
 
@@ -2067,7 +2092,7 @@ const ElfDumper = struct {
                     elf.DT_RPATH,
                     elf.DT_RUNPATH,
                     => {
-                        const name = getString(strtab, @intCast(value));
+                        const name = getString(ctx.dyns_strings, @intCast(value));
                         try writer.print(" {s}", .{name});
                     },
 
@@ -2256,8 +2281,8 @@ const ElfDumper = struct {
     };
 
     const Symtab = struct {
-        symbols: []align(1) const elf.Elf64_Sym = &[0]elf.Elf64_Sym{},
-        strings: []const u8 = &[0]u8{},
+        symbols: []const elf.Elf64_Sym = &.{},
+        strings: []const u8 = &.{},
 
         fn get(st: Symtab, index: usize) ?elf.Elf64_Sym {
             if (index >= st.symbols.len) return null;

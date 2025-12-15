@@ -108,10 +108,7 @@ pub const Node = extern struct {
         has_content: bool,
         /// Whether a moved event on this node bubbles down to children.
         bubbles_moved: bool,
-        unused: @Type(.{ .int = .{
-            .signedness = .unsigned,
-            .bits = 32 - @bitSizeOf(std.mem.Alignment) - 6,
-        } }) = 0,
+        unused: @Int(.unsigned, 32 - @bitSizeOf(std.mem.Alignment) - 6) = 0,
     };
 
     pub const Location = union(enum(u1)) {
@@ -122,19 +119,14 @@ pub const Node = extern struct {
         },
         large: extern struct {
             index: usize,
-            unused: @Type(.{ .int = .{
-                .signedness = .unsigned,
-                .bits = 64 - @bitSizeOf(usize),
-            } }) = 0,
+            unused: @Int(.unsigned, 64 - @bitSizeOf(usize)) = 0,
         },
 
         pub const Tag = @typeInfo(Location).@"union".tag_type.?;
-        pub const Payload = @Type(.{ .@"union" = .{
-            .layout = .@"extern",
-            .tag_type = null,
-            .fields = @typeInfo(Location).@"union".fields,
-            .decls = &.{},
-        } });
+        pub const Payload = extern union {
+            small: @FieldType(Location, "small"),
+            large: @FieldType(Location, "large"),
+        };
 
         pub fn resolve(loc: Location, mf: *const MappedFile) [2]u64 {
             return switch (loc) {
@@ -213,7 +205,7 @@ pub const Node = extern struct {
             defer node_moved.* = false;
             return node_moved.*;
         }
-        fn movedAssumeCapacity(ni: Node.Index, mf: *MappedFile) void {
+        pub fn movedAssumeCapacity(ni: Node.Index, mf: *MappedFile) void {
             if (ni.hasMoved(mf)) return;
             const node = ni.get(mf);
             node.flags.moved = true;
@@ -234,7 +226,7 @@ pub const Node = extern struct {
             defer node_resized.* = false;
             return node_resized.*;
         }
-        fn resizedAssumeCapacity(ni: Node.Index, mf: *MappedFile) void {
+        pub fn resizedAssumeCapacity(ni: Node.Index, mf: *MappedFile) void {
             const node = ni.get(mf);
             if (node.flags.resized) return;
             node.flags.resized = true;
@@ -645,7 +637,7 @@ fn resizeNode(mf: *MappedFile, gpa: std.mem.Allocator, ni: Node.Index, requested
             @intCast(requested_size +| requested_size / growth_factor),
         ) - old_size;
         _, const file_size = Node.Index.root.location(mf).resolve(mf);
-        while (true) switch (linux.E.init(switch (std.math.order(range_file_offset, file_size)) {
+        while (true) switch (linux.errno(switch (std.math.order(range_file_offset, file_size)) {
             .lt => linux.fallocate(
                 mf.file.handle,
                 linux.FALLOC.FL_INSERT_RANGE,
@@ -858,7 +850,7 @@ fn moveRange(mf: *MappedFile, old_file_offset: u64, new_file_offset: u64, size: 
     // delete the copy of this node at the old location
     if (is_linux and !mf.flags.fallocate_punch_hole_unsupported and
         size >= mf.flags.block_size.toByteUnits() * 2 - 1) while (true)
-        switch (linux.E.init(linux.fallocate(
+        switch (linux.errno(linux.fallocate(
             mf.file.handle,
             linux.FALLOC.FL_PUNCH_HOLE | linux.FALLOC.FL_KEEP_SIZE,
             @intCast(old_file_offset),
@@ -910,7 +902,7 @@ fn copyFileRange(
                 @intCast(remaining_size),
                 0,
             );
-            switch (linux.E.init(copy_len)) {
+            switch (linux.errno(copy_len)) {
                 .SUCCESS => {
                     if (copy_len == 0) break;
                     remaining_size -= copy_len;

@@ -862,20 +862,23 @@ pub const ErrorDetails = struct {
 pub const ErrorDetailsWithoutCodePage = blk: {
     const details_info = @typeInfo(ErrorDetails);
     const fields = details_info.@"struct".fields;
-    var fields_without_codepage: [fields.len - 1]std.builtin.Type.StructField = undefined;
+    var field_names: [fields.len - 1][]const u8 = undefined;
+    var field_types: [fields.len - 1]type = undefined;
+    var field_attrs: [fields.len - 1]std.builtin.Type.StructField.Attributes = undefined;
     var i: usize = 0;
     for (fields) |field| {
         if (std.mem.eql(u8, field.name, "code_page")) continue;
-        fields_without_codepage[i] = field;
+        field_names[i] = field.name;
+        field_types[i] = field.type;
+        field_attrs[i] = .{
+            .@"comptime" = field.is_comptime,
+            .@"align" = field.alignment,
+            .default_value_ptr = field.default_value_ptr,
+        };
         i += 1;
     }
-    std.debug.assert(i == fields_without_codepage.len);
-    break :blk @Type(.{ .@"struct" = .{
-        .layout = .auto,
-        .fields = &fields_without_codepage,
-        .decls = &.{},
-        .is_tuple = false,
-    } });
+    std.debug.assert(i == fields.len - 1);
+    break :blk @Struct(.auto, null, &field_names, &field_types, &field_attrs);
 };
 
 fn cellCount(code_page: SupportedCodePage, source: []const u8, start_index: usize, end_index: usize) usize {

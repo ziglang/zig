@@ -26,8 +26,8 @@ zcu: *Zcu,
 nav_link: std.AutoHashMapUnmanaged(InternPool.Nav.Index, Decl.Index) = .empty,
 uav_link: std.AutoHashMapUnmanaged(struct { InternPool.Index, spec.StorageClass }, Decl.Index) = .empty,
 intern_map: std.AutoHashMapUnmanaged(struct { InternPool.Index, Repr }, Id) = .empty,
-decls: std.ArrayListUnmanaged(Decl) = .empty,
-decl_deps: std.ArrayListUnmanaged(Decl.Index) = .empty,
+decls: std.ArrayList(Decl) = .empty,
+decl_deps: std.ArrayList(Decl.Index) = .empty,
 entry_points: std.AutoArrayHashMapUnmanaged(Id, EntryPoint) = .empty,
 /// This map serves a dual purpose:
 /// - It keeps track of pointers that are currently being emitted, so that we can tell

@@ -270,16 +270,17 @@ fn writeSplatHeaderLimitFinish(
             remaining -= copy_len;
             if (remaining == 0) break :v;
         }
-        for (data[0 .. data.len - 1]) |buf| if (buf.len != 0) {
-            const copy_len = @min(header.len, remaining);
-            vecs[i] = buf;
+        for (data[0 .. data.len - 1]) |buf| {
+            if (buf.len == 0) continue;
+            const copy_len = @min(buf.len, remaining);
+            vecs[i] = buf[0..copy_len];
             i += 1;
             remaining -= copy_len;
             if (remaining == 0) break :v;
             if (vecs.len - i == 0) break :v;
-        };
+        }
         const pattern = data[data.len - 1];
-        if (splat == 1) {
+        if (splat == 1 or remaining < pattern.len) {
             vecs[i] = pattern[0..@min(remaining, pattern.len)];
             i += 1;
             break :v;
@@ -915,7 +916,16 @@ pub fn sendFileHeader(
     if (new_end <= w.buffer.len) {
         @memcpy(w.buffer[w.end..][0..header.len], header);
         w.end = new_end;
-        return header.len + try w.vtable.sendFile(w, file_reader, limit);
+        const file_bytes = w.vtable.sendFile(w, file_reader, limit) catch |err| switch (err) {
+            error.ReadFailed, error.WriteFailed => |e| return e,
+            error.EndOfStream, error.Unimplemented => |e| {
+                // These errors are non-fatal, so if we wrote any header bytes, we will report that
+                // and suppress this error. Only if there was no header may we return the error.
+                if (header.len != 0) return header.len;
+                return e;
+            },
+        };
+        return header.len + file_bytes;
     }
     const buffered_contents = limit.slice(file_reader.interface.buffered());
     const n = try w.vtable.drain(w, &.{ header, buffered_contents }, 1);
@@ -1880,7 +1890,7 @@ pub fn writeUleb128(w: *Writer, value: anytype) Error!void {
     try w.writeLeb128(switch (@typeInfo(@TypeOf(value))) {
         .comptime_int => @as(std.math.IntFittingRange(0, @abs(value)), value),
         .int => |value_info| switch (value_info.signedness) {
-            .signed => @as(@Type(.{ .int = .{ .signedness = .unsigned, .bits = value_info.bits -| 1 } }), @intCast(value)),
+            .signed => @as(@Int(.unsigned, value_info.bits -| 1), @intCast(value)),
             .unsigned => value,
         },
         else => comptime unreachable,
@@ -1893,7 +1903,7 @@ pub fn writeSleb128(w: *Writer, value: anytype) Error!void {
         .comptime_int => @as(std.math.IntFittingRange(@min(value, -1), @max(0, value)), value),
         .int => |value_info| switch (value_info.signedness) {
             .signed => value,
-            .unsigned => @as(@Type(.{ .int = .{ .signedness = .signed, .bits = value_info.bits + 1 } }), value),
+            .unsigned => @as(@Int(.signed, value_info.bits + 1), value),
         },
         else => comptime unreachable,
     });
@@ -1902,10 +1912,10 @@ pub fn writeSleb128(w: *Writer, value: anytype) Error!void {
 /// Write a single integer as LEB128 to the given writer.
 pub fn writeLeb128(w: *Writer, value: anytype) Error!void {
     const value_info = @typeInfo(@TypeOf(value)).int;
-    try w.writeMultipleOf7Leb128(@as(@Type(.{ .int = .{
-        .signedness = value_info.signedness,
-        .bits = @max(std.mem.alignForwardAnyAlign(u16, value_info.bits, 7), 7),
-    } }), value));
+    try w.writeMultipleOf7Leb128(@as(@Int(
+        value_info.signedness,
+        @max(std.mem.alignForwardAnyAlign(u16, value_info.bits, 7), 7),
+    ), value));
 }
 
 fn writeMultipleOf7Leb128(w: *Writer, value: anytype) Error!void {
@@ -1919,10 +1929,10 @@ fn writeMultipleOf7Leb128(w: *Writer, value: anytype) Error!void {
             .unsigned => remaining > std.math.maxInt(u7),
         };
         byte.* = .{
-            .bits = @bitCast(@as(@Type(.{ .int = .{
-                .signedness = value_info.signedness,
-                .bits = 7,
-            } }), @truncate(remaining))),
+            .bits = @bitCast(@as(
+                @Int(value_info.signedness, 7),
+                @truncate(remaining),
+            )),
             .more = more,
         };
         if (value_info.bits > 7) remaining >>= 7;
@@ -2282,10 +2292,6 @@ pub const Discarding = struct {
 
     pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
         if (File.Handle == void) return error.Unimplemented;
-        switch (builtin.zig_backend) {
-            else => {},
-            .stage2_aarch64 => return error.Unimplemented,
-        }
         const d: *Discarding = @alignCast(@fieldParentPtr("writer", w));
         d.count += w.end;
         w.end = 0;

@@ -35,9 +35,9 @@ pub const Diags = struct {
     /// needing an allocator for things besides error reporting.
     gpa: Allocator,
     mutex: std.Thread.Mutex,
-    msgs: std.ArrayListUnmanaged(Msg),
+    msgs: std.ArrayList(Msg),
     flags: Flags,
-    lld: std.ArrayListUnmanaged(Lld),
+    lld: std.ArrayList(Lld),
 
     pub const SourceLocation = union(enum) {
         none,
@@ -51,10 +51,7 @@ pub const Diags = struct {
 
         const Int = blk: {
             const bits = @typeInfo(@This()).@"struct".fields.len;
-            break :blk @Type(.{ .int = .{
-                .signedness = .unsigned,
-                .bits = bits,
-            } });
+            break :blk @Int(.unsigned, bits);
         };
 
         pub fn anySet(ef: Flags) bool {
@@ -1069,7 +1066,7 @@ pub const File = struct {
             errdefer archive.file.close();
             loadInput(base, .{ .archive = archive }) catch |err| switch (err) {
                 error.BadMagic, error.UnexpectedEndOfFile => {
-                    if (base.tag != .elf) return err;
+                    if (base.tag != .elf and base.tag != .elf2) return err;
                     try loadGnuLdScript(base, path, query, archive.file);
                     archive.file.close();
                     return;
@@ -1091,7 +1088,7 @@ pub const File = struct {
         errdefer dso.file.close();
         loadInput(base, .{ .dso = dso }) catch |err| switch (err) {
             error.BadMagic, error.UnexpectedEndOfFile => {
-                if (base.tag != .elf) return err;
+                if (base.tag != .elf and base.tag != .elf2) return err;
                 try loadGnuLdScript(base, path, query, dso.file);
                 dso.file.close();
                 return;
@@ -1101,8 +1098,9 @@ pub const File = struct {
     }
 
     fn loadGnuLdScript(base: *File, path: Path, parent_query: UnresolvedInput.Query, file: fs.File) anyerror!void {
-        const diags = &base.comp.link_diags;
-        const gpa = base.comp.gpa;
+        const comp = base.comp;
+        const diags = &comp.link_diags;
+        const gpa = comp.gpa;
         const stat = try file.stat();
         const size = std.math.cast(u32, stat.size) orelse return error.FileTooBig;
         const buf = try gpa.alloc(u8, size);
@@ -1124,7 +1122,11 @@ pub const File = struct {
                 @panic("TODO");
             } else {
                 if (fs.path.isAbsolute(arg.path)) {
-                    const new_path = Path.initCwd(try gpa.dupe(u8, arg.path));
+                    const new_path = Path.initCwd(path: {
+                        comp.mutex.lock();
+                        defer comp.mutex.unlock();
+                        break :path try comp.arena.dupe(u8, arg.path);
+                    });
                     switch (Compilation.classifyFileExt(arg.path)) {
                         .shared_library => try openLoadDso(base, new_path, query),
                         .object => try openLoadObject(base, new_path),
@@ -1770,19 +1772,19 @@ pub fn resolveInputs(
     target: *const std.Target,
     /// This function mutates this array but does not take ownership.
     /// Allocated with `gpa`.
-    unresolved_inputs: *std.ArrayListUnmanaged(UnresolvedInput),
+    unresolved_inputs: *std.ArrayList(UnresolvedInput),
     /// Allocated with `gpa`.
-    resolved_inputs: *std.ArrayListUnmanaged(Input),
+    resolved_inputs: *std.ArrayList(Input),
     lib_directories: []const Cache.Directory,
     color: std.zig.Color,
 ) Allocator.Error!void {
-    var checked_paths: std.ArrayListUnmanaged(u8) = .empty;
+    var checked_paths: std.ArrayList(u8) = .empty;
     defer checked_paths.deinit(gpa);
 
-    var ld_script_bytes: std.ArrayListUnmanaged(u8) = .empty;
+    var ld_script_bytes: std.ArrayList(u8) = .empty;
     defer ld_script_bytes.deinit(gpa);
 
-    var failed_libs: std.ArrayListUnmanaged(struct {
+    var failed_libs: std.ArrayList(struct {
         name: []const u8,
         strategy: UnresolvedInput.SearchStrategy,
         checked_paths: []const u8,
@@ -2002,13 +2004,13 @@ fn resolveLibInput(
     gpa: Allocator,
     arena: Allocator,
     /// Allocated via `gpa`.
-    unresolved_inputs: *std.ArrayListUnmanaged(UnresolvedInput),
+    unresolved_inputs: *std.ArrayList(UnresolvedInput),
     /// Allocated via `gpa`.
-    resolved_inputs: *std.ArrayListUnmanaged(Input),
+    resolved_inputs: *std.ArrayList(Input),
     /// Allocated via `gpa`.
-    checked_paths: *std.ArrayListUnmanaged(u8),
+    checked_paths: *std.ArrayList(u8),
     /// Allocated via `gpa`.
-    ld_script_bytes: *std.ArrayListUnmanaged(u8),
+    ld_script_bytes: *std.ArrayList(u8),
     lib_directory: Directory,
     name_query: UnresolvedInput.NameQuery,
     target: *const std.Target,
@@ -2092,7 +2094,7 @@ fn resolveLibInput(
 }
 
 fn finishResolveLibInput(
-    resolved_inputs: *std.ArrayListUnmanaged(Input),
+    resolved_inputs: *std.ArrayList(Input),
     path: Path,
     file: std.fs.File,
     link_mode: std.builtin.LinkMode,
@@ -2120,11 +2122,11 @@ fn resolvePathInput(
     gpa: Allocator,
     arena: Allocator,
     /// Allocated with `gpa`.
-    unresolved_inputs: *std.ArrayListUnmanaged(UnresolvedInput),
+    unresolved_inputs: *std.ArrayList(UnresolvedInput),
     /// Allocated with `gpa`.
-    resolved_inputs: *std.ArrayListUnmanaged(Input),
+    resolved_inputs: *std.ArrayList(Input),
     /// Allocated via `gpa`.
-    ld_script_bytes: *std.ArrayListUnmanaged(u8),
+    ld_script_bytes: *std.ArrayList(u8),
     target: *const std.Target,
     pq: UnresolvedInput.PathQuery,
     color: std.zig.Color,
@@ -2162,11 +2164,11 @@ fn resolvePathInputLib(
     gpa: Allocator,
     arena: Allocator,
     /// Allocated with `gpa`.
-    unresolved_inputs: *std.ArrayListUnmanaged(UnresolvedInput),
+    unresolved_inputs: *std.ArrayList(UnresolvedInput),
     /// Allocated with `gpa`.
-    resolved_inputs: *std.ArrayListUnmanaged(Input),
+    resolved_inputs: *std.ArrayList(Input),
     /// Allocated via `gpa`.
-    ld_script_bytes: *std.ArrayListUnmanaged(u8),
+    ld_script_bytes: *std.ArrayList(u8),
     target: *const std.Target,
     pq: UnresolvedInput.PathQuery,
     link_mode: std.builtin.LinkMode,

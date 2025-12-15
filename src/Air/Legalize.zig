@@ -1,6 +1,6 @@
 pt: Zcu.PerThread,
 air_instructions: std.MultiArrayList(Air.Inst),
-air_extra: std.ArrayListUnmanaged(u32),
+air_extra: std.ArrayList(u32),
 features: if (switch (dev.env) {
     .bootstrap => @import("../codegen/c.zig").legalizeFeatures(undefined),
     else => null,

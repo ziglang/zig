@@ -1,11 +1,11 @@
 index: File.Index,
 
-symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .empty,
-strtab: std.ArrayListUnmanaged(u8) = .empty,
+symtab: std.ArrayList(elf.Elf64_Sym) = .empty,
+strtab: std.ArrayList(u8) = .empty,
 
-symbols: std.ArrayListUnmanaged(Symbol) = .empty,
-symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
-symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index) = .empty,
+symbols: std.ArrayList(Symbol) = .empty,
+symbols_extra: std.ArrayList(u32) = .empty,
+symbols_resolver: std.ArrayList(Elf.SymbolResolver.Index) = .empty,
 
 entry_index: ?Symbol.Index = null,
 dynamic_index: ?Symbol.Index = null,
@@ -24,7 +24,7 @@ dso_handle_index: ?Symbol.Index = null,
 rela_iplt_start_index: ?Symbol.Index = null,
 rela_iplt_end_index: ?Symbol.Index = null,
 global_pointer_index: ?Symbol.Index = null,
-start_stop_indexes: std.ArrayListUnmanaged(u32) = .empty,
+start_stop_indexes: std.ArrayList(u32) = .empty,
 
 output_symtab_ctx: Elf.SymtabCtx = .{},
 

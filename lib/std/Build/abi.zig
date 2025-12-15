@@ -145,6 +145,7 @@ pub const fuzz = struct {
     pub extern fn fuzzer_init_test(test_one: TestOne, unit_test_name: Slice) void;
     pub extern fn fuzzer_new_input(bytes: Slice) void;
     pub extern fn fuzzer_main(limit_kind: LimitKind, amount: u64) void;
+    pub extern fn fuzzer_unslide_address(addr: usize) usize;
 
     pub const Slice = extern struct {
         ptr: [*]const u8,

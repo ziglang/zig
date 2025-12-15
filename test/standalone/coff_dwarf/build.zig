@@ -4,6 +4,9 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const host = b.graph.host;
 
+    // https://github.com/ziglang/zig/issues/25471
+    if (host.result.os.tag == .freebsd) return;
+
     switch (host.result.cpu.arch) {
         .aarch64,
         .x86,

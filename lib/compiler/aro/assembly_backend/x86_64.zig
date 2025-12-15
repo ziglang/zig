@@ -59,7 +59,7 @@ fn serializeFloat(comptime T: type, value: T, w: *std.Io.Writer) !void {
         else => {
             const size = @bitSizeOf(T);
             const storage_unit = std.meta.intToEnum(StorageUnit, size) catch unreachable;
-            const IntTy = @Type(.{ .int = .{ .signedness = .unsigned, .bits = size } });
+            const IntTy = @Int(.unsigned, size);
             const int_val: IntTy = @bitCast(value);
             return serializeInt(int_val, storage_unit, w);
         },
@@ -167,7 +167,7 @@ fn genDecls(c: *AsmCodeGen) !void {
     if (c.tree.comp.code_gen_options.debug != .strip) {
         const sources = c.tree.comp.sources.values();
         for (sources) |source| {
-            try c.data.print("  .file {d} \"{s}\"\n", .{ @intFromEnum(source.id) - 1, source.path });
+            try c.data.print("  .file {d} \"{s}\"\n", .{ @intFromEnum(source.id.index) + 1, source.path });
         }
     }
 

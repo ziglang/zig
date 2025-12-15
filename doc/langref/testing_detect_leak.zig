@@ -1,9 +1,10 @@
 const std = @import("std");
 
 test "detect leak" {
-    var list = std.array_list.Managed(u21).init(std.testing.allocator);
-    // missing `defer list.deinit();`
-    try list.append('☔');
+    const gpa = std.testing.allocator;
+    var list: std.ArrayList(u21) = .empty;
+    // missing `defer list.deinit(gpa);`
+    try list.append(gpa, '☔');
 
     try std.testing.expect(list.items.len == 1);
 }

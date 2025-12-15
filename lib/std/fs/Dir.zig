@@ -378,7 +378,7 @@ pub const Iterator = switch (native_os) {
                         self.first_iter = false;
                     }
                     const rc = linux.getdents64(self.dir.fd, &self.buf, self.buf.len);
-                    switch (linux.E.init(rc)) {
+                    switch (linux.errno(rc)) {
                         .SUCCESS => {},
                         .BADF => unreachable, // Dir is invalid or was opened without iteration ability
                         .FAULT => unreachable,
@@ -667,8 +667,8 @@ fn iterateImpl(self: Dir, first_iter_start_value: bool) Iterator {
 }
 
 pub const SelectiveWalker = struct {
-    stack: std.ArrayListUnmanaged(Walker.StackItem),
-    name_buffer: std.ArrayListUnmanaged(u8),
+    stack: std.ArrayList(Walker.StackItem),
+    name_buffer: std.ArrayList(u8),
     allocator: Allocator,
 
     pub const Error = IteratorError || Allocator.Error;
@@ -767,7 +767,7 @@ pub const SelectiveWalker = struct {
 ///
 /// See also `walk`.
 pub fn walkSelectively(self: Dir, allocator: Allocator) !SelectiveWalker {
-    var stack: std.ArrayListUnmanaged(Walker.StackItem) = .empty;
+    var stack: std.ArrayList(Walker.StackItem) = .empty;
 
     try stack.append(allocator, .{
         .iter = self.iterate(),
@@ -1521,7 +1521,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
     };
 
     var stack_buffer: [16]StackItem = undefined;
-    var stack = std.ArrayListUnmanaged(StackItem).initBuffer(&stack_buffer);
+    var stack = std.ArrayList(StackItem).initBuffer(&stack_buffer);
     defer StackItem.closeAll(stack.items);
 
     stack.appendAssumeCapacity(.{

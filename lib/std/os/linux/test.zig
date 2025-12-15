@@ -22,7 +22,7 @@ test "fallocate" {
     try expect((try file.stat()).size == 0);
 
     const len: i64 = 65536;
-    switch (linux.E.init(linux.fallocate(file.handle, 0, 0, len))) {
+    switch (linux.errno(linux.fallocate(file.handle, 0, 0, len))) {
         .SUCCESS => {},
         .NOSYS => return error.SkipZigTest,
         .OPNOTSUPP => return error.SkipZigTest,
@@ -42,11 +42,11 @@ test "getppid" {
 
 test "timer" {
     const epoll_fd = linux.epoll_create();
-    var err: linux.E = linux.E.init(epoll_fd);
+    var err: linux.E = linux.errno(epoll_fd);
     try expect(err == .SUCCESS);
 
     const timer_fd = linux.timerfd_create(linux.TIMERFD_CLOCK.MONOTONIC, .{});
-    try expect(linux.E.init(timer_fd) == .SUCCESS);
+    try expect(linux.errno(timer_fd) == .SUCCESS);
 
     const time_interval = linux.timespec{
         .sec = 0,
@@ -58,7 +58,7 @@ test "timer" {
         .it_value = time_interval,
     };
 
-    err = linux.E.init(linux.timerfd_settime(@as(i32, @intCast(timer_fd)), .{}, &new_time, null));
+    err = linux.errno(linux.timerfd_settime(@as(i32, @intCast(timer_fd)), .{}, &new_time, null));
     try expect(err == .SUCCESS);
 
     var event = linux.epoll_event{
@@ -66,13 +66,13 @@ test "timer" {
         .data = linux.epoll_data{ .ptr = 0 },
     };
 
-    err = linux.E.init(linux.epoll_ctl(@as(i32, @intCast(epoll_fd)), linux.EPOLL.CTL_ADD, @as(i32, @intCast(timer_fd)), &event));
+    err = linux.errno(linux.epoll_ctl(@as(i32, @intCast(epoll_fd)), linux.EPOLL.CTL_ADD, @as(i32, @intCast(timer_fd)), &event));
     try expect(err == .SUCCESS);
 
     const events_one: linux.epoll_event = undefined;
     var events = [_]linux.epoll_event{events_one} ** 8;
 
-    err = linux.E.init(linux.epoll_wait(@as(i32, @intCast(epoll_fd)), &events, 8, -1));
+    err = linux.errno(linux.epoll_wait(@as(i32, @intCast(epoll_fd)), &events, 8, -1));
     try expect(err == .SUCCESS);
 }
 
@@ -85,7 +85,7 @@ test "statx" {
     defer file.close();
 
     var statx_buf: linux.Statx = undefined;
-    switch (linux.E.init(linux.statx(file.handle, "", linux.AT.EMPTY_PATH, linux.STATX_BASIC_STATS, &statx_buf))) {
+    switch (linux.errno(linux.statx(file.handle, "", linux.AT.EMPTY_PATH, linux.STATX_BASIC_STATS, &statx_buf))) {
         .SUCCESS => {},
         else => unreachable,
     }
@@ -93,7 +93,7 @@ test "statx" {
     if (builtin.cpu.arch == .riscv32 or builtin.cpu.arch.isLoongArch()) return error.SkipZigTest; // No fstatat, so the rest of the test is meaningless.
 
     var stat_buf: linux.Stat = undefined;
-    switch (linux.E.init(linux.fstatat(file.handle, "", &stat_buf, linux.AT.EMPTY_PATH))) {
+    switch (linux.errno(linux.fstatat(file.handle, "", &stat_buf, linux.AT.EMPTY_PATH))) {
         .SUCCESS => {},
         else => unreachable,
     }
@@ -179,7 +179,7 @@ test "sigemptyset" {
 test "sysinfo" {
     var info: linux.Sysinfo = undefined;
     const result: usize = linux.sysinfo(&info);
-    try expect(std.os.linux.E.init(result) == .SUCCESS);
+    try expect(std.os.linux.errno(result) == .SUCCESS);
 
     try expect(info.mem_unit > 0);
     try expect(info.mem_unit <= std.heap.page_size_max);
@@ -202,17 +202,17 @@ test "futex v1" {
 
     // No-op wait, lock value is not expected value
     rc = linux.futex(&lock.raw, .{ .cmd = .WAIT, .private = true }, 2, .{ .timeout = null }, null, 0);
-    try expectEqual(.AGAIN, linux.E.init(rc));
+    try expectEqual(.AGAIN, linux.errno(rc));
 
     rc = linux.futex_4arg(&lock.raw, .{ .cmd = .WAIT, .private = true }, 2, null);
-    try expectEqual(.AGAIN, linux.E.init(rc));
+    try expectEqual(.AGAIN, linux.errno(rc));
 
     // Short-fuse wait, timeout kicks in
     rc = linux.futex(&lock.raw, .{ .cmd = .WAIT, .private = true }, 1, .{ .timeout = &.{ .sec = 0, .nsec = 2 } }, null, 0);
-    try expectEqual(.TIMEDOUT, linux.E.init(rc));
+    try expectEqual(.TIMEDOUT, linux.errno(rc));
 
     rc = linux.futex_4arg(&lock.raw, .{ .cmd = .WAIT, .private = true }, 1, &.{ .sec = 0, .nsec = 2 });
-    try expectEqual(.TIMEDOUT, linux.E.init(rc));
+    try expectEqual(.TIMEDOUT, linux.errno(rc));
 
     // Wakeup (no waiters)
     rc = linux.futex(&lock.raw, .{ .cmd = .WAKE, .private = true }, 2, .{ .timeout = null }, null, 0);
@@ -223,7 +223,7 @@ test "futex v1" {
 
     // CMP_REQUEUE - val3 mismatch
     rc = linux.futex(&lock.raw, .{ .cmd = .CMP_REQUEUE, .private = true }, 2, .{ .val2 = 0 }, null, 99);
-    try expectEqual(.AGAIN, linux.E.init(rc));
+    try expectEqual(.AGAIN, linux.errno(rc));
 
     // CMP_REQUEUE - requeue (but no waiters, so ... not much)
     {
@@ -256,12 +256,12 @@ test "futex v1" {
     {
         // val1 return early
         rc = linux.futex(&lock.raw, .{ .cmd = .WAIT_BITSET, .private = true }, 2, .{ .timeout = null }, null, 0xfff);
-        try expectEqual(.AGAIN, linux.E.init(rc));
+        try expectEqual(.AGAIN, linux.errno(rc));
 
         // timeout wait
         const timeout: linux.timespec = .{ .sec = 0, .nsec = 2 };
         rc = linux.futex(&lock.raw, .{ .cmd = .WAIT_BITSET, .private = true }, 1, .{ .timeout = &timeout }, null, 0xfff);
-        try expectEqual(.TIMEDOUT, linux.E.init(rc));
+        try expectEqual(.TIMEDOUT, linux.errno(rc));
     }
 
     // WAKE_BITSET
@@ -271,7 +271,7 @@ test "futex v1" {
 
         // bitmask must have at least 1 bit set:
         rc = linux.futex(&lock.raw, .{ .cmd = .WAKE_BITSET, .private = true }, 2, .{ .timeout = null }, null, 0);
-        try expectEqual(.INVAL, linux.E.init(rc));
+        try expectEqual(.INVAL, linux.errno(rc));
     }
 }
 
@@ -307,7 +307,7 @@ test "futex2_waitv" {
 
     const timeout = linux.kernel_timespec{ .sec = 0, .nsec = 2 }; // absolute timeout, so this is 1970...
     const rc = linux.futex2_waitv(&futexes, futexes.len, .{}, &timeout, .MONOTONIC);
-    switch (linux.E.init(rc)) {
+    switch (linux.errno(rc)) {
         .NOSYS => return error.SkipZigTest, // futex2_waitv added in kernel v5.16
         else => |err| try expectEqual(.TIMEDOUT, err),
     }
@@ -318,7 +318,7 @@ test "futex2_waitv" {
 fn futex2_skip_if_unsupported() !void {
     const lock: u32 = 0;
     const rc = linux.futex2_wake(&lock, 0, 1, .{ .size = .U32, .private = true });
-    if (linux.E.init(rc) == .NOSYS) {
+    if (linux.errno(rc) == .NOSYS) {
         return error.SkipZigTest;
     }
 }
@@ -334,23 +334,23 @@ test "futex2_wait" {
     // (at least) they're not implemented.
     if (false) {
         rc = linux.futex2_wait(&lock.raw, 1, mask, .{ .size = .U8, .private = true }, null, .MONOTONIC);
-        try expectEqual(.INVAL, linux.E.init(rc));
+        try expectEqual(.INVAL, linux.errno(rc));
 
         rc = linux.futex2_wait(&lock.raw, 1, mask, .{ .size = .U16, .private = true }, null, .MONOTONIC);
-        try expectEqual(.INVAL, linux.E.init(rc));
+        try expectEqual(.INVAL, linux.errno(rc));
 
         rc = linux.futex2_wait(&lock.raw, 1, mask, .{ .size = .U64, .private = true }, null, .MONOTONIC);
-        try expectEqual(.INVAL, linux.E.init(rc));
+        try expectEqual(.INVAL, linux.errno(rc));
     }
 
     const flags = linux.FUTEX2_FLAGS{ .size = .U32, .private = true };
     // no-wait, lock state mismatch
     rc = linux.futex2_wait(&lock.raw, 2, mask, flags, null, .MONOTONIC);
-    try expectEqual(.AGAIN, linux.E.init(rc));
+    try expectEqual(.AGAIN, linux.errno(rc));
 
     // hit timeout on wait
     rc = linux.futex2_wait(&lock.raw, 1, mask, flags, &.{ .sec = 0, .nsec = 2 }, .MONOTONIC);
-    try expectEqual(.TIMEDOUT, linux.E.init(rc));
+    try expectEqual(.TIMEDOUT, linux.errno(rc));
 
     // timeout is absolute
     {
@@ -364,11 +364,11 @@ test "futex2_wait" {
             .nsec = curr.nsec + 2,
         };
         rc = linux.futex2_wait(&lock.raw, 1, mask, flags, &timeout, .MONOTONIC);
-        try expectEqual(.TIMEDOUT, linux.E.init(rc));
+        try expectEqual(.TIMEDOUT, linux.errno(rc));
     }
 
     rc = linux.futex2_wait(&lock.raw, 1, mask, flags, &.{ .sec = 0, .nsec = 2 }, .REALTIME);
-    try expectEqual(.TIMEDOUT, linux.E.init(rc));
+    try expectEqual(.TIMEDOUT, linux.errno(rc));
 }
 
 test "futex2_wake" {
@@ -403,6 +403,14 @@ test "futex2_requeue" {
 
     const rc = linux.futex2_requeue(&futexes, .{}, 2, 2);
     try expectEqual(0, rc);
+}
+
+test "copy_file_range error" {
+    const fds = try std.posix.pipe();
+    defer std.posix.close(fds[0]);
+    defer std.posix.close(fds[1]);
+
+    try std.testing.expectError(error.InvalidArguments, linux.wrapped.copy_file_range(fds[0], null, fds[1], null, 1, 0));
 }
 
 test {

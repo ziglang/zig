@@ -36,7 +36,7 @@ pub const TokenWithExpansionLocs = struct {
     pub fn expansionSlice(tok: TokenWithExpansionLocs) []const Source.Location {
         const locs = tok.expansion_locs orelse return &[0]Source.Location{};
         var i: usize = 0;
-        while (locs[i].id != .unused) : (i += 1) {}
+        while (locs[i].id.index != .unused) : (i += 1) {}
         return locs[0..i];
     }
 
@@ -56,7 +56,7 @@ pub const TokenWithExpansionLocs = struct {
 
         if (tok.expansion_locs) |locs| {
             var i: usize = 0;
-            while (locs[i].id != .unused) : (i += 1) {}
+            while (locs[i].id.index != .unused) : (i += 1) {}
             list.items = locs[0..i];
             while (locs[i].byte_offset != 1) : (i += 1) {}
             list.capacity = i + 1;
@@ -68,7 +68,7 @@ pub const TokenWithExpansionLocs = struct {
         try list.ensureTotalCapacity(gpa, wanted_len);
 
         for (new) |new_loc| {
-            if (new_loc.id == .generated) continue;
+            if (new_loc.id.index == .generated) continue;
             list.appendAssumeCapacity(new_loc);
         }
     }
@@ -76,7 +76,7 @@ pub const TokenWithExpansionLocs = struct {
     pub fn free(expansion_locs: ?[*]Source.Location, gpa: std.mem.Allocator) void {
         const locs = expansion_locs orelse return;
         var i: usize = 0;
-        while (locs[i].id != .unused) : (i += 1) {}
+        while (locs[i].id.index != .unused) : (i += 1) {}
         while (locs[i].byte_offset != 1) : (i += 1) {}
         gpa.free(locs[0 .. i + 1]);
     }
@@ -133,10 +133,11 @@ pub fn deinit(tree: *Tree) void {
     tree.* = undefined;
 }
 
-pub const GNUAssemblyQualifiers = struct {
+pub const GNUAssemblyQualifiers = packed struct(u32) {
     @"volatile": bool = false,
     @"inline": bool = false,
     goto: bool = false,
+    _: u29 = 0,
 };
 
 pub const Node = union(enum) {
@@ -146,7 +147,7 @@ pub const Node = union(enum) {
     param: Param,
     variable: Variable,
     typedef: Typedef,
-    global_asm: SimpleAsm,
+    global_asm: GlobalAsm,
 
     struct_decl: ContainerDecl,
     union_decl: ContainerDecl,
@@ -173,7 +174,7 @@ pub const Node = union(enum) {
     break_stmt: BreakStmt,
     null_stmt: NullStmt,
     return_stmt: ReturnStmt,
-    gnu_asm_simple: SimpleAsm,
+    asm_stmt: AsmStmt,
 
     assign_expr: Binary,
     mul_assign_expr: Binary,
@@ -333,7 +334,7 @@ pub const Node = union(enum) {
         implicit: bool,
     };
 
-    pub const SimpleAsm = struct {
+    pub const GlobalAsm = struct {
         asm_tok: TokenIndex,
         asm_str: Node.Index,
     };
@@ -453,6 +454,22 @@ pub const Node = union(enum) {
             implicit: bool,
             none,
         },
+    };
+
+    pub const AsmStmt = struct {
+        asm_tok: TokenIndex,
+        asm_str: Node.Index,
+        outputs: []const Operand,
+        inputs: []const Operand,
+        clobbers: []const Node.Index,
+        labels: []const Node.Index,
+        quals: GNUAssemblyQualifiers,
+
+        pub const Operand = struct {
+            name: TokenIndex,
+            constraint: Node.Index,
+            expr: Node.Index,
+        };
     };
 
     pub const Binary = struct {
@@ -1027,10 +1044,56 @@ pub const Node = union(enum) {
                         },
                     },
                 },
-                .gnu_asm_simple => .{
-                    .gnu_asm_simple = .{
+                .asm_stmt, .asm_stmt_volatile, .asm_stmt_inline, .asm_stmt_inline_volatile => |tag| {
+                    const extra = tree.extra.items;
+                    var extra_index = node_data[2];
+
+                    const operand_size = @sizeOf(AsmStmt.Operand) / @sizeOf(u32);
+
+                    const outputs_len = extra[extra_index] * operand_size;
+                    extra_index += 1;
+                    const inputs_len = extra[extra_index] * operand_size;
+                    extra_index += 1;
+                    const clobbers_len = extra[extra_index];
+                    extra_index += 1;
+
+                    const labels_len = node_data[1];
+                    const quals: GNUAssemblyQualifiers = .{
+                        .@"inline" = tag == .asm_stmt_inline or tag == .asm_stmt_inline_volatile,
+                        .@"volatile" = tag == .asm_stmt_volatile or tag == .asm_stmt_inline_volatile,
+                        .goto = labels_len > 0,
+                    };
+
+                    const outputs = extra[extra_index..][0..outputs_len];
+                    extra_index += outputs_len;
+                    const inputs = extra[extra_index..][0..inputs_len];
+                    extra_index += inputs_len;
+                    const clobbers = extra[extra_index..][0..clobbers_len];
+                    extra_index += clobbers_len;
+                    const labels = extra[extra_index..][0..labels_len];
+                    extra_index += labels_len;
+
+                    return .{
+                        .asm_stmt = .{
+                            .asm_tok = node_tok,
+                            .asm_str = @enumFromInt(node_data[0]),
+                            .outputs = @ptrCast(outputs),
+                            .inputs = @ptrCast(inputs),
+                            .clobbers = @ptrCast(clobbers),
+                            .labels = @ptrCast(labels),
+                            .quals = quals,
+                        },
+                    };
+                },
+                .asm_stmt_simple => .{
+                    .asm_stmt = .{
                         .asm_tok = node_tok,
                         .asm_str = @enumFromInt(node_data[0]),
+                        .outputs = &.{},
+                        .inputs = &.{},
+                        .clobbers = &.{},
+                        .labels = &.{},
+                        .quals = @bitCast(node_data[1]),
                     },
                 },
                 .assign_expr => .{
@@ -1726,7 +1789,11 @@ pub const Node = union(enum) {
                 .computed_goto_stmt,
                 .continue_stmt,
                 .break_stmt,
-                .gnu_asm_simple,
+                .asm_stmt,
+                .asm_stmt_volatile,
+                .asm_stmt_inline,
+                .asm_stmt_inline_volatile,
+                .asm_stmt_simple,
                 .global_asm,
                 .generic_association_expr,
                 .generic_default_expr,
@@ -1813,7 +1880,11 @@ pub const Node = union(enum) {
             return_stmt,
             return_none_stmt,
             implicit_return,
-            gnu_asm_simple,
+            asm_stmt,
+            asm_stmt_inline,
+            asm_stmt_volatile,
+            asm_stmt_inline_volatile,
+            asm_stmt_simple,
             comma_expr,
             assign_expr,
             mul_assign_expr,
@@ -2174,10 +2245,39 @@ pub fn setNode(tree: *Tree, node: Node, index: usize) !void {
             }
             repr.tok = @"return".return_tok;
         },
-        .gnu_asm_simple => |gnu_asm_simple| {
-            repr.tag = .gnu_asm_simple;
-            repr.data[0] = @intFromEnum(gnu_asm_simple.asm_str);
-            repr.tok = gnu_asm_simple.asm_tok;
+        .asm_stmt => |asm_stmt| {
+            repr.tok = asm_stmt.asm_tok;
+            repr.data[0] = @intFromEnum(asm_stmt.asm_str);
+            if (asm_stmt.outputs.len == 0 and asm_stmt.inputs.len == 0 and asm_stmt.clobbers.len == 0 and asm_stmt.labels.len == 0) {
+                repr.tag = .asm_stmt_simple;
+                repr.data[1] = @bitCast(asm_stmt.quals);
+            } else {
+                if (asm_stmt.quals.@"inline" and asm_stmt.quals.@"volatile") {
+                    repr.tag = .asm_stmt_inline_volatile;
+                } else if (asm_stmt.quals.@"inline") {
+                    repr.tag = .asm_stmt_inline;
+                } else if (asm_stmt.quals.@"volatile") {
+                    repr.tag = .asm_stmt_volatile;
+                } else {
+                    repr.tag = .asm_stmt;
+                }
+                repr.data[1] = @intCast(asm_stmt.labels.len);
+                repr.data[2] = @intCast(tree.extra.items.len);
+
+                const operand_size = @sizeOf(Node.AsmStmt.Operand) / @sizeOf(u32);
+                try tree.extra.ensureUnusedCapacity(tree.comp.gpa, 3 // lens
+                    + (asm_stmt.outputs.len + asm_stmt.inputs.len) * operand_size // outputs inputs
+                    + asm_stmt.clobbers.len + asm_stmt.labels.len);
+
+                tree.extra.appendAssumeCapacity(@intCast(asm_stmt.outputs.len));
+                tree.extra.appendAssumeCapacity(@intCast(asm_stmt.inputs.len));
+                tree.extra.appendAssumeCapacity(@intCast(asm_stmt.clobbers.len));
+
+                tree.extra.appendSliceAssumeCapacity(@ptrCast(asm_stmt.outputs));
+                tree.extra.appendSliceAssumeCapacity(@ptrCast(asm_stmt.inputs));
+                tree.extra.appendSliceAssumeCapacity(@ptrCast(asm_stmt.clobbers));
+                tree.extra.appendSliceAssumeCapacity(@ptrCast(asm_stmt.labels));
+            }
         },
         .assign_expr => |bin| {
             repr.tag = .assign_expr;
@@ -2804,18 +2904,17 @@ const CallableResultUsage = struct {
 };
 
 pub fn callableResultUsage(tree: *const Tree, node: Node.Index) ?CallableResultUsage {
-    var cur_node = node;
-    while (true) switch (cur_node.get(tree)) {
+    loop: switch (node.get(tree)) {
         .decl_ref_expr => |decl_ref| return .{
             .tok = decl_ref.name_tok,
             .nodiscard = decl_ref.qt.hasAttribute(tree.comp, .nodiscard),
             .warn_unused_result = decl_ref.qt.hasAttribute(tree.comp, .warn_unused_result),
         },
 
-        .paren_expr, .addr_of_expr, .deref_expr => |un| cur_node = un.operand,
-        .comma_expr => |bin| cur_node = bin.rhs,
-        .cast => |cast| cur_node = cast.operand,
-        .call_expr => |call| cur_node = call.callee,
+        .paren_expr, .addr_of_expr, .deref_expr => |un| continue :loop un.operand.get(tree),
+        .comma_expr => |bin| continue :loop bin.rhs.get(tree),
+        .cast => |cast| continue :loop cast.operand.get(tree),
+        .call_expr => |call| continue :loop call.callee.get(tree),
         .member_access_expr, .member_access_ptr_expr => |access| {
             var qt = access.base.qt(tree);
             if (qt.get(tree.comp, .pointer)) |pointer| qt = pointer.child;
@@ -2825,19 +2924,14 @@ pub fn callableResultUsage(tree: *const Tree, node: Node.Index) ?CallableResultU
             };
 
             const field = record_ty.fields[access.member_index];
-            const attributes = field.attributes(tree.comp);
             return .{
                 .tok = field.name_tok,
-                .nodiscard = for (attributes) |attr| {
-                    if (attr.tag == .nodiscard) break true;
-                } else false,
-                .warn_unused_result = for (attributes) |attr| {
-                    if (attr.tag == .warn_unused_result) break true;
-                } else false,
+                .nodiscard = field.qt.hasAttribute(tree.comp, .nodiscard),
+                .warn_unused_result = field.qt.hasAttribute(tree.comp, .warn_unused_result),
             };
         },
         else => return null,
-    };
+    }
 }
 
 pub fn isLval(tree: *const Tree, node: Node.Index) bool {
@@ -3004,6 +3098,13 @@ fn dumpNode(
         try config.setColor(w, ATTRIBUTE);
         try w.writeAll(" bitfield");
     }
+    if (node == .asm_stmt) {
+        const quals = node.asm_stmt.quals;
+        try config.setColor(w, ATTRIBUTE);
+        if (quals.@"inline") try w.writeAll(" inline");
+        if (quals.@"volatile") try w.writeAll(" volatile");
+        if (quals.goto) try w.writeAll(" goto");
+    }
 
     if (tree.value_map.get(node_index)) |val| {
         try config.setColor(w, LITERAL);
@@ -3028,7 +3129,6 @@ fn dumpNode(
     if (node == .return_stmt and node.return_stmt.operand == .implicit and node.return_stmt.operand.implicit) {
         try config.setColor(w, IMPLICIT);
         try w.writeAll(" (value: 0)");
-        try config.setColor(w, .reset);
     }
 
     try w.writeAll("\n");
@@ -3048,8 +3148,7 @@ fn dumpNode(
 
     switch (node) {
         .empty_decl => {},
-        .global_asm, .gnu_asm_simple => |@"asm"| {
-            try w.splatByteAll(' ', level + 1);
+        .global_asm => |@"asm"| {
             try tree.dumpNode(@"asm".asm_str, level + delta, config, w);
         },
         .static_assert => |assert| {
@@ -3426,6 +3525,73 @@ fn dumpNode(
                 },
                 .implicit => {},
                 .none => {},
+            }
+        },
+        .asm_stmt => |@"asm"| {
+            try tree.dumpNode(@"asm".asm_str, level + delta, config, w);
+
+            const write_operand = struct {
+                fn write_operand(
+                    _w: *std.Io.Writer,
+                    _level: u32,
+                    _config: std.Io.tty.Config,
+                    _tree: *const Tree,
+                    operands: []const Node.AsmStmt.Operand,
+                ) std.Io.tty.Config.SetColorError!void {
+                    for (operands) |operand| {
+                        if (operand.name != 0) {
+                            try _w.splatByteAll(' ', _level + delta);
+                            try _w.writeAll("asm name: ");
+                            try _config.setColor(_w, NAME);
+                            try _w.writeAll(_tree.tokSlice(operand.name));
+                            try _w.writeByte('\n');
+                            try _config.setColor(_w, .reset);
+                        }
+
+                        try _w.splatByteAll(' ', _level + delta);
+                        try _w.writeAll("constraint: ");
+                        const constraint_val = _tree.value_map.get(operand.constraint).?;
+                        try _config.setColor(_w, LITERAL);
+                        _ = try constraint_val.print(operand.constraint.qt(_tree), _tree.comp, _w);
+                        try _w.writeByte('\n');
+
+                        try _tree.dumpNode(operand.expr, _level + delta, _config, _w);
+                    }
+                    try _config.setColor(_w, .reset);
+                }
+            }.write_operand;
+
+            if (@"asm".outputs.len > 0) {
+                try w.splatByteAll(' ', level + half);
+                try w.writeAll("ouputs:\n");
+
+                try write_operand(w, level, config, tree, @"asm".outputs);
+            }
+            if (@"asm".inputs.len > 0) {
+                try w.splatByteAll(' ', level + half);
+                try w.writeAll("inputs:\n");
+
+                try write_operand(w, level, config, tree, @"asm".inputs);
+            }
+            if (@"asm".clobbers.len > 0) {
+                try w.splatByteAll(' ', level + half);
+                try w.writeAll("clobbers:\n");
+                try config.setColor(w, LITERAL);
+                for (@"asm".clobbers) |clobber| {
+                    const clobber_val = tree.value_map.get(clobber).?;
+
+                    try w.splatByteAll(' ', level + delta);
+                    _ = try clobber_val.print(clobber.qt(tree), tree.comp, w);
+                    try w.writeByte('\n');
+                }
+                try config.setColor(w, .reset);
+            }
+            if (@"asm".labels.len > 0) {
+                try w.splatByteAll(' ', level + half);
+                try w.writeAll("labels:\n");
+                for (@"asm".labels) |label| {
+                    try tree.dumpNode(label, level + delta, config, w);
+                }
             }
         },
         .call_expr => |call| {

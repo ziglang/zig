@@ -7,24 +7,24 @@ nav_index: InternPool.Nav.Index,
 def_order: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, void),
 blocks: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, Block),
 loops: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, Loop),
-active_loops: std.ArrayListUnmanaged(Loop.Index),
+active_loops: std.ArrayList(Loop.Index),
 loop_live: struct {
     set: std.AutoArrayHashMapUnmanaged(struct { Loop.Index, Air.Inst.Index }, void),
-    list: std.ArrayListUnmanaged(Air.Inst.Index),
+    list: std.ArrayList(Air.Inst.Index),
 },
 dom_start: u32,
 dom_len: u32,
-dom: std.ArrayListUnmanaged(DomInt),
+dom: std.ArrayList(DomInt),
 
 // Wip Mir
 saved_registers: std.enums.EnumSet(Register.Alias),
-instructions: std.ArrayListUnmanaged(codegen.aarch64.encoding.Instruction),
-literals: std.ArrayListUnmanaged(u32),
-nav_relocs: std.ArrayListUnmanaged(codegen.aarch64.Mir.Reloc.Nav),
-uav_relocs: std.ArrayListUnmanaged(codegen.aarch64.Mir.Reloc.Uav),
-lazy_relocs: std.ArrayListUnmanaged(codegen.aarch64.Mir.Reloc.Lazy),
-global_relocs: std.ArrayListUnmanaged(codegen.aarch64.Mir.Reloc.Global),
-literal_relocs: std.ArrayListUnmanaged(codegen.aarch64.Mir.Reloc.Literal),
+instructions: std.ArrayList(codegen.aarch64.encoding.Instruction),
+literals: std.ArrayList(u32),
+nav_relocs: std.ArrayList(codegen.aarch64.Mir.Reloc.Nav),
+uav_relocs: std.ArrayList(codegen.aarch64.Mir.Reloc.Uav),
+lazy_relocs: std.ArrayList(codegen.aarch64.Mir.Reloc.Lazy),
+global_relocs: std.ArrayList(codegen.aarch64.Mir.Reloc.Global),
+literal_relocs: std.ArrayList(codegen.aarch64.Mir.Reloc.Literal),
 
 // Stack Frame
 returns: bool,
@@ -44,7 +44,7 @@ stack_align: InternPool.Alignment,
 // Value Tracking
 live_registers: LiveRegisters,
 live_values: std.AutoHashMapUnmanaged(Air.Inst.Index, Value.Index),
-values: std.ArrayListUnmanaged(Value),
+values: std.ArrayList(Value),
 
 pub const LiveRegisters = std.enums.EnumArray(Register.Alias, Value.Index);
 
@@ -8928,12 +8928,16 @@ pub const Value = struct {
         constant: Constant,
 
         pub const Tag = @typeInfo(Parent).@"union".tag_type.?;
-        pub const Payload = @Type(.{ .@"union" = .{
-            .layout = .auto,
-            .tag_type = null,
-            .fields = @typeInfo(Parent).@"union".fields,
-            .decls = &.{},
-        } });
+        pub const Payload = Payload: {
+            const fields = @typeInfo(Parent).@"union".fields;
+            var types: [fields.len]type = undefined;
+            var names: [fields.len][]const u8 = undefined;
+            for (fields, &types, &names) |f, *ty, *name| {
+                ty.* = f.type;
+                name.* = f.name;
+            }
+            break :Payload @Union(.auto, null, &names, &types, &@splat(.{}));
+        };
     };
 
     pub const Location = union(enum(u1)) {
@@ -8949,12 +8953,16 @@ pub const Value = struct {
         },
 
         pub const Tag = @typeInfo(Location).@"union".tag_type.?;
-        pub const Payload = @Type(.{ .@"union" = .{
-            .layout = .auto,
-            .tag_type = null,
-            .fields = @typeInfo(Location).@"union".fields,
-            .decls = &.{},
-        } });
+        pub const Payload = Payload: {
+            const fields = @typeInfo(Location).@"union".fields;
+            var types: [fields.len]type = undefined;
+            var names: [fields.len][]const u8 = undefined;
+            for (fields, &types, &names) |f, *ty, *name| {
+                ty.* = f.type;
+                name.* = f.name;
+            }
+            break :Payload @Union(.auto, null, &names, &types, &@splat(.{}));
+        };
     };
 
     pub const Indirect = packed struct(u32) {
@@ -9569,11 +9577,15 @@ pub const Value = struct {
                     .zr
                 else
                     return false;
-                if (part_ra != .zr) {
-                    const live_vi = isel.live_registers.getPtr(part_ra);
-                    assert(live_vi.* == .free);
-                    live_vi.* = .allocating;
-                }
+                const part_lock: RegLock = switch (part_ra) {
+                    else => isel.lockReg(part_ra),
+                    .zr => .empty,
+                };
+                defer switch (opts.expected_live_registers.get(part_ra)) {
+                    _ => {},
+                    .allocating => unreachable,
+                    .free => part_lock.unlock(isel),
+                };
                 if (opts.wrap) |int_info| switch (int_info.bits) {
                     else => unreachable,
                     1...7, 9...15, 17...31 => |bits| try isel.emit(switch (int_info.signedness) {
@@ -9604,15 +9616,6 @@ pub const Value = struct {
                     64 => {},
                 };
                 try isel.loadReg(part_ra, part_size, part_vi.signedness(isel), base_ra, opts.offset);
-                if (part_ra != .zr) {
-                    const live_vi = isel.live_registers.getPtr(part_ra);
-                    assert(live_vi.* == .allocating);
-                    switch (opts.expected_live_registers.get(part_ra)) {
-                        _ => {},
-                        .allocating => unreachable,
-                        .free => live_vi.* = .free,
-                    }
-                }
                 return true;
             }
             var used = false;
@@ -11215,7 +11218,7 @@ pub const Value = struct {
                                     .storage = .{ .u64 = switch (size) {
                                         else => unreachable,
                                         inline 1...8 => |ct_size| std.mem.readInt(
-                                            @Type(.{ .int = .{ .signedness = .unsigned, .bits = 8 * ct_size } }),
+                                            @Int(.unsigned, 8 * ct_size),
                                             buffer[@intCast(offset)..][0..ct_size],
                                             isel.target.cpu.arch.endian(),
                                         ),
@@ -11279,7 +11282,7 @@ pub fn dumpValues(isel: *Select, which: enum { only_referenced, all }) void {
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(isel.nav_index);
 
-    var reverse_live_values: std.AutoArrayHashMapUnmanaged(Value.Index, std.ArrayListUnmanaged(Air.Inst.Index)) = .empty;
+    var reverse_live_values: std.AutoArrayHashMapUnmanaged(Value.Index, std.ArrayList(Air.Inst.Index)) = .empty;
     defer {
         for (reverse_live_values.values()) |*list| list.deinit(gpa);
         reverse_live_values.deinit(gpa);
@@ -11443,7 +11446,7 @@ fn writeKeyToMemory(isel: *Select, constant_key: InternPool.Key, buffer: []u8) e
             switch (buffer.len) {
                 else => unreachable,
                 inline 1...4 => |size| std.mem.writeInt(
-                    @Type(.{ .int = .{ .signedness = .unsigned, .bits = 8 * size } }),
+                    @Int(.unsigned, 8 * size),
                     buffer[0..size],
                     @intCast(error_int),
                     isel.target.cpu.arch.endian(),

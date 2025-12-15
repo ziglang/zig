@@ -12,27 +12,27 @@ in_archive: ?InArchive = null,
 header: ?macho.mach_header_64 = null,
 sections: std.MultiArrayList(Section) = .{},
 symtab: std.MultiArrayList(Nlist) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .empty,
+strtab: std.ArrayList(u8) = .empty,
 
-symbols: std.ArrayListUnmanaged(Symbol) = .empty,
-symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
-globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .empty,
-atoms: std.ArrayListUnmanaged(Atom) = .empty,
-atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .empty,
-atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
+symbols: std.ArrayList(Symbol) = .empty,
+symbols_extra: std.ArrayList(u32) = .empty,
+globals: std.ArrayList(MachO.SymbolResolver.Index) = .empty,
+atoms: std.ArrayList(Atom) = .empty,
+atoms_indexes: std.ArrayList(Atom.Index) = .empty,
+atoms_extra: std.ArrayList(u32) = .empty,
 
 platform: ?MachO.Platform = null,
 compile_unit: ?CompileUnit = null,
-stab_files: std.ArrayListUnmanaged(StabFile) = .empty,
+stab_files: std.ArrayList(StabFile) = .empty,
 
 eh_frame_sect_index: ?u8 = null,
 compact_unwind_sect_index: ?u8 = null,
-cies: std.ArrayListUnmanaged(Cie) = .empty,
-fdes: std.ArrayListUnmanaged(Fde) = .empty,
-eh_frame_data: std.ArrayListUnmanaged(u8) = .empty,
-unwind_records: std.ArrayListUnmanaged(UnwindInfo.Record) = .empty,
-unwind_records_indexes: std.ArrayListUnmanaged(UnwindInfo.Record.Index) = .empty,
-data_in_code: std.ArrayListUnmanaged(macho.data_in_code_entry) = .empty,
+cies: std.ArrayList(Cie) = .empty,
+fdes: std.ArrayList(Fde) = .empty,
+eh_frame_data: std.ArrayList(u8) = .empty,
+unwind_records: std.ArrayList(UnwindInfo.Record) = .empty,
+unwind_records_indexes: std.ArrayList(UnwindInfo.Record.Index) = .empty,
+data_in_code: std.ArrayList(macho.data_in_code_entry) = .empty,
 
 alive: bool = true,
 hidden: bool = false,
@@ -109,11 +109,8 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
         if (amt != self.header.?.sizeofcmds) return error.InputOutput;
     }
 
-    var it = LoadCommandIterator{
-        .ncmds = self.header.?.ncmds,
-        .buffer = lc_buffer,
-    };
-    while (it.next()) |lc| switch (lc.cmd()) {
+    var it = LoadCommandIterator.init(&self.header.?, lc_buffer) catch |err| std.debug.panic("bad object: {t}", .{err});
+    while (it.next() catch |err| std.debug.panic("bad object: {t}", .{err})) |lc| switch (lc.hdr.cmd) {
         .SEGMENT_64 => {
             const sections = lc.getSections();
             try self.sections.ensureUnusedCapacity(gpa, sections.len);
@@ -1644,11 +1641,8 @@ pub fn parseAr(self: *Object, macho_file: *MachO) !void {
         if (amt != self.header.?.sizeofcmds) return error.InputOutput;
     }
 
-    var it = LoadCommandIterator{
-        .ncmds = self.header.?.ncmds,
-        .buffer = lc_buffer,
-    };
-    while (it.next()) |lc| switch (lc.cmd()) {
+    var it = LoadCommandIterator.init(&self.header.?, lc_buffer) catch |err| std.debug.panic("bad object: {t}", .{err});
+    while (it.next() catch |err| std.debug.panic("bad object: {t}", .{err})) |lc| switch (lc.hdr.cmd) {
         .SYMTAB => {
             const cmd = lc.cast(macho.symtab_command).?;
             try self.strtab.resize(gpa, cmd.strsize);
@@ -2609,8 +2603,8 @@ fn formatPath(object: Object, w: *Writer) Writer.Error!void {
 
 const Section = struct {
     header: macho.section_64,
-    subsections: std.ArrayListUnmanaged(Subsection) = .empty,
-    relocs: std.ArrayListUnmanaged(Relocation) = .empty,
+    subsections: std.ArrayList(Subsection) = .empty,
+    relocs: std.ArrayList(Relocation) = .empty,
 };
 
 const Subsection = struct {
@@ -2626,7 +2620,7 @@ pub const Nlist = struct {
 
 const StabFile = struct {
     comp_dir: u32,
-    stabs: std.ArrayListUnmanaged(Stab) = .empty,
+    stabs: std.ArrayList(Stab) = .empty,
 
     fn getCompDir(sf: StabFile, object: Object) [:0]const u8 {
         const nlist = object.symtab.items(.nlist)[sf.comp_dir];
@@ -2712,7 +2706,7 @@ const x86_64 = struct {
         self: *Object,
         n_sect: u8,
         sect: macho.section_64,
-        out: *std.ArrayListUnmanaged(Relocation),
+        out: *std.ArrayList(Relocation),
         handle: File.Handle,
         macho_file: *MachO,
     ) !void {
@@ -2879,7 +2873,7 @@ const aarch64 = struct {
         self: *Object,
         n_sect: u8,
         sect: macho.section_64,
-        out: *std.ArrayListUnmanaged(Relocation),
+        out: *std.ArrayList(Relocation),
         handle: File.Handle,
         macho_file: *MachO,
     ) !void {

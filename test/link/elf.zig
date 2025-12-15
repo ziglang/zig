@@ -5,6 +5,9 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     // https://github.com/ziglang/zig/issues/25323
     if (builtin.os.tag == .freebsd) return elf_step;
 
+    // https://github.com/ziglang/zig/issues/25961
+    if (comptime builtin.cpu.arch.endian() == .big) return elf_step;
+
     const default_target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64, // TODO relax this once ELF linker is able to handle other archs
         .os_tag = .linux,

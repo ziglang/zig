@@ -113,21 +113,21 @@ eflags_inst: ?Air.Inst.Index = null,
 /// MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .empty,
 /// MIR extra data
-mir_extra: std.ArrayListUnmanaged(u32) = .empty,
-mir_string_bytes: std.ArrayListUnmanaged(u8) = .empty,
+mir_extra: std.ArrayList(u32) = .empty,
+mir_string_bytes: std.ArrayList(u8) = .empty,
 mir_strings: std.HashMapUnmanaged(
     u32,
     void,
     std.hash_map.StringIndexContext,
     std.hash_map.default_max_load_percentage,
 ) = .empty,
-mir_locals: std.ArrayListUnmanaged(Mir.Local) = .empty,
-mir_table: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
+mir_locals: std.ArrayList(Mir.Local) = .empty,
+mir_table: std.ArrayList(Mir.Inst.Index) = .empty,
 
 /// The value is an offset into the `Function` `code` from the beginning.
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
-epilogue_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
+epilogue_relocs: std.ArrayList(Mir.Inst.Index) = .empty,
 
 reused_operands: std.StaticBitSet(Air.Liveness.bpi - 1) = undefined,
 inst_tracking: InstTrackingMap = .empty,
@@ -156,7 +156,7 @@ loop_switches: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
     min: Value,
     else_relocs: union(enum) {
         @"unreachable",
-        forward: std.ArrayListUnmanaged(Mir.Inst.Index),
+        forward: std.ArrayList(Mir.Inst.Index),
         backward: Mir.Inst.Index,
     },
 }) = .empty,
@@ -855,7 +855,7 @@ const FrameAlloc = struct {
 };
 
 const BlockData = struct {
-    relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
+    relocs: std.ArrayList(Mir.Inst.Index) = .empty,
     state: State,
 
     fn deinit(self: *BlockData, gpa: Allocator) void {
@@ -177329,7 +177329,7 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
 
     const Label = struct {
         target: Mir.Inst.Index = undefined,
-        pending_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
+        pending_relocs: std.ArrayList(Mir.Inst.Index) = .empty,
 
         const Kind = enum { definition, reference };
 
@@ -189867,9 +189867,7 @@ const Select = struct {
         }
 
         fn adjustedImm(op: Select.Operand, comptime SignedImm: type, s: *const Select) SignedImm {
-            const UnsignedImm = @Type(.{
-                .int = .{ .signedness = .unsigned, .bits = @typeInfo(SignedImm).int.bits },
-            });
+            const UnsignedImm = @Int(.unsigned, @typeInfo(SignedImm).int.bits);
             const lhs: SignedImm = lhs: switch (op.flags.adjust.lhs) {
                 .none => 0,
                 .ptr_size => @divExact(s.cg.target.ptrBitWidth(), 8),
@@ -189934,10 +189932,10 @@ const Select = struct {
                         const RefImm = switch (size) {
                             else => comptime unreachable,
                             .none => Imm,
-                            .byte, .word, .dword, .qword => @Type(comptime .{ .int = .{
-                                .signedness = @typeInfo(Imm).int.signedness,
-                                .bits = size.bitSize(undefined),
-                            } }),
+                            .byte, .word, .dword, .qword => @Int(
+                                @typeInfo(Imm).int.signedness,
+                                size.bitSize(undefined),
+                            ),
                         };
                         break :lhs @bitCast(@as(Imm, @intCast(@as(RefImm, switch (adjust) {
                             else => comptime unreachable,

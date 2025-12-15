@@ -90,7 +90,7 @@ scope_generation: u32,
 /// The value is an offset into the `Function` `code` from the beginning.
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
-exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
+exitlude_jump_relocs: std.ArrayList(usize) = .empty,
 
 reused_operands: std.StaticBitSet(Air.Liveness.bpi - 1) = undefined,
 
@@ -609,7 +609,7 @@ const FrameAlloc = struct {
 };
 
 const BlockData = struct {
-    relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
+    relocs: std.ArrayList(Mir.Inst.Index) = .empty,
     state: State,
 
     fn deinit(bd: *BlockData, gpa: Allocator) void {
@@ -6200,7 +6200,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
 
     const Label = struct {
         target: Mir.Inst.Index = undefined,
-        pending_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
+        pending_relocs: std.ArrayList(Mir.Inst.Index) = .empty,
 
         const Kind = enum { definition, reference };
 

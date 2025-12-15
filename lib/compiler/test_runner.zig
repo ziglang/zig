@@ -104,7 +104,7 @@ fn mainServer() !void {
                     @panic("internal test runner memory leak");
                 };
 
-                var string_bytes: std.ArrayListUnmanaged(u8) = .empty;
+                var string_bytes: std.ArrayList(u8) = .empty;
                 defer string_bytes.deinit(testing.allocator);
                 try string_bytes.append(testing.allocator, 0); // Reserve 0 for null.
 
@@ -184,7 +184,7 @@ fn mainServer() !void {
                 const test_fn = builtin.test_functions[index];
                 const entry_addr = @intFromPtr(test_fn.func);
 
-                try server.serveU64Message(.fuzz_start_addr, entry_addr);
+                try server.serveU64Message(.fuzz_start_addr, fuzz_abi.fuzzer_unslide_address(entry_addr));
                 defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
                 is_fuzz_test = false;
                 fuzz_test_index = index;
@@ -298,7 +298,7 @@ fn mainTerminal() void {
 
 pub fn log(
     comptime message_level: std.log.Level,
-    comptime scope: @Type(.enum_literal),
+    comptime scope: @EnumLiteral(),
     comptime format: []const u8,
     args: anytype,
 ) void {

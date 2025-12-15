@@ -279,7 +279,7 @@ pub fn Alt(
 /// Helper for calling alternate format methods besides one named "format".
 pub fn alt(
     context: anytype,
-    comptime func_name: @TypeOf(.enum_literal),
+    comptime func_name: @EnumLiteral(),
 ) Alt(@TypeOf(context), @field(@TypeOf(context), @tagName(func_name))) {
     return .{ .data = context };
 }

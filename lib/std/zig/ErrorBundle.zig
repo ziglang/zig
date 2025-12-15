@@ -320,10 +320,10 @@ fn writeMsg(eb: ErrorBundle, err_msg: ErrorMessage, w: *Writer, indent: usize) !
 
 pub const Wip = struct {
     gpa: Allocator,
-    string_bytes: std.ArrayListUnmanaged(u8),
+    string_bytes: std.ArrayList(u8),
     /// The first thing in this array is a ErrorMessageList.
-    extra: std.ArrayListUnmanaged(u32),
-    root_list: std.ArrayListUnmanaged(MessageIndex),
+    extra: std.ArrayList(u32),
+    root_list: std.ArrayList(MessageIndex),
 
     pub fn init(wip: *Wip, gpa: Allocator) !void {
         wip.* = .{
@@ -666,7 +666,7 @@ pub const Wip = struct {
         if (index == .none) return .none;
         const other_sl = other.getSourceLocation(index);
 
-        var ref_traces: std.ArrayListUnmanaged(ReferenceTrace) = .empty;
+        var ref_traces: std.ArrayList(ReferenceTrace) = .empty;
         defer ref_traces.deinit(wip.gpa);
 
         if (other_sl.reference_trace_len > 0) {

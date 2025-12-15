@@ -1,5 +1,5 @@
 mutex: std.Thread.Mutex,
-modules: std.ArrayListUnmanaged(Module),
+modules: std.ArrayList(Module),
 module_name_arena: std.heap.ArenaAllocator.State,
 
 pub const init: SelfInfo = .{
@@ -32,6 +32,12 @@ pub fn getModuleName(si: *SelfInfo, gpa: Allocator, address: usize) Error![]cons
     defer si.mutex.unlock();
     const module = try si.findModule(gpa, address);
     return module.name;
+}
+pub fn getModuleSlide(si: *SelfInfo, gpa: Allocator, address: usize) Error!usize {
+    si.mutex.lock();
+    defer si.mutex.unlock();
+    const module = try si.findModule(gpa, address);
+    return module.base_address;
 }
 
 pub const can_unwind: bool = switch (builtin.cpu.arch) {

@@ -12,31 +12,10 @@ comptime {
 }
 
 comptime {
-    _ = @Type(.{ .array = .{ .child = S, .len = 0, .sentinel_ptr = &sentinel } });
+    _ = @Pointer(.slice, .{}, S, sentinel);
 }
 comptime {
-    _ = @Type(.{ .pointer = .{
-        .size = .slice,
-        .is_const = false,
-        .is_volatile = false,
-        .alignment = @alignOf(S),
-        .address_space = .generic,
-        .child = S,
-        .is_allowzero = false,
-        .sentinel_ptr = &sentinel,
-    } });
-}
-comptime {
-    _ = @Type(.{ .pointer = .{
-        .size = .many,
-        .is_const = false,
-        .is_volatile = false,
-        .alignment = @alignOf(S),
-        .address_space = .generic,
-        .child = S,
-        .is_allowzero = false,
-        .sentinel_ptr = &sentinel,
-    } });
+    _ = @Pointer(.many, .{}, S, sentinel);
 }
 
 // error
@@ -47,9 +26,7 @@ comptime {
 // :1:11: note: struct declared here
 // :11:12: error: non-scalar sentinel type 'tmp.S'
 // :1:11: note: struct declared here
-// :15:9: error: non-scalar sentinel type 'tmp.S'
+// :15:34: error: non-scalar sentinel type 'tmp.S'
 // :1:11: note: struct declared here
-// :18:9: error: non-scalar sentinel type 'tmp.S'
-// :1:11: note: struct declared here
-// :30:9: error: non-scalar sentinel type 'tmp.S'
+// :18:33: error: non-scalar sentinel type 'tmp.S'
 // :1:11: note: struct declared here

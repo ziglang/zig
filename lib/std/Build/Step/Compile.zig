@@ -135,6 +135,9 @@ link_z_common_page_size: ?u64 = null,
 /// Maximum page size
 link_z_max_page_size: ?u64 = null,
 
+/// Force a fatal error if any undefined symbols remain.
+link_z_defs: bool = false,
+
 /// (Darwin) Install name for the dylib
 install_name: ?[]const u8 = null,
 
@@ -1550,6 +1553,10 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         try zig_args.append("-z");
         try zig_args.append(b.fmt("max-page-size={d}", .{size}));
     }
+    if (compile.link_z_defs) {
+        try zig_args.append("-z");
+        try zig_args.append("defs");
+    }
 
     if (compile.libc_file) |libc_file| {
         try zig_args.append("--libc");
@@ -1794,7 +1801,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
             for (arg, 0..) |c, arg_idx| {
                 if (c == '\\' or c == '"') {
                     // Slow path for arguments that need to be escaped. We'll need to allocate and copy
-                    var escaped: std.ArrayListUnmanaged(u8) = .empty;
+                    var escaped: std.ArrayList(u8) = .empty;
                     try escaped.ensureTotalCapacityPrecise(arena, arg.len + 1);
                     try escaped.appendSlice(arena, arg[0..arg_idx]);
                     for (arg[arg_idx..]) |to_escape| {
@@ -1925,6 +1932,11 @@ pub fn rebuildInFuzzMode(c: *Compile, gpa: Allocator, progress_node: std.Progres
     c.step.result_error_bundle.deinit(gpa);
     c.step.result_error_bundle = std.zig.ErrorBundle.empty;
 
+    if (c.step.result_failed_command) |cmd| {
+        gpa.free(cmd);
+        c.step.result_failed_command = null;
+    }
+
     const zig_args = try getZigArgs(c, true);
     const maybe_output_bin_path = try c.step.evalZigProcess(zig_args, progress_node, false, null, gpa);
     return maybe_output_bin_path.?;
@@ -2023,7 +2035,7 @@ fn checkCompileErrors(compile: *Compile) !void {
     };
 
     // Render the expected lines into a string that we can compare verbatim.
-    var expected_generated: std.ArrayListUnmanaged(u8) = .empty;
+    var expected_generated: std.ArrayList(u8) = .empty;
     const expect_errors = compile.expect_errors.?;
 
     var actual_line_it = mem.splitScalar(u8, actual_errors, '\n');

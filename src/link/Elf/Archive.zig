@@ -11,7 +11,7 @@ pub fn deinit(a: *Archive, gpa: Allocator) void {
 pub fn parse(
     gpa: Allocator,
     diags: *Diags,
-    file_handles: *const std.ArrayListUnmanaged(File.Handle),
+    file_handles: *const std.ArrayList(File.Handle),
     path: Path,
     handle_index: File.HandleIndex,
 ) !Archive {
@@ -27,10 +27,10 @@ pub fn parse(
 
     const size = (try handle.stat()).size;
 
-    var objects: std.ArrayListUnmanaged(Object) = .empty;
+    var objects: std.ArrayList(Object) = .empty;
     defer objects.deinit(gpa);
 
-    var strtab: std.ArrayListUnmanaged(u8) = .empty;
+    var strtab: std.ArrayList(u8) = .empty;
     defer strtab.deinit(gpa);
 
     while (pos < size) {
@@ -145,7 +145,7 @@ const strtab_delimiter = '\n';
 pub const max_member_name_len = 15;
 
 pub const ArSymtab = struct {
-    symtab: std.ArrayListUnmanaged(Entry) = .empty,
+    symtab: std.ArrayList(Entry) = .empty,
     strtab: StringTable = .{},
 
     pub fn deinit(ar: *ArSymtab, allocator: Allocator) void {
@@ -239,7 +239,7 @@ pub const ArSymtab = struct {
 };
 
 pub const ArStrtab = struct {
-    buffer: std.ArrayListUnmanaged(u8) = .empty,
+    buffer: std.ArrayList(u8) = .empty,
 
     pub fn deinit(ar: *ArStrtab, allocator: Allocator) void {
         ar.buffer.deinit(allocator);

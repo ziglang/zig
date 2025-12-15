@@ -84,10 +84,10 @@ fn parserHandler(pragma: *Pragma, p: *Parser, start_idx: TokenIndex) Compilation
                     if (action == .push) {
                         try pack.stack.append(p.comp.gpa, .{ .label = label orelse "", .val = p.pragma_pack orelse 8 });
                     } else {
-                        pack.pop(p, label);
+                        const pop_success = pack.pop(p, label);
                         if (new_val != null) {
                             try Pragma.err(p.pp, arg, .pragma_pack_undefined_pop, .{});
-                        } else if (pack.stack.items.len == 0) {
+                        } else if (!pop_success) {
                             try Pragma.err(p.pp, arg, .pragma_pack_empty_stack, .{});
                         }
                     }
@@ -136,22 +136,25 @@ fn packInt(p: *Parser, tok_i: TokenIndex) Compilation.Error!?u8 {
     }
 }
 
-fn pop(pack: *Pack, p: *Parser, maybe_label: ?[]const u8) void {
+/// Returns true if an item was successfully popped.
+fn pop(pack: *Pack, p: *Parser, maybe_label: ?[]const u8) bool {
     if (maybe_label) |label| {
         var i = pack.stack.items.len;
         while (i > 0) {
             i -= 1;
             if (std.mem.eql(u8, pack.stack.items[i].label, label)) {
-                const prev = pack.stack.orderedRemove(i);
-                p.pragma_pack = prev.val;
-                return;
+                p.pragma_pack = pack.stack.items[i].val;
+                pack.stack.items.len = i;
+                return true;
             }
         }
+        return false;
     } else {
         const prev = pack.stack.pop() orelse {
             p.pragma_pack = 2;
-            return;
+            return false;
         };
         p.pragma_pack = prev.val;
+        return true;
     }
 }

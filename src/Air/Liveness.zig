@@ -117,7 +117,7 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
 
             /// The extra data initialized by the `loop_analysis` pass for this pass to consume.
             /// Owned by this struct during this pass.
-            old_extra: std.ArrayListUnmanaged(u32) = .empty,
+            old_extra: std.ArrayList(u32) = .empty,
 
             const BlockScope = struct {
                 /// If this is a `block`, these instructions are alive upon a `br` to this block.
@@ -347,7 +347,7 @@ const Analysis = struct {
     intern_pool: *InternPool,
     tomb_bits: []usize,
     special: std.AutoHashMapUnmanaged(Air.Inst.Index, u32),
-    extra: std.ArrayListUnmanaged(u32),
+    extra: std.ArrayList(u32),
 
     fn addExtra(a: *Analysis, extra: anytype) Allocator.Error!u32 {
         const fields = std.meta.fields(@TypeOf(extra));
@@ -1235,10 +1235,10 @@ fn analyzeInstCondBr(
             // Operands which are alive in one branch but not the other need to die at the start of
             // the peer branch.
 
-            var then_mirrored_deaths: std.ArrayListUnmanaged(Air.Inst.Index) = .empty;
+            var then_mirrored_deaths: std.ArrayList(Air.Inst.Index) = .empty;
             defer then_mirrored_deaths.deinit(gpa);
 
-            var else_mirrored_deaths: std.ArrayListUnmanaged(Air.Inst.Index) = .empty;
+            var else_mirrored_deaths: std.ArrayList(Air.Inst.Index) = .empty;
             defer else_mirrored_deaths.deinit(gpa);
 
             // Note: this invalidates `else_live`, but expands `then_live` to be their union
@@ -1351,7 +1351,7 @@ fn analyzeInstSwitchBr(
             // to understand it, I encourage looking at `analyzeInstCondBr` first.
 
             const DeathSet = std.AutoHashMapUnmanaged(Air.Inst.Index, void);
-            const DeathList = std.ArrayListUnmanaged(Air.Inst.Index);
+            const DeathList = std.ArrayList(Air.Inst.Index);
 
             var case_live_sets = try gpa.alloc(std.AutoHashMapUnmanaged(Air.Inst.Index, void), ncases + 1); // +1 for else
             defer gpa.free(case_live_sets);

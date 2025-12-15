@@ -1,5 +1,5 @@
 const std = @import("std");
-const Filesystem = @import("Filesystem.zig").Filesystem;
+const Toolchain = @import("../Toolchain.zig");
 
 /// Large enough for GCCDetector for Linux; may need to be increased to support other toolchains.
 const max_multilibs = 4;
@@ -10,10 +10,10 @@ pub const Detected = struct {
     selected: Multilib = .{},
     biarch_sibling: ?Multilib = null,
 
-    pub fn filter(d: *Detected, multilib_filter: Filter, fs: Filesystem) void {
+    pub fn filter(d: *Detected, multilib_filter: Filter, tc: *const Toolchain) void {
         var found_count: u8 = 0;
         for (d.multilibs()) |multilib| {
-            if (multilib_filter.exists(multilib, fs)) {
+            if (multilib_filter.exists(multilib, tc)) {
                 d.multilib_buf[found_count] = multilib;
                 found_count += 1;
             }
@@ -51,8 +51,8 @@ pub const Detected = struct {
 pub const Filter = struct {
     base: [2][]const u8,
     file: []const u8,
-    pub fn exists(self: Filter, m: Multilib, fs: Filesystem) bool {
-        return fs.joinedExists(&.{ self.base[0], self.base[1], m.gcc_suffix, self.file });
+    pub fn exists(self: Filter, m: Multilib, tc: *const Toolchain) bool {
+        return tc.joinedExists(&.{ self.base[0], self.base[1], m.gcc_suffix, self.file });
     }
 };
 

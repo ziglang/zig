@@ -22,7 +22,7 @@ pub const Liveness = @import("Air/Liveness.zig");
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
 /// The first few indexes are reserved. See `ExtraIndex` for the values.
-extra: std.ArrayListUnmanaged(u32),
+extra: std.ArrayList(u32),
 
 pub const ExtraIndex = enum(u32) {
     /// Payload index of the main `Block` in the `extra` array.
@@ -1062,6 +1062,11 @@ pub const Inst = struct {
         manyptr_const_u8_sentinel_0_type = @intFromEnum(InternPool.Index.manyptr_const_u8_sentinel_0_type),
         slice_const_u8_type = @intFromEnum(InternPool.Index.slice_const_u8_type),
         slice_const_u8_sentinel_0_type = @intFromEnum(InternPool.Index.slice_const_u8_sentinel_0_type),
+        manyptr_const_slice_const_u8_type = @intFromEnum(InternPool.Index.manyptr_const_slice_const_u8_type),
+        slice_const_slice_const_u8_type = @intFromEnum(InternPool.Index.slice_const_slice_const_u8_type),
+        optional_type_type = @intFromEnum(InternPool.Index.optional_type_type),
+        manyptr_const_type_type = @intFromEnum(InternPool.Index.manyptr_const_type_type),
+        slice_const_type_type = @intFromEnum(InternPool.Index.slice_const_type_type),
         vector_8_i8_type = @intFromEnum(InternPool.Index.vector_8_i8_type),
         vector_16_i8_type = @intFromEnum(InternPool.Index.vector_16_i8_type),
         vector_32_i8_type = @intFromEnum(InternPool.Index.vector_32_i8_type),

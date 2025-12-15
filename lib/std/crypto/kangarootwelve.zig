@@ -14,6 +14,9 @@ const cache_line_size = std.atomic.cache_line;
 // Optimal SIMD vector length for u64 on this target platform
 const optimal_vector_len = std.simd.suggestVectorLength(u64) orelse 1;
 
+// Number of bytes processed per SIMD batch in multi-threaded mode
+const bytes_per_batch = 256 * 1024;
+
 // Multi-threading threshold: inputs larger than this will use parallel processing.
 // Benchmarked optimal value for ReleaseFast mode.
 const large_file_threshold: usize = 2 * 1024 * 1024; // 2 MB
@@ -57,11 +60,11 @@ fn KangarooVariant(
         const separation_byte_pos = .{ .x = sep_x, .y = sep_y };
         const padding_pos = .{ .x = pad_x, .y = pad_y };
 
-        inline fn turboSHAKEToBuffer(view: *const MultiSliceView, separation_byte: u8, output: []u8) void {
+        inline fn turboShakeToBuffer(view: *const MultiSliceView, separation_byte: u8, output: []u8) void {
             toBufferFn(view, separation_byte, output);
         }
 
-        inline fn turboSHAKEMultiSliceAlloc(
+        inline fn turboShakeMultiSliceAlloc(
             allocator: Allocator,
             view: *const MultiSliceView,
             separation_byte: u8,
@@ -82,8 +85,8 @@ const KT128Variant = KangarooVariant(
     3, // separation_byte_pos.y
     0, // padding_pos.x (lane 20: last lane of 168-byte rate)
     4, // padding_pos.y
-    turboSHAKE128MultiSliceToBuffer,
-    turboSHAKE128MultiSlice,
+    turboShake128MultiSliceToBuffer,
+    turboShake128MultiSlice,
 );
 
 /// KangarooTwelve with 256-bit security parameters
@@ -96,8 +99,8 @@ const KT256Variant = KangarooVariant(
     0, // separation_byte_pos.y
     1, // padding_pos.x (lane 16: last lane of 136-byte rate)
     3, // padding_pos.y
-    turboSHAKE256MultiSliceToBuffer,
-    turboSHAKE256MultiSlice,
+    turboShake256MultiSliceToBuffer,
+    turboShake256MultiSlice,
 );
 
 /// Rotate left for u64 vector
@@ -211,7 +214,7 @@ const MultiSliceView = struct {
     }
 };
 
-/// Apply Keccak-p[1600,12] to N states in parallel
+/// Apply Keccak-p[1600,12] to N states using SIMD
 fn keccakP1600timesN(comptime N: usize, states: *[5][5]@Vector(N, u64)) void {
     @setEvalBranchQuota(10000);
 
@@ -288,7 +291,7 @@ fn keccakP1600timesN(comptime N: usize, states: *[5][5]@Vector(N, u64)) void {
     }
 }
 
-/// Add lanes from data to N states in parallel with stride - optimized version
+/// Add lanes from data to N states in parallel with stride using SIMD
 fn addLanesAll(
     comptime N: usize,
     states: *[5][5]@Vector(N, u64),
@@ -303,7 +306,6 @@ fn addLanesAll(
             const x = xy % 5;
             const y = xy / 5;
 
-            // Load N lanes with stride - optimized memory access pattern
             var loaded_data: @Vector(N, u64) = undefined;
             inline for (0..N) |i| {
                 loaded_data[i] = load64(data[8 * (i * lane_offset + xy) ..]);
@@ -430,7 +432,7 @@ fn keccakPLanes(lanes: *[25]u64) void {
 }
 
 /// Generic non-allocating TurboSHAKE: write output to provided buffer
-fn turboSHAKEMultiSliceToBuffer(
+fn turboShakeMultiSliceToBuffer(
     comptime rate: usize,
     view: *const MultiSliceView,
     separation_byte: u8,
@@ -471,7 +473,7 @@ fn turboSHAKEMultiSliceToBuffer(
 }
 
 /// Generic allocating TurboSHAKE
-fn turboSHAKEMultiSlice(
+fn turboShakeMultiSlice(
     comptime rate: usize,
     allocator: Allocator,
     view: *const MultiSliceView,
@@ -479,46 +481,46 @@ fn turboSHAKEMultiSlice(
     output_len: usize,
 ) ![]u8 {
     const output = try allocator.alloc(u8, output_len);
-    turboSHAKEMultiSliceToBuffer(rate, view, separation_byte, output);
+    turboShakeMultiSliceToBuffer(rate, view, separation_byte, output);
     return output;
 }
 
 /// Non-allocating TurboSHAKE128: write output to provided buffer
-fn turboSHAKE128MultiSliceToBuffer(
+fn turboShake128MultiSliceToBuffer(
     view: *const MultiSliceView,
     separation_byte: u8,
     output: []u8,
 ) void {
-    turboSHAKEMultiSliceToBuffer(168, view, separation_byte, output);
+    turboShakeMultiSliceToBuffer(168, view, separation_byte, output);
 }
 
 /// Allocating TurboSHAKE128
-fn turboSHAKE128MultiSlice(
+fn turboShake128MultiSlice(
     allocator: Allocator,
     view: *const MultiSliceView,
     separation_byte: u8,
     output_len: usize,
 ) ![]u8 {
-    return turboSHAKEMultiSlice(168, allocator, view, separation_byte, output_len);
+    return turboShakeMultiSlice(168, allocator, view, separation_byte, output_len);
 }
 
 /// Non-allocating TurboSHAKE256: write output to provided buffer
-fn turboSHAKE256MultiSliceToBuffer(
+fn turboShake256MultiSliceToBuffer(
     view: *const MultiSliceView,
     separation_byte: u8,
     output: []u8,
 ) void {
-    turboSHAKEMultiSliceToBuffer(136, view, separation_byte, output);
+    turboShakeMultiSliceToBuffer(136, view, separation_byte, output);
 }
 
 /// Allocating TurboSHAKE256
-fn turboSHAKE256MultiSlice(
+fn turboShake256MultiSlice(
     allocator: Allocator,
     view: *const MultiSliceView,
     separation_byte: u8,
     output_len: usize,
 ) ![]u8 {
-    return turboSHAKEMultiSlice(136, allocator, view, separation_byte, output_len);
+    return turboShakeMultiSlice(136, allocator, view, separation_byte, output_len);
 }
 
 /// Process N leaves (8KiB chunks) in parallel - generic version
@@ -578,7 +580,7 @@ fn processLeaves(
 
 /// Context for processing a batch of leaves in a thread
 const LeafBatchContext = struct {
-    output_cvs: []u8,
+    output_cvs: []align(@alignOf(u64)) u8,
     batch_start: usize,
     batch_count: usize,
     view: *const MultiSliceView,
@@ -593,9 +595,11 @@ inline fn processNLeaves(
     view: *const MultiSliceView,
     j: usize,
     leaf_buffer: []u8,
-    output: []u8,
+    output: []align(@alignOf(u64)) u8,
 ) void {
     const cv_size = Variant.cv_size;
+    comptime std.debug.assert(cv_size % @sizeOf(u64) == 0);
+
     if (view.tryGetSlice(j, j + N * chunk_size)) |leaf_data| {
         var leaf_cvs: [N * cv_size]u8 = undefined;
         processLeaves(Variant, N, leaf_data, &leaf_cvs);
@@ -612,7 +616,6 @@ inline fn processNLeaves(
 fn processLeafBatch(comptime Variant: type, ctx: LeafBatchContext) void {
     const cv_size = Variant.cv_size;
     const leaf_buffer = ctx.scratch_buffer[0 .. 8 * chunk_size];
-    const cv_scratch = ctx.scratch_buffer[8 * chunk_size .. 8 * chunk_size + cv_size];
 
     var cvs_offset: usize = 0;
     var j: usize = ctx.batch_start;
@@ -621,7 +624,7 @@ fn processLeafBatch(comptime Variant: type, ctx: LeafBatchContext) void {
     // Process leaves using SIMD (8x, 4x, 2x) based on optimal vector length
     inline for ([_]usize{ 8, 4, 2 }) |batch_size| {
         while (optimal_vector_len >= batch_size and j + batch_size * chunk_size <= batch_end) {
-            processNLeaves(Variant, batch_size, ctx.view, j, leaf_buffer, ctx.output_cvs[cvs_offset..]);
+            processNLeaves(Variant, batch_size, ctx.view, j, leaf_buffer, @alignCast(ctx.output_cvs[cvs_offset..]));
             cvs_offset += batch_size * cv_size;
             j += batch_size * chunk_size;
         }
@@ -632,17 +635,17 @@ fn processLeafBatch(comptime Variant: type, ctx: LeafBatchContext) void {
         const chunk_len = @min(chunk_size, batch_end - j);
         if (ctx.view.tryGetSlice(j, j + chunk_len)) |leaf_data| {
             const cv_slice = MultiSliceView.init(leaf_data, &[_]u8{}, &[_]u8{});
-            Variant.turboSHAKEToBuffer(&cv_slice, 0x0B, cv_scratch[0..cv_size]);
-            @memcpy(ctx.output_cvs[cvs_offset..][0..cv_size], cv_scratch[0..cv_size]);
+            Variant.turboShakeToBuffer(&cv_slice, 0x0B, ctx.output_cvs[cvs_offset..][0..cv_size]);
         } else {
             ctx.view.copyRange(j, j + chunk_len, leaf_buffer[0..chunk_len]);
             const cv_slice = MultiSliceView.init(leaf_buffer[0..chunk_len], &[_]u8{}, &[_]u8{});
-            Variant.turboSHAKEToBuffer(&cv_slice, 0x0B, cv_scratch[0..cv_size]);
-            @memcpy(ctx.output_cvs[cvs_offset..][0..cv_size], cv_scratch[0..cv_size]);
+            Variant.turboShakeToBuffer(&cv_slice, 0x0B, ctx.output_cvs[cvs_offset..][0..cv_size]);
         }
         cvs_offset += cv_size;
-        j += chunk_size;
+        j += chunk_len;
     }
+
+    std.debug.assert(cvs_offset == ctx.output_cvs.len);
 }
 
 /// Helper to process N leaves in SIMD and absorb CVs into state
@@ -709,12 +712,12 @@ fn ktSingleThreaded(comptime Variant: type, view: *const MultiSliceView, total_l
         const chunk_len = @min(chunk_size, total_len - j);
         if (view.tryGetSlice(j, j + chunk_len)) |leaf_data| {
             const cv_slice = MultiSliceView.init(leaf_data, &[_]u8{}, &[_]u8{});
-            Variant.turboSHAKEToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
+            Variant.turboShakeToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
             final_state.update(cv_buffer[0..cv_size]); // Absorb CV immediately
         } else {
             view.copyRange(j, j + chunk_len, leaf_buffer[0..chunk_len]);
             const cv_slice = MultiSliceView.init(leaf_buffer[0..chunk_len], &[_]u8{}, &[_]u8{});
-            Variant.turboSHAKEToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
+            Variant.turboShakeToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
             final_state.update(cv_buffer[0..cv_size]);
         }
         j += chunk_size;
@@ -731,7 +734,105 @@ fn ktSingleThreaded(comptime Variant: type, view: *const MultiSliceView, total_l
     final_state.final(output);
 }
 
-/// Generic multi-threaded implementation
+fn BatchResult(comptime Variant: type) type {
+    const cv_size = Variant.cv_size;
+    const leaves_per_batch = bytes_per_batch / chunk_size;
+    const max_cvs_size = leaves_per_batch * cv_size;
+
+    return struct {
+        batch_idx: usize,
+        cv_len: usize,
+        cvs: [max_cvs_size]u8,
+    };
+}
+
+fn SelectLeafContext(comptime Variant: type) type {
+    const cv_size = Variant.cv_size;
+    const Result = BatchResult(Variant);
+
+    return struct {
+        view: *const MultiSliceView,
+        batch_idx: usize,
+        start_offset: usize,
+        num_leaves: usize,
+
+        fn process(ctx: @This()) Result {
+            var result: Result = .{
+                .batch_idx = ctx.batch_idx,
+                .cv_len = ctx.num_leaves * cv_size,
+                .cvs = undefined,
+            };
+
+            var leaf_buffer: [bytes_per_batch]u8 align(cache_line_size) = undefined;
+            var leaves_processed: usize = 0;
+            var byte_offset = ctx.start_offset;
+            var cv_offset: usize = 0;
+            const simd_batch_bytes = optimal_vector_len * chunk_size;
+            while (leaves_processed + optimal_vector_len <= ctx.num_leaves) {
+                if (ctx.view.tryGetSlice(byte_offset, byte_offset + simd_batch_bytes)) |leaf_data| {
+                    var leaf_cvs: [optimal_vector_len * Variant.cv_size]u8 = undefined;
+                    processLeaves(Variant, optimal_vector_len, leaf_data, &leaf_cvs);
+                    @memcpy(result.cvs[cv_offset..][0..leaf_cvs.len], &leaf_cvs);
+                } else {
+                    ctx.view.copyRange(byte_offset, byte_offset + simd_batch_bytes, leaf_buffer[0..simd_batch_bytes]);
+                    var leaf_cvs: [optimal_vector_len * Variant.cv_size]u8 = undefined;
+                    processLeaves(Variant, optimal_vector_len, leaf_buffer[0..simd_batch_bytes], &leaf_cvs);
+                    @memcpy(result.cvs[cv_offset..][0..leaf_cvs.len], &leaf_cvs);
+                }
+                leaves_processed += optimal_vector_len;
+                byte_offset += optimal_vector_len * chunk_size;
+                cv_offset += optimal_vector_len * cv_size;
+            }
+
+            while (leaves_processed < ctx.num_leaves) {
+                const leaf_end = byte_offset + chunk_size;
+                var cv_buffer: [64]u8 = undefined;
+
+                if (ctx.view.tryGetSlice(byte_offset, leaf_end)) |leaf_data| {
+                    const cv_slice = MultiSliceView.init(leaf_data, &[_]u8{}, &[_]u8{});
+                    Variant.turboShakeToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
+                } else {
+                    ctx.view.copyRange(byte_offset, leaf_end, leaf_buffer[0..chunk_size]);
+                    const cv_slice = MultiSliceView.init(leaf_buffer[0..chunk_size], &[_]u8{}, &[_]u8{});
+                    Variant.turboShakeToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
+                }
+                @memcpy(result.cvs[cv_offset..][0..cv_size], cv_buffer[0..cv_size]);
+
+                leaves_processed += 1;
+                byte_offset += chunk_size;
+                cv_offset += cv_size;
+            }
+
+            return result;
+        }
+    };
+}
+
+fn FinalLeafContext(comptime Variant: type) type {
+    return struct {
+        view: *const MultiSliceView,
+        start_offset: usize,
+        leaf_len: usize,
+        output_cv: []align(@alignOf(u64)) u8,
+
+        fn process(ctx: @This()) void {
+            const cv_size = Variant.cv_size;
+            var leaf_buffer: [chunk_size]u8 = undefined;
+            var cv_buffer: [64]u8 = undefined;
+
+            if (ctx.view.tryGetSlice(ctx.start_offset, ctx.start_offset + ctx.leaf_len)) |leaf_data| {
+                const cv_slice = MultiSliceView.init(leaf_data, &[_]u8{}, &[_]u8{});
+                Variant.turboShakeToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
+            } else {
+                ctx.view.copyRange(ctx.start_offset, ctx.start_offset + ctx.leaf_len, leaf_buffer[0..ctx.leaf_len]);
+                const cv_slice = MultiSliceView.init(leaf_buffer[0..ctx.leaf_len], &[_]u8{}, &[_]u8{});
+                Variant.turboShakeToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
+            }
+            @memcpy(ctx.output_cv[0..cv_size], cv_buffer[0..cv_size]);
+        }
+    };
+}
+
 fn ktMultiThreaded(
     comptime Variant: type,
     allocator: Allocator,
@@ -740,89 +841,115 @@ fn ktMultiThreaded(
     total_len: usize,
     output: []u8,
 ) !void {
+    comptime std.debug.assert(bytes_per_batch % (optimal_vector_len * chunk_size) == 0);
+
     const cv_size = Variant.cv_size;
+    const StateType = Variant.StateType;
+    const leaves_per_batch = bytes_per_batch / chunk_size;
+    const remaining_bytes = total_len - chunk_size;
+    const total_leaves = std.math.divCeil(usize, remaining_bytes, chunk_size) catch unreachable;
 
-    // Calculate total number of leaves
-    const total_leaves: usize = (total_len - 1) / chunk_size;
+    var final_state = StateType.init(.{});
 
-    // Check if we have enough threads to benefit from parallelization
-    const thread_count = Thread.getCpuCount() catch 1;
-    if (thread_count <= 1) {
-        // Single-threaded fallback - more efficient than using group.async
-        ktSingleThreaded(Variant, view, total_len, output);
-        return;
-    }
-
-    // Allocate buffer for all chaining values
-    const cvs = try allocator.alloc(u8, total_leaves * cv_size);
-    defer allocator.free(cvs);
-
-    // Divide work among threads
-    const leaves_per_thread = (total_leaves + thread_count - 1) / thread_count;
-
-    // Pre-allocate scratch buffers for all threads (8 leaves + CV size)
-    const scratch_size = 8 * chunk_size + cv_size;
-    const all_scratch = try allocator.alloc(u8, thread_count * scratch_size);
-    defer allocator.free(all_scratch);
-
-    const contexts = try allocator.alloc(LeafBatchContext, thread_count);
-    defer allocator.free(contexts);
-
-    var leaves_assigned: usize = 0;
-    var context_count: usize = 0;
-
-    while (leaves_assigned < total_leaves) {
-        const batch_count = @min(leaves_per_thread, total_leaves - leaves_assigned);
-        const batch_start = chunk_size + leaves_assigned * chunk_size;
-        const cvs_offset = leaves_assigned * cv_size;
-
-        contexts[context_count] = LeafBatchContext{
-            .output_cvs = cvs[cvs_offset .. cvs_offset + batch_count * cv_size],
-            .batch_start = batch_start,
-            .batch_count = batch_count,
-            .view = view,
-            .scratch_buffer = all_scratch[context_count * scratch_size .. (context_count + 1) * scratch_size],
-            .total_len = total_len,
-        };
-
-        leaves_assigned += batch_count;
-        context_count += 1;
-    }
-
-    var group: Io.Group = .init;
-    for (contexts[0..context_count]) |ctx| {
-        group.async(io, struct {
-            fn process(c: LeafBatchContext) void {
-                processLeafBatch(Variant, c);
-            }
-        }.process, .{ctx});
-    }
-
-    // Wait for all threads to complete
-    group.wait(io);
-
-    // Build final node
-    const n_enc = rightEncode(total_leaves);
-    const final_node_len = chunk_size + 8 + total_leaves * cv_size + n_enc.len + 2;
-    const final_node = try allocator.alloc(u8, final_node_len);
-    defer allocator.free(final_node);
-
-    // Copy first B bytes
+    var first_chunk_buffer: [chunk_size]u8 = undefined;
     if (view.tryGetSlice(0, chunk_size)) |first_chunk| {
-        @memcpy(final_node[0..chunk_size], first_chunk);
+        final_state.update(first_chunk);
     } else {
-        view.copyRange(0, chunk_size, final_node[0..chunk_size]);
+        view.copyRange(0, chunk_size, &first_chunk_buffer);
+        final_state.update(&first_chunk_buffer);
     }
 
-    @memset(final_node[chunk_size..][0..8], 0);
-    final_node[chunk_size] = 0x03;
-    @memcpy(final_node[chunk_size + 8 ..][0 .. total_leaves * cv_size], cvs);
-    @memcpy(final_node[chunk_size + 8 + total_leaves * cv_size ..][0..n_enc.len], n_enc.slice());
-    final_node[final_node_len - 2] = 0xFF;
-    final_node[final_node_len - 1] = 0xFF;
+    const padding = [_]u8{ 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+    final_state.update(&padding);
 
-    const final_view = MultiSliceView.init(final_node, &[_]u8{}, &[_]u8{});
-    Variant.turboSHAKEToBuffer(&final_view, 0x06, output);
+    const full_leaves = remaining_bytes / chunk_size;
+    const has_partial_leaf = (remaining_bytes % chunk_size) != 0;
+    const partial_leaf_size = if (has_partial_leaf) remaining_bytes % chunk_size else 0;
+
+    if (full_leaves > 0) {
+        const total_batches = std.math.divCeil(usize, full_leaves, leaves_per_batch) catch unreachable;
+        const max_concurrent: usize = @min(256, total_batches);
+
+        const Result = BatchResult(Variant);
+        const SelectResult = union(enum) { batch: Result };
+        const Select = Io.Select(SelectResult);
+
+        const select_buf = try allocator.alloc(SelectResult, max_concurrent);
+        defer allocator.free(select_buf);
+
+        // Buffer for out-of-order results (select_buf slots get reused)
+        const pending_cv_buf = try allocator.alloc([leaves_per_batch * cv_size]u8, max_concurrent);
+        defer allocator.free(pending_cv_buf);
+        var pending_cv_lens: [256]usize = .{0} ** 256;
+
+        var select: Select = .init(io, select_buf);
+        var batches_spawned: usize = 0;
+        var next_to_process: usize = 0;
+
+        while (next_to_process < total_batches) {
+            while (batches_spawned < total_batches and batches_spawned - next_to_process < max_concurrent) {
+                const batch_start_leaf = batches_spawned * leaves_per_batch;
+                const batch_leaves = @min(leaves_per_batch, full_leaves - batch_start_leaf);
+                const start_offset = chunk_size + batch_start_leaf * chunk_size;
+
+                select.async(.batch, SelectLeafContext(Variant).process, .{SelectLeafContext(Variant){
+                    .view = view,
+                    .batch_idx = batches_spawned,
+                    .start_offset = start_offset,
+                    .num_leaves = batch_leaves,
+                }});
+                batches_spawned += 1;
+            }
+
+            const result = select.wait() catch unreachable;
+            const batch = result.batch;
+            const slot = batch.batch_idx % max_concurrent;
+
+            if (batch.batch_idx == next_to_process) {
+                final_state.update(batch.cvs[0..batch.cv_len]);
+                next_to_process += 1;
+
+                // Drain pending batches that are now ready
+                while (next_to_process < total_batches) {
+                    const pending_slot = next_to_process % max_concurrent;
+                    const pending_len = pending_cv_lens[pending_slot];
+                    if (pending_len == 0) break;
+
+                    final_state.update(pending_cv_buf[pending_slot][0..pending_len]);
+                    pending_cv_lens[pending_slot] = 0;
+                    next_to_process += 1;
+                }
+            } else {
+                @memcpy(pending_cv_buf[slot][0..batch.cv_len], batch.cvs[0..batch.cv_len]);
+                pending_cv_lens[slot] = batch.cv_len;
+            }
+        }
+
+        select.group.wait(io);
+    }
+
+    if (has_partial_leaf) {
+        var cv_buffer: [64]u8 = undefined;
+        var leaf_buffer: [chunk_size]u8 = undefined;
+
+        const start_offset = chunk_size + full_leaves * chunk_size;
+        if (view.tryGetSlice(start_offset, start_offset + partial_leaf_size)) |leaf_data| {
+            const cv_slice = MultiSliceView.init(leaf_data, &[_]u8{}, &[_]u8{});
+            Variant.turboShakeToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
+        } else {
+            view.copyRange(start_offset, start_offset + partial_leaf_size, leaf_buffer[0..partial_leaf_size]);
+            const cv_slice = MultiSliceView.init(leaf_buffer[0..partial_leaf_size], &[_]u8{}, &[_]u8{});
+            Variant.turboShakeToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
+        }
+        final_state.update(cv_buffer[0..cv_size]);
+    }
+
+    const n_enc = rightEncode(total_leaves);
+    final_state.update(n_enc.slice());
+    const terminator = [_]u8{ 0xFF, 0xFF };
+    final_state.update(&terminator);
+
+    final_state.final(output);
 }
 
 /// Generic KangarooTwelve hash function builder.
@@ -936,7 +1063,7 @@ fn KTHash(
                 if (self.pending_count > 0 and self.pending_count < 2) {
                     var cv_buffer: [64]u8 = undefined;
                     const cv_slice = MultiSliceView.init(self.pending_chunks[0..chunk_size], &[_]u8{}, &[_]u8{});
-                    Variant.turboSHAKEToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
+                    Variant.turboShakeToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
                     self.final_state.?.update(cv_buffer[0..cv_size]);
                     self.num_leaves += 1;
                     self.pending_count -= 1;
@@ -1072,13 +1199,13 @@ fn KTHash(
                 if (remaining_view.tryGetSlice(offset, leaf_end)) |leaf_data| {
                     // Data is contiguous, use it directly
                     const cv_slice = MultiSliceView.init(leaf_data, &[_]u8{}, &[_]u8{});
-                    Variant.turboSHAKEToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
+                    Variant.turboShakeToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
                 } else {
                     // Data spans boundaries, copy to buffer
                     var leaf_buf: [chunk_size]u8 = undefined;
                     remaining_view.copyRange(offset, leaf_end, leaf_buf[0..leaf_size]);
                     const cv_slice = MultiSliceView.init(leaf_buf[0..leaf_size], &[_]u8{}, &[_]u8{});
-                    Variant.turboSHAKEToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
+                    Variant.turboShakeToBuffer(&cv_slice, 0x0B, cv_buffer[0..cv_size]);
                 }
                 self.final_state.?.update(cv_buffer[0..cv_size]);
                 final_leaves += 1;
@@ -1162,7 +1289,7 @@ fn KTHash(
 ///
 /// Standardized as RFC 9861 after 8 years of public scrutiny. Supports arbitrary-length
 /// output and optional customization strings for domain separation.
-pub const KT128 = KTHash(KT128Variant, turboSHAKE128MultiSliceToBuffer);
+pub const KT128 = KTHash(KT128Variant, turboShake128MultiSliceToBuffer);
 
 /// KangarooTwelve is a fast, secure cryptographic hash function that uses tree-hashing
 /// on top of TurboSHAKE. It is built on the Keccak permutation, the same primitive
@@ -1176,11 +1303,14 @@ pub const KT128 = KTHash(KT128Variant, turboSHAKE128MultiSliceToBuffer);
 ///
 /// Use KT256 when you need extra conservative margins.
 /// For most applications, KT128 offers better performance with adequate security.
-pub const KT256 = KTHash(KT256Variant, turboSHAKE256MultiSliceToBuffer);
+pub const KT256 = KTHash(KT256Variant, turboShake256MultiSliceToBuffer);
 
 test "KT128 sequential and parallel produce same output for small inputs" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
+
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
 
     // Test with different small input sizes
     const test_sizes = [_]usize{ 100, 1024, 4096, 8192 }; // 100B, 1KB, 4KB, 8KB
@@ -1190,7 +1320,7 @@ test "KT128 sequential and parallel produce same output for small inputs" {
         defer allocator.free(input);
 
         // Fill with random data
-        crypto.random.bytes(input);
+        random.bytes(input);
 
         var output_seq: [32]u8 = undefined;
         var output_par: [32]u8 = undefined;
@@ -1210,16 +1340,22 @@ test "KT128 sequential and parallel produce same output for large inputs" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
-    // Test with large input sizes that trigger parallel processing
-    // The threshold is 3-10MB depending on CPU count, so we test above that
-    const test_sizes = [_]usize{ 11 * 1024 * 1024, 20 * 1024 * 1024 }; // 11MB, 20MB
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
+    // Test with input sizes above the 2MB threshold to trigger parallel processing.
+    // Include a size with partial final leaf to stress boundary handling.
+    const test_sizes = [_]usize{
+        5 * 512 * 1024, // 2.5 MB
+        5 * 512 * 1024 + 8191, // 2.5 MB + 8191B (partial leaf)
+    };
 
     for (test_sizes) |size| {
         const input = try allocator.alloc(u8, size);
         defer allocator.free(input);
 
         // Fill with random data
-        crypto.random.bytes(input);
+        random.bytes(input);
 
         var output_seq: [64]u8 = undefined;
         var output_par: [64]u8 = undefined;
@@ -1235,16 +1371,47 @@ test "KT128 sequential and parallel produce same output for large inputs" {
     }
 }
 
+test "KT128 sequential and parallel produce same output for many random lengths" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
+    const num_tests = if (builtin.mode == .Debug) 10 else 1000;
+    const max_length = 250000;
+
+    for (0..num_tests) |_| {
+        const length = random.intRangeAtMost(usize, 0, max_length);
+
+        const input = try allocator.alloc(u8, length);
+        defer allocator.free(input);
+
+        random.bytes(input);
+
+        var output_seq: [32]u8 = undefined;
+        var output_par: [32]u8 = undefined;
+
+        try KT128.hash(input, &output_seq, .{});
+        try KT128.hashParallel(input, &output_par, .{}, allocator, io);
+
+        try std.testing.expectEqualSlices(u8, &output_seq, &output_par);
+    }
+}
+
 test "KT128 sequential and parallel produce same output with customization" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
-    const input_size = 15 * 1024 * 1024; // 15MB
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
+    const input_size = 5 * 512 * 1024; // 2.5MB
     const input = try allocator.alloc(u8, input_size);
     defer allocator.free(input);
 
     // Fill with random data
-    crypto.random.bytes(input);
+    random.bytes(input);
 
     const customization = "test domain";
     var output_seq: [48]u8 = undefined;
@@ -1264,6 +1431,9 @@ test "KT256 sequential and parallel produce same output for small inputs" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
     // Test with different small input sizes
     const test_sizes = [_]usize{ 100, 1024, 4096, 8192 }; // 100B, 1KB, 4KB, 8KB
 
@@ -1272,7 +1442,7 @@ test "KT256 sequential and parallel produce same output for small inputs" {
         defer allocator.free(input);
 
         // Fill with random data
-        crypto.random.bytes(input);
+        random.bytes(input);
 
         var output_seq: [64]u8 = undefined;
         var output_par: [64]u8 = undefined;
@@ -1292,15 +1462,22 @@ test "KT256 sequential and parallel produce same output for large inputs" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
-    // Test with large input sizes that trigger parallel processing
-    const test_sizes = [_]usize{ 11 * 1024 * 1024, 20 * 1024 * 1024 }; // 11MB, 20MB
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
+    // Test with input sizes above the 2MB threshold to trigger parallel processing.
+    // Include a size with partial final leaf to stress boundary handling.
+    const test_sizes = [_]usize{
+        5 * 512 * 1024, // 2.5 MB
+        5 * 512 * 1024 + 8191, // 2.5 MB + 8191B (partial leaf)
+    };
 
     for (test_sizes) |size| {
         const input = try allocator.alloc(u8, size);
         defer allocator.free(input);
 
         // Fill with random data
-        crypto.random.bytes(input);
+        random.bytes(input);
 
         var output_seq: [64]u8 = undefined;
         var output_par: [64]u8 = undefined;
@@ -1320,12 +1497,15 @@ test "KT256 sequential and parallel produce same output with customization" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
-    const input_size = 15 * 1024 * 1024; // 15MB
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
+    const input_size = 5 * 512 * 1024; // 2.5MB
     const input = try allocator.alloc(u8, input_size);
     defer allocator.free(input);
 
     // Fill with random data
-    crypto.random.bytes(input);
+    random.bytes(input);
 
     const customization = "test domain";
     var output_seq: [80]u8 = undefined;
@@ -1815,12 +1995,15 @@ test "KT256 incremental: with customization matches one-shot" {
 test "KT128 incremental: random small message with random chunk sizes" {
     const allocator = std.testing.allocator;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
     const test_sizes = [_]usize{ 100, 500, 2000, 5000, 10000 };
 
     for (test_sizes) |total_size| {
         const message = try allocator.alloc(u8, total_size);
         defer allocator.free(message);
-        crypto.random.bytes(message);
+        random.bytes(message);
 
         var output_oneshot: [32]u8 = undefined;
         var output_incremental: [32]u8 = undefined;
@@ -1833,7 +2016,7 @@ test "KT128 incremental: random small message with random chunk sizes" {
         while (offset < message.len) {
             const remaining = message.len - offset;
             const max_chunk = @min(1000, remaining);
-            const chunk_size_local = if (max_chunk == 1) 1 else crypto.random.intRangeAtMost(usize, 1, max_chunk);
+            const chunk_size_local = if (max_chunk == 1) 1 else random.intRangeAtMost(usize, 1, max_chunk);
 
             hasher.update(message[offset..][0..chunk_size_local]);
             offset += chunk_size_local;
@@ -1847,10 +2030,13 @@ test "KT128 incremental: random small message with random chunk sizes" {
 test "KT128 incremental: random large message (1MB) with random chunk sizes" {
     const allocator = std.testing.allocator;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
     const total_size: usize = 1024 * 1024; // 1 MB
     const message = try allocator.alloc(u8, total_size);
     defer allocator.free(message);
-    crypto.random.bytes(message);
+    random.bytes(message);
 
     var output_oneshot: [32]u8 = undefined;
     var output_incremental: [32]u8 = undefined;
@@ -1863,7 +2049,7 @@ test "KT128 incremental: random large message (1MB) with random chunk sizes" {
     while (offset < message.len) {
         const remaining = message.len - offset;
         const max_chunk = @min(10000, remaining);
-        const chunk_size_local = if (max_chunk == 1) 1 else crypto.random.intRangeAtMost(usize, 1, max_chunk);
+        const chunk_size_local = if (max_chunk == 1) 1 else random.intRangeAtMost(usize, 1, max_chunk);
 
         hasher.update(message[offset..][0..chunk_size_local]);
         offset += chunk_size_local;
@@ -1876,13 +2062,16 @@ test "KT128 incremental: random large message (1MB) with random chunk sizes" {
 test "KT256 incremental: random small message with random chunk sizes" {
     const allocator = std.testing.allocator;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
     const test_sizes = [_]usize{ 100, 500, 2000, 5000, 10000 };
 
     for (test_sizes) |total_size| {
         // Generate random message
         const message = try allocator.alloc(u8, total_size);
         defer allocator.free(message);
-        crypto.random.bytes(message);
+        random.bytes(message);
 
         var output_oneshot: [64]u8 = undefined;
         var output_incremental: [64]u8 = undefined;
@@ -1895,7 +2084,7 @@ test "KT256 incremental: random small message with random chunk sizes" {
         while (offset < message.len) {
             const remaining = message.len - offset;
             const max_chunk = @min(1000, remaining);
-            const chunk_size_local = if (max_chunk == 1) 1 else crypto.random.intRangeAtMost(usize, 1, max_chunk);
+            const chunk_size_local = if (max_chunk == 1) 1 else random.intRangeAtMost(usize, 1, max_chunk);
 
             hasher.update(message[offset..][0..chunk_size_local]);
             offset += chunk_size_local;
@@ -1909,10 +2098,13 @@ test "KT256 incremental: random small message with random chunk sizes" {
 test "KT256 incremental: random large message (1MB) with random chunk sizes" {
     const allocator = std.testing.allocator;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
     const total_size: usize = 1024 * 1024; // 1 MB
     const message = try allocator.alloc(u8, total_size);
     defer allocator.free(message);
-    crypto.random.bytes(message);
+    random.bytes(message);
 
     var output_oneshot: [64]u8 = undefined;
     var output_incremental: [64]u8 = undefined;
@@ -1925,7 +2117,7 @@ test "KT256 incremental: random large message (1MB) with random chunk sizes" {
     while (offset < message.len) {
         const remaining = message.len - offset;
         const max_chunk = @min(10000, remaining);
-        const chunk_size_local = if (max_chunk == 1) 1 else crypto.random.intRangeAtMost(usize, 1, max_chunk);
+        const chunk_size_local = if (max_chunk == 1) 1 else random.intRangeAtMost(usize, 1, max_chunk);
 
         hasher.update(message[offset..][0..chunk_size_local]);
         offset += chunk_size_local;
@@ -1938,10 +2130,13 @@ test "KT256 incremental: random large message (1MB) with random chunk sizes" {
 test "KT128 incremental: random message with customization and random chunks" {
     const allocator = std.testing.allocator;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const random = prng.random();
+
     const total_size: usize = 50000;
     const message = try allocator.alloc(u8, total_size);
     defer allocator.free(message);
-    crypto.random.bytes(message);
+    random.bytes(message);
 
     const customization = "random test domain";
 
@@ -1956,7 +2151,7 @@ test "KT128 incremental: random message with customization and random chunks" {
     while (offset < message.len) {
         const remaining = message.len - offset;
         const max_chunk = @min(5000, remaining);
-        const chunk_size_local = if (max_chunk == 1) 1 else crypto.random.intRangeAtMost(usize, 1, max_chunk);
+        const chunk_size_local = if (max_chunk == 1) 1 else random.intRangeAtMost(usize, 1, max_chunk);
 
         hasher.update(message[offset..][0..chunk_size_local]);
         offset += chunk_size_local;

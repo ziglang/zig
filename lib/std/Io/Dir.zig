@@ -318,7 +318,7 @@ pub const MakePathStatus = enum { existed, created };
 /// Same as `makePath` except returns whether the path already existed or was
 /// successfully created.
 pub fn makePathStatus(dir: Dir, io: Io, sub_path: []const u8) MakePathError!MakePathStatus {
-    var it = try std.fs.path.componentIterator(sub_path);
+    var it = std.fs.path.componentIterator(sub_path);
     var status: MakePathStatus = .existed;
     var component = it.last() orelse return error.BadPathName;
     while (true) {

@@ -97,6 +97,7 @@ pub fn build(b: *std.Build) !void {
     const skip_darwin = b.option(bool, "skip-darwin", "Main test suite skips targets with darwin OSs") orelse false;
     const skip_linux = b.option(bool, "skip-linux", "Main test suite skips targets with linux OS") orelse false;
     const skip_llvm = b.option(bool, "skip-llvm", "Main test suite skips targets that use LLVM backend") orelse false;
+    const skip_test_incremental = b.option(bool, "skip-test-incremental", "Main test step omits dependency on test-incremental step") orelse false;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
 
@@ -609,7 +610,7 @@ pub fn build(b: *std.Build) !void {
 
     const test_incremental_step = b.step("test-incremental", "Run the incremental compilation test cases");
     try tests.addIncrementalTests(b, test_incremental_step);
-    test_step.dependOn(test_incremental_step);
+    if (!skip_test_incremental) test_step.dependOn(test_incremental_step);
 
     if (tests.addLibcTests(b, .{
         .optimize_modes = optimization_modes,

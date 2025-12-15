@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -255,6 +256,7 @@ pub fn hasNewLinkerSupport(ofmt: std.Target.ObjectFormat, backend: std.builtin.C
 /// debug mode. A given target should only return true here if it is passing greater
 /// than or equal to the number of behavior tests as the respective LLVM backend.
 pub fn selfHostedBackendIsAsRobustAsLlvm(target: *const std.Target) bool {
+    if (comptime builtin.cpu.arch.endian() == .big) return false; // https://github.com/ziglang/zig/issues/25961
     if (target.cpu.arch.isSpirV()) return true;
     if (target.cpu.arch == .x86_64 and target.ptrBitWidth() == 64) {
         if (target.os.tag == .illumos) {

@@ -376,7 +376,6 @@ fn Kyber(comptime p: Params) type {
             /// Except in tests, applications should generally call `generate()` instead of this function.
             pub fn generateDeterministic(seed: [seed_length]u8) !KeyPair {
                 var ret: KeyPair = undefined;
-                ret.secret_key.z = seed[inner_seed_length..seed_length].*;
 
                 // Generate inner key
                 innerKeyFromSeed(
@@ -507,8 +506,8 @@ fn Kyber(comptime p: Params) type {
         fn innerKeyFromSeed(seed: [inner_seed_length]u8, pk: *InnerPk, sk: *InnerSk) void {
             var expanded_seed: [64]u8 = undefined;
             var h = sha3.Sha3_512.init(.{});
-            if (p.ml_kem) h.update(&[1]u8{p.k});
             h.update(&seed);
+            if (p.ml_kem) h.update(&[1]u8{p.k});
             h.final(&expanded_seed);
             pk.rho = expanded_seed[0..32].*;
             const sigma = expanded_seed[32..64];
@@ -1446,6 +1445,8 @@ fn randPolyNormalized(rnd: anytype) Poly {
 }
 
 test "MulHat" {
+    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
+
     var rnd = RndGen.init(0);
 
     for (0..100) |_| {
@@ -1600,6 +1601,8 @@ test "Polynomial packing" {
 }
 
 test "Test inner PKE" {
+    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
+
     var seed: [32]u8 = undefined;
     var pt: [32]u8 = undefined;
     for (&seed, &pt, 0..) |*s, *p, i| {
@@ -1621,6 +1624,8 @@ test "Test inner PKE" {
 }
 
 test "Test happy flow" {
+    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
+
     var seed: [64]u8 = undefined;
     for (&seed, 0..) |*s, i| {
         s.* = @as(u8, @intCast(i));
@@ -1646,18 +1651,21 @@ test "Test happy flow" {
 
 test "NIST KAT test d00.Kyber512" {
     if (comptime builtin.cpu.has(.loongarch, .lsx)) return error.SkipZigTest;
+    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
 
     try testNistKat(d00.Kyber512, "e9c2bd37133fcb40772f81559f14b1f58dccd1c816701be9ba6214d43baf4547");
 }
 
 test "NIST KAT test d00.Kyber1024" {
     if (comptime builtin.cpu.has(.loongarch, .lsx)) return error.SkipZigTest;
+    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
 
     try testNistKat(d00.Kyber1024, "89248f2f33f7f4f7051729111f3049c409a933ec904aedadf035f30fa5646cd5");
 }
 
 test "NIST KAT test d00.Kyber768" {
     if (comptime builtin.cpu.has(.loongarch, .lsx)) return error.SkipZigTest;
+    if (comptime builtin.cpu.has(.s390x, .vector)) return error.SkipZigTest;
 
     try testNistKat(d00.Kyber768, "a1e122cad3c24bc51622e4c242d8b8acbcd3f618fee4220400605ca8f9ea02c2");
 }

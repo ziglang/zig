@@ -28,6 +28,8 @@
 #define zig_arm
 #elif defined(__hexagon__)
 #define zig_hexagon
+#elif defined(__kvx__)
+#define zig_kvx
 #elif defined(__loongarch32)
 #define zig_loongarch32
 #define zig_loongarch
@@ -383,7 +385,7 @@
 #define zig_trap() __asm__ volatile("udf #0xfdee")
 #elif defined(zig_hexagon)
 #define zig_trap() __asm__ volatile("r27:26 = memd(#0xbadc0fee)")
-#elif defined(zig_loongarch) || defined(zig_powerpc)
+#elif defined(zig_kvx) || defined(zig_loongarch) || defined(zig_powerpc)
 #define zig_trap() __asm__ volatile(".word 0x0")
 #elif defined(zig_mips)
 #define zig_trap() __asm__ volatile(".word 0x3d")
@@ -419,7 +421,7 @@
 #define zig_breakpoint() __asm__ volatile("brk #0xf000")
 #elif defined(zig_hexagon)
 #define zig_breakpoint() __asm__ volatile("brkpt")
-#elif defined(zig_loongarch)
+#elif defined(zig_kvx) || defined(zig_loongarch)
 #define zig_breakpoint() __asm__ volatile("break 0x0")
 #elif defined(zig_mips)
 #define zig_breakpoint() __asm__ volatile("break")

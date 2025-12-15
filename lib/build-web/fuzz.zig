@@ -42,7 +42,7 @@ pub fn sourceIndexMessage(msg_bytes: []u8) error{OutOfMemory}!void {
 
 var coverage = Coverage.init;
 /// Index of type `SourceLocationIndex`.
-var coverage_source_locations: std.ArrayListUnmanaged(Coverage.SourceLocation) = .empty;
+var coverage_source_locations: std.ArrayList(Coverage.SourceLocation) = .empty;
 /// Contains the most recent coverage update message, unmodified.
 var recent_coverage_update: std.ArrayListAlignedUnmanaged(u8, .of(u64)) = .empty;
 
@@ -76,7 +76,7 @@ pub fn coverageUpdateMessage(msg_bytes: []u8) error{OutOfMemory}!void {
     try updateCoverage();
 }
 
-var entry_points: std.ArrayListUnmanaged(SourceLocationIndex) = .empty;
+var entry_points: std.ArrayList(SourceLocationIndex) = .empty;
 
 pub fn entryPointsMessage(msg_bytes: []u8) error{OutOfMemory}!void {
     const header: abi.fuzz.EntryPointHeader = @bitCast(msg_bytes[0..@sizeOf(abi.fuzz.EntryPointHeader)].*);
@@ -127,7 +127,7 @@ const SourceLocationIndex = enum(u32) {
     }
 
     fn toWalkFile(sli: SourceLocationIndex) ?Walk.File.Index {
-        var buf: std.ArrayListUnmanaged(u8) = .empty;
+        var buf: std.ArrayList(u8) = .empty;
         defer buf.deinit(gpa);
         sli.appendPath(&buf) catch @panic("OOM");
         return @enumFromInt(Walk.files.getIndex(buf.items) orelse return null);
@@ -135,11 +135,11 @@ const SourceLocationIndex = enum(u32) {
 
     fn fileHtml(
         sli: SourceLocationIndex,
-        out: *std.ArrayListUnmanaged(u8),
+        out: *std.ArrayList(u8),
     ) error{ OutOfMemory, SourceUnavailable }!void {
         const walk_file_index = sli.toWalkFile() orelse return error.SourceUnavailable;
         const root_node = walk_file_index.findRootDecl().get().ast_node;
-        var annotations: std.ArrayListUnmanaged(html_render.Annotation) = .empty;
+        var annotations: std.ArrayList(html_render.Annotation) = .empty;
         defer annotations.deinit(gpa);
         try computeSourceAnnotations(sli.ptr().file, walk_file_index, &annotations, coverage_source_locations.items);
         html_render.fileSourceHtml(walk_file_index, out, root_node, .{
@@ -153,13 +153,13 @@ const SourceLocationIndex = enum(u32) {
 fn computeSourceAnnotations(
     cov_file_index: Coverage.File.Index,
     walk_file_index: Walk.File.Index,
-    annotations: *std.ArrayListUnmanaged(html_render.Annotation),
+    annotations: *std.ArrayList(html_render.Annotation),
     source_locations: []const Coverage.SourceLocation,
 ) !void {
     // Collect all the source locations from only this file into this array
     // first, then sort by line, col, so that we can collect annotations with
     // O(N) time complexity.
-    var locs: std.ArrayListUnmanaged(SourceLocationIndex) = .empty;
+    var locs: std.ArrayList(SourceLocationIndex) = .empty;
     defer locs.deinit(gpa);
 
     for (source_locations, 0..) |sl, sli_usize| {
@@ -228,20 +228,21 @@ fn unpackSourcesInner(tar_bytes: []u8) !void {
                 if (std.mem.endsWith(u8, tar_file.name, ".zig")) {
                     log.debug("found file: '{s}'", .{tar_file.name});
                     const file_name = try gpa.dupe(u8, tar_file.name);
-                    if (std.mem.indexOfScalar(u8, file_name, '/')) |pkg_name_end| {
-                        const pkg_name = file_name[0..pkg_name_end];
-                        const gop = try Walk.modules.getOrPut(gpa, pkg_name);
-                        const file: Walk.File.Index = @enumFromInt(Walk.files.entries.len);
-                        if (!gop.found_existing or
-                            std.mem.eql(u8, file_name[pkg_name_end..], "/root.zig") or
-                            std.mem.eql(u8, file_name[pkg_name_end + 1 .. file_name.len - ".zig".len], pkg_name))
-                        {
-                            gop.value_ptr.* = file;
-                        }
-                        const file_bytes = tar_reader.take(@intCast(tar_file.size)) catch unreachable;
-                        it.unread_file_bytes = 0; // we have read the whole thing
-                        assert(file == try Walk.add_file(file_name, file_bytes));
-                    }
+                    // This is a hack to guess modules from the tar file contents. To handle modules
+                    // properly, the build system will need to change the structure here to have one
+                    // directory per module. This in turn requires compiler enhancements to allow
+                    // the build system to actually discover the required information.
+                    const mod_name, const is_module_root = p: {
+                        if (std.mem.find(u8, file_name, "std/")) |i| break :p .{ "std", std.mem.eql(u8, file_name[i + 4 ..], "std.zig") };
+                        if (std.mem.endsWith(u8, file_name, "/builtin.zig")) break :p .{ "builtin", true };
+                        break :p .{ "root", std.mem.endsWith(u8, file_name, "/root.zig") };
+                    };
+                    const gop = try Walk.modules.getOrPut(gpa, mod_name);
+                    const file: Walk.File.Index = @enumFromInt(Walk.files.entries.len);
+                    if (!gop.found_existing or is_module_root) gop.value_ptr.* = file;
+                    const file_bytes = tar_reader.take(@intCast(tar_file.size)) catch unreachable;
+                    it.unread_file_bytes = 0; // we have read the whole thing
+                    assert(file == try Walk.add_file(file_name, file_bytes));
                 } else {
                     log.warn("skipping: '{s}' - the tar creation should have done that", .{tar_file.name});
                 }
@@ -308,7 +309,7 @@ fn updateCoverage() error{OutOfMemory}!void {
     if (recent_coverage_update.items.len == 0) return;
     const want_file = (selected_source_location orelse return).ptr().file;
 
-    var covered: std.ArrayListUnmanaged(SourceLocationIndex) = .empty;
+    var covered: std.ArrayList(SourceLocationIndex) = .empty;
     defer covered.deinit(gpa);
 
     // This code assumes 64-bit elements, which is incorrect if the executable
@@ -339,7 +340,7 @@ fn updateCoverage() error{OutOfMemory}!void {
 fn updateSource() error{OutOfMemory}!void {
     if (recent_coverage_update.items.len == 0) return;
     const file_sli = selected_source_location.?;
-    var html: std.ArrayListUnmanaged(u8) = .empty;
+    var html: std.ArrayList(u8) = .empty;
     defer html.deinit(gpa);
     file_sli.fileHtml(&html) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,

@@ -1,4 +1,4 @@
-objects: std.ArrayListUnmanaged(Object) = .empty,
+objects: std.ArrayList(Object) = .empty,
 
 pub fn deinit(self: *Archive, allocator: Allocator) void {
     self.objects.deinit(allocator);
@@ -172,7 +172,7 @@ pub const ar_hdr = extern struct {
 };
 
 pub const ArSymtab = struct {
-    entries: std.ArrayListUnmanaged(Entry) = .empty,
+    entries: std.ArrayList(Entry) = .empty,
     strtab: StringTable = .{},
 
     pub fn deinit(ar: *ArSymtab, allocator: Allocator) void {

@@ -160,7 +160,7 @@ pub const Oid = union(Format) {
 
 pub const Diagnostics = struct {
     allocator: Allocator,
-    errors: std.ArrayListUnmanaged(Error) = .empty,
+    errors: std.ArrayList(Error) = .empty,
 
     pub const Error = union(enum) {
         unable_to_create_sym_link: struct {
@@ -405,7 +405,7 @@ const Odb = struct {
     fn readObject(odb: *Odb) !Object {
         var base_offset = odb.pack_file.logicalPos();
         var base_header: EntryHeader = undefined;
-        var delta_offsets: std.ArrayListUnmanaged(u64) = .empty;
+        var delta_offsets: std.ArrayList(u64) = .empty;
         defer delta_offsets.deinit(odb.allocator);
         const base_object = while (true) {
             if (odb.cache.get(base_offset)) |base_object| break base_object;
@@ -1277,7 +1277,7 @@ pub fn indexPack(
 
     var index_entries: std.AutoHashMapUnmanaged(Oid, IndexEntry) = .empty;
     defer index_entries.deinit(allocator);
-    var pending_deltas: std.ArrayListUnmanaged(IndexEntry) = .empty;
+    var pending_deltas: std.ArrayList(IndexEntry) = .empty;
     defer pending_deltas.deinit(allocator);
 
     const pack_checksum = try indexPackFirstPass(allocator, format, pack, &index_entries, &pending_deltas);
@@ -1299,7 +1299,7 @@ pub fn indexPack(
         remaining_deltas = pending_deltas.items.len;
     }
 
-    var oids: std.ArrayListUnmanaged(Oid) = .empty;
+    var oids: std.ArrayList(Oid) = .empty;
     defer oids.deinit(allocator);
     try oids.ensureTotalCapacityPrecise(allocator, index_entries.count());
     var index_entries_iter = index_entries.iterator();
@@ -1341,7 +1341,7 @@ pub fn indexPack(
         try writer.writeInt(u32, index_entries.get(oid).?.crc32, .big);
     }
 
-    var big_offsets: std.ArrayListUnmanaged(u64) = .empty;
+    var big_offsets: std.ArrayList(u64) = .empty;
     defer big_offsets.deinit(allocator);
     for (oids.items) |oid| {
         const offset = index_entries.get(oid).?.offset;
@@ -1372,7 +1372,7 @@ fn indexPackFirstPass(
     format: Oid.Format,
     pack: *std.fs.File.Reader,
     index_entries: *std.AutoHashMapUnmanaged(Oid, IndexEntry),
-    pending_deltas: *std.ArrayListUnmanaged(IndexEntry),
+    pending_deltas: *std.ArrayList(IndexEntry),
 ) !Oid {
     var flate_buffer: [std.compress.flate.max_window_len]u8 = undefined;
     var pack_buffer: [2048]u8 = undefined; // Reasonably large buffer for file system.
@@ -1431,7 +1431,7 @@ fn indexPackHashDelta(
     // Figure out the chain of deltas to resolve
     var base_offset = delta.offset;
     var base_header: EntryHeader = undefined;
-    var delta_offsets: std.ArrayListUnmanaged(u64) = .empty;
+    var delta_offsets: std.ArrayList(u64) = .empty;
     defer delta_offsets.deinit(allocator);
     const base_object = while (true) {
         if (cache.get(base_offset)) |base_object| break base_object;
@@ -1641,7 +1641,7 @@ fn runRepositoryTest(io: Io, comptime format: Oid.Format, head_commit: []const u
         "file8",
         "file9",
     };
-    var actual_files: std.ArrayListUnmanaged([]u8) = .empty;
+    var actual_files: std.ArrayList([]u8) = .empty;
     defer actual_files.deinit(testing.allocator);
     defer for (actual_files.items) |file| testing.allocator.free(file);
     var walker = try worktree.dir.walk(testing.allocator);

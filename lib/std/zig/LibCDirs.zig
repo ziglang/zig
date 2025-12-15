@@ -254,7 +254,6 @@ fn libCGenericName(target: *const std.Target) [:0]const u8 {
         .ohos,
         .ohoseabi,
         => return "musl",
-        .code16,
         .eabi,
         .eabihf,
         .ilp32,

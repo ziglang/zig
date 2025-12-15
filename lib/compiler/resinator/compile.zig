@@ -2914,7 +2914,7 @@ fn validateSearchPath(path: []const u8) error{BadPathName}!void {
             // (e.g. the NT \??\ prefix, the device \\.\ prefix, etc).
             // Those path types are something of an unavoidable way to
             // still hit unreachable during the openDir call.
-            var component_iterator = try std.fs.path.componentIterator(path);
+            var component_iterator = std.fs.path.componentIterator(path);
             while (component_iterator.next()) |component| {
                 // https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file
                 if (std.mem.indexOfAny(u8, component.name, "\x00<>:\"|?*") != null) return error.BadPathName;

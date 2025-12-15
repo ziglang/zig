@@ -53,7 +53,7 @@ base: link.File,
 /// with a null byte so that deserialization does not attempt to create
 /// string_table entries for them. Alternately those sites could be moved to
 /// use a different byte array for this purpose.
-string_bytes: std.ArrayListUnmanaged(u8),
+string_bytes: std.ArrayList(u8),
 /// Sometimes we have logic that wants to borrow string bytes to store
 /// arbitrary things in there. In this case it is not allowed to intern new
 /// strings during this time. This safety lock is used to detect misuses.
@@ -77,7 +77,7 @@ export_table: bool,
 /// Output name of the file
 name: []const u8,
 /// List of relocatable files to be linked into the final binary.
-objects: std.ArrayListUnmanaged(Object) = .{},
+objects: std.ArrayList(Object) = .{},
 
 func_types: std.AutoArrayHashMapUnmanaged(FunctionType, void) = .empty,
 /// Provides a mapping of both imports and provided functions to symbol name.
@@ -85,23 +85,23 @@ func_types: std.AutoArrayHashMapUnmanaged(FunctionType, void) = .empty,
 /// Key is symbol name, however the `FunctionImport` may have an name override for the import name.
 object_function_imports: std.AutoArrayHashMapUnmanaged(String, FunctionImport) = .empty,
 /// All functions for all objects.
-object_functions: std.ArrayListUnmanaged(ObjectFunction) = .empty,
+object_functions: std.ArrayList(ObjectFunction) = .empty,
 
 /// Provides a mapping of both imports and provided globals to symbol name.
 /// Local globals may be unnamed.
 object_global_imports: std.AutoArrayHashMapUnmanaged(String, GlobalImport) = .empty,
 /// All globals for all objects.
-object_globals: std.ArrayListUnmanaged(ObjectGlobal) = .empty,
+object_globals: std.ArrayList(ObjectGlobal) = .empty,
 
 /// All table imports for all objects.
 object_table_imports: std.AutoArrayHashMapUnmanaged(String, TableImport) = .empty,
 /// All parsed table sections for all objects.
-object_tables: std.ArrayListUnmanaged(Table) = .empty,
+object_tables: std.ArrayList(Table) = .empty,
 
 /// All memory imports for all objects.
 object_memory_imports: std.AutoArrayHashMapUnmanaged(String, MemoryImport) = .empty,
 /// All parsed memory sections for all objects.
-object_memories: std.ArrayListUnmanaged(ObjectMemory) = .empty,
+object_memories: std.ArrayList(ObjectMemory) = .empty,
 
 /// All relocations from all objects concatenated. `relocs_start` marks the end
 /// point of object relocations and start point of Zcu relocations.
@@ -109,21 +109,21 @@ object_relocations: std.MultiArrayList(ObjectRelocation) = .empty,
 
 /// List of initialization functions. These must be called in order of priority
 /// by the (synthetic) `__wasm_call_ctors` function.
-object_init_funcs: std.ArrayListUnmanaged(InitFunc) = .empty,
+object_init_funcs: std.ArrayList(InitFunc) = .empty,
 
 /// The data section of an object has many segments. Each segment corresponds
 /// logically to an object file's .data section, or .rodata section. In
 /// the case of `-fdata-sections` there will be one segment per data symbol.
-object_data_segments: std.ArrayListUnmanaged(ObjectDataSegment) = .empty,
+object_data_segments: std.ArrayList(ObjectDataSegment) = .empty,
 /// Each segment has many data symbols, which correspond logically to global
 /// constants.
-object_datas: std.ArrayListUnmanaged(ObjectData) = .empty,
+object_datas: std.ArrayList(ObjectData) = .empty,
 object_data_imports: std.AutoArrayHashMapUnmanaged(String, ObjectDataImport) = .empty,
 /// Non-synthetic section that can essentially be mem-cpy'd into place after performing relocations.
 object_custom_segments: std.AutoArrayHashMapUnmanaged(ObjectSectionIndex, CustomSegment) = .empty,
 
 /// All comdat information for all objects.
-object_comdats: std.ArrayListUnmanaged(Comdat) = .empty,
+object_comdats: std.ArrayList(Comdat) = .empty,
 /// A table that maps the relocations to be performed where the key represents
 /// the section (across all objects) that the slice of relocations applies to.
 object_relocations_table: std.AutoArrayHashMapUnmanaged(ObjectSectionIndex, ObjectRelocation.Slice) = .empty,
@@ -138,15 +138,15 @@ out_relocs: std.MultiArrayList(OutReloc) = .empty,
 /// List of locations within `string_bytes` that must be patched with the virtual
 /// memory address of a Uav during `flush`.
 /// When emitting an object file, `out_relocs` is used instead.
-uav_fixups: std.ArrayListUnmanaged(UavFixup) = .empty,
+uav_fixups: std.ArrayList(UavFixup) = .empty,
 /// List of locations within `string_bytes` that must be patched with the virtual
 /// memory address of a Nav during `flush`.
 /// When emitting an object file, `out_relocs` is used instead.
 /// No functions here only global variables.
-nav_fixups: std.ArrayListUnmanaged(NavFixup) = .empty,
+nav_fixups: std.ArrayList(NavFixup) = .empty,
 /// When a nav reference is a function pointer, this tracks the required function
 /// table entry index that needs to overwrite the code in the final output.
-func_table_fixups: std.ArrayListUnmanaged(FuncTableFixup) = .empty,
+func_table_fixups: std.ArrayList(FuncTableFixup) = .empty,
 /// Symbols to be emitted into an object file. Remains empty when not emitting
 /// an object file.
 symbol_table: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
@@ -167,7 +167,7 @@ memories: std.wasm.Memory = .{ .limits = .{
 /// `--verbose-link` output.
 /// Initialized on creation, appended to as inputs are added, printed during `flush`.
 /// String data is allocated into Compilation arena.
-dump_argv_list: std.ArrayListUnmanaged([]const u8),
+dump_argv_list: std.ArrayList([]const u8),
 
 preloaded_strings: PreloadedStrings,
 
@@ -205,7 +205,7 @@ entry_resolution: FunctionImport.Resolution = .unresolved,
 /// Empty when outputting an object.
 function_exports: std.AutoArrayHashMapUnmanaged(String, FunctionIndex) = .empty,
 hidden_function_exports: std.AutoArrayHashMapUnmanaged(String, FunctionIndex) = .empty,
-global_exports: std.ArrayListUnmanaged(GlobalExport) = .empty,
+global_exports: std.ArrayList(GlobalExport) = .empty,
 /// Tracks the value at the end of prelink.
 global_exports_len: u32 = 0,
 
@@ -279,22 +279,22 @@ any_passive_inits: bool = false,
 /// All MIR instructions for all Zcu functions.
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// Corresponds to `mir_instructions`.
-mir_extra: std.ArrayListUnmanaged(u32) = .empty,
+mir_extra: std.ArrayList(u32) = .empty,
 /// All local types for all Zcu functions.
-mir_locals: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty,
+mir_locals: std.ArrayList(std.wasm.Valtype) = .empty,
 
-params_scratch: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty,
-returns_scratch: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty,
+params_scratch: std.ArrayList(std.wasm.Valtype) = .empty,
+returns_scratch: std.ArrayList(std.wasm.Valtype) = .empty,
 
 /// All Zcu error names in order, null-terminated, concatenated. No need to
 /// serialize; trivially reconstructed.
-error_name_bytes: std.ArrayListUnmanaged(u8) = .empty,
+error_name_bytes: std.ArrayList(u8) = .empty,
 /// For each Zcu error, in order, offset into `error_name_bytes` where the name
 /// is stored. No need to serialize; trivially reconstructed.
-error_name_offs: std.ArrayListUnmanaged(u32) = .empty,
+error_name_offs: std.ArrayList(u32) = .empty,
 
-tag_name_bytes: std.ArrayListUnmanaged(u8) = .empty,
-tag_name_offs: std.ArrayListUnmanaged(u32) = .empty,
+tag_name_bytes: std.ArrayList(u8) = .empty,
+tag_name_offs: std.ArrayList(u32) = .empty,
 
 pub const TagNameOff = extern struct {
     off: u32,
@@ -4196,8 +4196,8 @@ fn convertZcuFnType(
     params: []const InternPool.Index,
     return_type: Zcu.Type,
     target: *const std.Target,
-    params_buffer: *std.ArrayListUnmanaged(std.wasm.Valtype),
-    returns_buffer: *std.ArrayListUnmanaged(std.wasm.Valtype),
+    params_buffer: *std.ArrayList(std.wasm.Valtype),
+    returns_buffer: *std.ArrayList(std.wasm.Valtype),
 ) Allocator.Error!void {
     params_buffer.clearRetainingCapacity();
     returns_buffer.clearRetainingCapacity();

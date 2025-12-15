@@ -27,7 +27,7 @@ pub const Writer = @import("tar/Writer.zig");
 /// the errors in diagnostics to know whether the operation succeeded or failed.
 pub const Diagnostics = struct {
     allocator: std.mem.Allocator,
-    errors: std.ArrayListUnmanaged(Error) = .empty,
+    errors: std.ArrayList(Error) = .empty,
 
     entries: usize = 0,
     root_dir: []const u8 = "",

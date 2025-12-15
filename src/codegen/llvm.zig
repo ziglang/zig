@@ -277,7 +277,6 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .gnusf => "gnusf",
         .gnux32 => "gnux32",
         .ilp32 => "unknown",
-        .code16 => "code16",
         .eabi => "eabi",
         .eabihf => "eabihf",
         .android => "android",
@@ -523,8 +522,8 @@ pub const Object = struct {
     debug_enums_fwd_ref: Builder.Metadata.Optional,
     debug_globals_fwd_ref: Builder.Metadata.Optional,
 
-    debug_enums: std.ArrayListUnmanaged(Builder.Metadata),
-    debug_globals: std.ArrayListUnmanaged(Builder.Metadata),
+    debug_enums: std.ArrayList(Builder.Metadata),
+    debug_globals: std.ArrayList(Builder.Metadata),
 
     debug_file_map: std.AutoHashMapUnmanaged(Zcu.File.Index, Builder.Metadata),
     debug_type_map: std.AutoHashMapUnmanaged(InternPool.Index, Builder.Metadata),
@@ -571,7 +570,7 @@ pub const Object = struct {
     struct_field_map: std.AutoHashMapUnmanaged(ZigStructField, c_uint),
 
     /// Values for `@llvm.used`.
-    used: std.ArrayListUnmanaged(Builder.Constant),
+    used: std.ArrayList(Builder.Constant),
 
     const ZigStructField = struct {
         struct_ty: InternPool.Index,
@@ -1298,7 +1297,7 @@ pub const Object = struct {
         // instructions. Depending on the calling convention, this list is not necessarily
         // a bijection with the actual LLVM parameters of the function.
         const gpa = o.gpa;
-        var args: std.ArrayListUnmanaged(Builder.Value) = .empty;
+        var args: std.ArrayList(Builder.Value) = .empty;
         defer args.deinit(gpa);
 
         {
@@ -2318,7 +2317,7 @@ pub const Object = struct {
 
                 switch (ip.indexToKey(ty.toIntern())) {
                     .tuple_type => |tuple| {
-                        var fields: std.ArrayListUnmanaged(Builder.Metadata) = .empty;
+                        var fields: std.ArrayList(Builder.Metadata) = .empty;
                         defer fields.deinit(gpa);
 
                         try fields.ensureUnusedCapacity(gpa, tuple.types.len);
@@ -2392,7 +2391,7 @@ pub const Object = struct {
 
                 const struct_type = zcu.typeToStruct(ty).?;
 
-                var fields: std.ArrayListUnmanaged(Builder.Metadata) = .empty;
+                var fields: std.ArrayList(Builder.Metadata) = .empty;
                 defer fields.deinit(gpa);
 
                 try fields.ensureUnusedCapacity(gpa, struct_type.field_types.len);
@@ -2484,7 +2483,7 @@ pub const Object = struct {
                     return debug_union_type;
                 }
 
-                var fields: std.ArrayListUnmanaged(Builder.Metadata) = .empty;
+                var fields: std.ArrayList(Builder.Metadata) = .empty;
                 defer fields.deinit(gpa);
 
                 try fields.ensureUnusedCapacity(gpa, union_type.loadTagType(ip).names.len);
@@ -3273,7 +3272,7 @@ pub const Object = struct {
                         return int_ty;
                     }
 
-                    var llvm_field_types: std.ArrayListUnmanaged(Builder.Type) = .empty;
+                    var llvm_field_types: std.ArrayList(Builder.Type) = .empty;
                     defer llvm_field_types.deinit(o.gpa);
                     // Although we can estimate how much capacity to add, these cannot be
                     // relied upon because of the recursive calls to lowerType below.
@@ -3342,7 +3341,7 @@ pub const Object = struct {
                     return ty;
                 },
                 .tuple_type => |tuple_type| {
-                    var llvm_field_types: std.ArrayListUnmanaged(Builder.Type) = .empty;
+                    var llvm_field_types: std.ArrayList(Builder.Type) = .empty;
                     defer llvm_field_types.deinit(o.gpa);
                     // Although we can estimate how much capacity to add, these cannot be
                     // relied upon because of the recursive calls to lowerType below.
@@ -3531,7 +3530,7 @@ pub const Object = struct {
         const target = zcu.getTarget();
         const ret_ty = try lowerFnRetTy(o, pt, fn_info);
 
-        var llvm_params: std.ArrayListUnmanaged(Builder.Type) = .empty;
+        var llvm_params: std.ArrayList(Builder.Type) = .empty;
         defer llvm_params.deinit(o.gpa);
 
         if (firstParamSRet(fn_info, zcu, target)) {
@@ -3651,35 +3650,22 @@ pub const Object = struct {
             .opt => {}, // pointer like optional expected
             else => unreachable,
         }
-        const bits = ty.bitSize(zcu);
-        const bytes: usize = @intCast(std.mem.alignForward(u64, bits, 8) / 8);
-
         var stack = std.heap.stackFallback(32, o.gpa);
         const allocator = stack.get();
 
-        const limbs = try allocator.alloc(
-            std.math.big.Limb,
-            std.mem.alignForward(usize, bytes, @sizeOf(std.math.big.Limb)) /
-                @sizeOf(std.math.big.Limb),
-        );
+        const bits: usize = @intCast(ty.bitSize(zcu));
+
+        const buffer = try allocator.alloc(u8, (bits + 7) / 8);
+        defer allocator.free(buffer);
+        const limbs = try allocator.alloc(std.math.big.Limb, std.math.big.int.calcTwosCompLimbCount(bits));
         defer allocator.free(limbs);
-        @memset(limbs, 0);
 
-        val.writeToPackedMemory(ty, pt, std.mem.sliceAsBytes(limbs)[0..bytes], 0) catch unreachable;
+        val.writeToPackedMemory(ty, pt, buffer, 0) catch unreachable;
 
-        if (builtin.target.cpu.arch.endian() == .little) {
-            if (target.cpu.arch.endian() == .big)
-                std.mem.reverse(u8, std.mem.sliceAsBytes(limbs)[0..bytes]);
-        } else if (target.cpu.arch.endian() == .little) {
-            for (limbs) |*limb| {
-                limb.* = std.mem.nativeToLittle(usize, limb.*);
-            }
-        }
+        var big: std.math.big.int.Mutable = .init(limbs, 0);
+        big.readTwosComplement(buffer, bits, target.cpu.arch.endian(), .unsigned);
 
-        return o.builder.bigIntConst(llvm_int_ty, .{
-            .limbs = limbs,
-            .positive = true,
-        });
+        return o.builder.bigIntConst(llvm_int_ty, big.toConst());
     }
 
     fn lowerValue(o: *Object, pt: Zcu.PerThread, arg_val: InternPool.Index) Error!Builder.Constant {
@@ -4754,7 +4740,7 @@ pub const FuncGen = struct {
 
     const Fuzz = struct {
         counters_variable: Builder.Variable.Index,
-        pcs: std.ArrayListUnmanaged(Builder.Constant),
+        pcs: std.ArrayList(Builder.Constant),
 
         fn deinit(f: *Fuzz, gpa: Allocator) void {
             f.pcs.deinit(gpa);
@@ -7264,7 +7250,7 @@ pub const FuncGen = struct {
         const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.inputs_len]);
         extra_i += inputs.len;
 
-        var llvm_constraints: std.ArrayListUnmanaged(u8) = .empty;
+        var llvm_constraints: std.ArrayList(u8) = .empty;
         defer llvm_constraints.deinit(gpa);
 
         var arena_allocator = std.heap.ArenaAllocator.init(gpa);
@@ -13146,7 +13132,7 @@ fn maxIntConst(b: *Builder, max_ty: Type, as_ty: Builder.Type, zcu: *const Zcu) 
 /// Appends zero or more LLVM constraints to `llvm_constraints`, returning how many were added.
 fn appendConstraints(
     gpa: Allocator,
-    llvm_constraints: *std.ArrayListUnmanaged(u8),
+    llvm_constraints: *std.ArrayList(u8),
     zig_name: []const u8,
     target: *const std.Target,
 ) error{OutOfMemory}!usize {

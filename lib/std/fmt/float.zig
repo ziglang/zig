@@ -61,7 +61,7 @@ pub fn render(buf: []u8, value: anytype, options: Options) Error![]const u8 {
 
     const T = @TypeOf(v);
     comptime std.debug.assert(@typeInfo(T) == .float);
-    const I = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
+    const I = @Int(.unsigned, @bitSizeOf(T));
 
     const DT = if (@bitSizeOf(T) <= 64) u64 else u128;
     const tables = switch (DT) {
@@ -1516,7 +1516,7 @@ const FLOAT128_POW5_INV_ERRORS: [154]u64 = .{
 const builtin = @import("builtin");
 
 fn check(comptime T: type, value: T, comptime expected: []const u8) !void {
-    const I = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
+    const I = @Int(.unsigned, @bitSizeOf(T));
 
     var buf: [6000]u8 = undefined;
     const value_bits: I = @bitCast(value);

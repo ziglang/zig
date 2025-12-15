@@ -272,14 +272,7 @@ pub const socket_t = if (native_os == .windows) windows.ws2_32.SOCKET else fd_t;
 /// for others it will use a thread-local errno variable. Therefore, this
 /// function only returns a well-defined value when it is called directly after
 /// the system function call whose errno value is intended to be observed.
-pub fn errno(rc: anytype) E {
-    if (use_libc) {
-        return if (rc == -1) @enumFromInt(std.c._errno().*) else .SUCCESS;
-    }
-    const signed: isize = @bitCast(rc);
-    const int = if (signed > -4096 and signed < 0) -signed else 0;
-    return @enumFromInt(int);
-}
+pub const errno = system.errno;
 
 /// Closes the file descriptor.
 ///
@@ -433,7 +426,7 @@ fn fchmodat2(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtEr
         // Later on this should be changed to `system.fchmodat2`
         // when the musl/glibc add a wrapper.
         const res = linux.fchmodat2(dirfd, &path_c, mode, flags);
-        switch (E.init(res)) {
+        switch (linux.errno(res)) {
             .SUCCESS => return,
             .INTR => continue,
             .BADF => unreachable,
@@ -588,7 +581,7 @@ pub const RebootCommand = switch (native_os) {
 pub fn reboot(cmd: RebootCommand) RebootError!void {
     switch (native_os) {
         .linux => {
-            switch (linux.E.init(linux.reboot(
+            switch (linux.errno(linux.reboot(
                 .MAGIC1,
                 .MAGIC2,
                 cmd,
@@ -647,7 +640,7 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
                 break :res .{ @bitCast(rc), errno(rc) };
             } else res: {
                 const rc = linux.getrandom(buf.ptr, buf.len, 0);
-                break :res .{ rc, linux.E.init(rc) };
+                break :res .{ rc, linux.errno(rc) };
             };
 
             switch (err) {
@@ -2477,8 +2470,8 @@ pub fn renameZ(old_path: [*:0]const u8, new_path: [*:0]const u8) RenameError!voi
 /// Same as `rename` except the parameters are null-terminated and WTF16LE encoded.
 /// Assumes target is Windows.
 pub fn renameW(old_path: [*:0]const u16, new_path: [*:0]const u16) RenameError!void {
-    const flags = windows.MOVEFILE_REPLACE_EXISTING | windows.MOVEFILE_WRITE_THROUGH;
-    return windows.MoveFileExW(old_path, new_path, flags);
+    const cwd_handle = std.fs.cwd().fd;
+    return windows.RenameFile(cwd_handle, mem.span(old_path), cwd_handle, mem.span(new_path), true);
 }
 
 /// Change the name or location of a file based on an open directory handle.
@@ -2595,110 +2588,7 @@ pub fn renameatW(
     new_path_w: []const u16,
     ReplaceIfExists: windows.BOOLEAN,
 ) RenameError!void {
-    const src_fd = windows.OpenFile(old_path_w, .{
-        .dir = old_dir_fd,
-        .access_mask = windows.SYNCHRONIZE | windows.GENERIC_WRITE | windows.DELETE,
-        .creation = windows.FILE_OPEN,
-        .filter = .any, // This function is supposed to rename both files and directories.
-        .follow_symlinks = false,
-    }) catch |err| switch (err) {
-        error.WouldBlock => unreachable, // Not possible without `.share_access_nonblocking = true`.
-        else => |e| return e,
-    };
-    defer windows.CloseHandle(src_fd);
-
-    var rc: windows.NTSTATUS = undefined;
-    // FileRenameInformationEx has varying levels of support:
-    // - FILE_RENAME_INFORMATION_EX requires >= win10_rs1
-    //   (INVALID_INFO_CLASS is returned if not supported)
-    // - Requires the NTFS filesystem
-    //   (on filesystems like FAT32, INVALID_PARAMETER is returned)
-    // - FILE_RENAME_POSIX_SEMANTICS requires >= win10_rs1
-    // - FILE_RENAME_IGNORE_READONLY_ATTRIBUTE requires >= win10_rs5
-    //   (NOT_SUPPORTED is returned if a flag is unsupported)
-    //
-    // The strategy here is just to try using FileRenameInformationEx and fall back to
-    // FileRenameInformation if the return value lets us know that some aspect of it is not supported.
-    const need_fallback = need_fallback: {
-        const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION_EX) + (max_path_bytes - 1);
-        var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION_EX)) = undefined;
-        const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION_EX) - 1 + new_path_w.len * 2;
-        if (struct_len > struct_buf_len) return error.NameTooLong;
-
-        const rename_info: *windows.FILE_RENAME_INFORMATION_EX = @ptrCast(&rename_info_buf);
-        var io_status_block: windows.IO_STATUS_BLOCK = undefined;
-
-        var flags: windows.ULONG = windows.FILE_RENAME_POSIX_SEMANTICS | windows.FILE_RENAME_IGNORE_READONLY_ATTRIBUTE;
-        if (ReplaceIfExists == windows.TRUE) flags |= windows.FILE_RENAME_REPLACE_IF_EXISTS;
-        rename_info.* = .{
-            .Flags = flags,
-            .RootDirectory = if (fs.path.isAbsoluteWindowsWtf16(new_path_w)) null else new_dir_fd,
-            .FileNameLength = @intCast(new_path_w.len * 2), // already checked error.NameTooLong
-            .FileName = undefined,
-        };
-        @memcpy((&rename_info.FileName).ptr, new_path_w);
-        rc = windows.ntdll.NtSetInformationFile(
-            src_fd,
-            &io_status_block,
-            rename_info,
-            @intCast(struct_len), // already checked for error.NameTooLong
-            .FileRenameInformationEx,
-        );
-        switch (rc) {
-            .SUCCESS => return,
-            // The filesystem does not support FileDispositionInformationEx
-            .INVALID_PARAMETER,
-            // The operating system does not support FileDispositionInformationEx
-            .INVALID_INFO_CLASS,
-            // The operating system does not support one of the flags
-            .NOT_SUPPORTED,
-            => break :need_fallback true,
-            // For all other statuses, fall down to the switch below to handle them.
-            else => break :need_fallback false,
-        }
-    };
-
-    if (need_fallback) {
-        const struct_buf_len = @sizeOf(windows.FILE_RENAME_INFORMATION) + (max_path_bytes - 1);
-        var rename_info_buf: [struct_buf_len]u8 align(@alignOf(windows.FILE_RENAME_INFORMATION)) = undefined;
-        const struct_len = @sizeOf(windows.FILE_RENAME_INFORMATION) - 1 + new_path_w.len * 2;
-        if (struct_len > struct_buf_len) return error.NameTooLong;
-
-        const rename_info: *windows.FILE_RENAME_INFORMATION = @ptrCast(&rename_info_buf);
-        var io_status_block: windows.IO_STATUS_BLOCK = undefined;
-
-        rename_info.* = .{
-            .Flags = ReplaceIfExists,
-            .RootDirectory = if (fs.path.isAbsoluteWindowsWtf16(new_path_w)) null else new_dir_fd,
-            .FileNameLength = @intCast(new_path_w.len * 2), // already checked error.NameTooLong
-            .FileName = undefined,
-        };
-        @memcpy((&rename_info.FileName).ptr, new_path_w);
-
-        rc = windows.ntdll.NtSetInformationFile(
-            src_fd,
-            &io_status_block,
-            rename_info,
-            @intCast(struct_len), // already checked for error.NameTooLong
-            .FileRenameInformation,
-        );
-    }
-
-    switch (rc) {
-        .SUCCESS => {},
-        .INVALID_HANDLE => unreachable,
-        .INVALID_PARAMETER => unreachable,
-        .OBJECT_PATH_SYNTAX_BAD => unreachable,
-        .ACCESS_DENIED => return error.AccessDenied,
-        .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .NOT_SAME_DEVICE => return error.RenameAcrossMountPoints,
-        .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
-        .DIRECTORY_NOT_EMPTY => return error.PathAlreadyExists,
-        .FILE_IS_A_DIRECTORY => return error.IsDir,
-        .NOT_A_DIRECTORY => return error.NotDir,
-        else => return windows.unexpectedStatus(rc),
-    }
+    return windows.RenameFile(old_dir_fd, old_path_w, new_dir_fd, new_path_w, ReplaceIfExists != 0);
 }
 
 /// On Windows, `sub_dir_path` should be encoded as [WTF-8](https://wtf-8.codeberg.page/).
@@ -3298,7 +3188,7 @@ pub fn isatty(handle: fd_t) bool {
             var wsz: winsize = undefined;
             const fd: usize = @bitCast(@as(isize, handle));
             const rc = linux.syscall3(.ioctl, fd, linux.T.IOCGWINSZ, @intFromPtr(&wsz));
-            switch (linux.E.init(rc)) {
+            switch (linux.errno(rc)) {
                 .SUCCESS => return true,
                 .INTR => continue,
                 else => return false,
@@ -4416,7 +4306,7 @@ pub fn mmap(
 /// Note that while POSIX allows unmapping a region in the middle of an existing mapping,
 /// Zig's munmap function does not, for two reasons:
 /// * It violates the Zig principle that resource deallocation must succeed.
-/// * The Windows function, VirtualFree, has this restriction.
+/// * The Windows function, NtFreeVirtualMemory, has this restriction.
 pub fn munmap(memory: []align(page_size_min) const u8) void {
     switch (errno(system.munmap(memory.ptr, memory.len))) {
         .SUCCESS => return,
@@ -5762,7 +5652,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
         while (true) {
             const rc = sys.copy_file_range(fd_in, &off_in_copy, fd_out, &off_out_copy, len, flags);
             if (native_os == .freebsd) {
-                switch (errno(rc)) {
+                switch (sys.errno(rc)) {
                     .SUCCESS => return @intCast(rc),
                     .BADF => return error.FilesOpenedWithWrongFlags,
                     .FBIG => return error.FileTooBig,
@@ -5775,7 +5665,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
                     else => |err| return unexpectedErrno(err),
                 }
             } else { // assume linux
-                switch (errno(rc)) {
+                switch (sys.errno(rc)) {
                     .SUCCESS => return @intCast(rc),
                     .BADF => return error.FilesOpenedWithWrongFlags,
                     .FBIG => return error.FileTooBig,
@@ -6070,7 +5960,7 @@ pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
             const use_c = std.c.versionCheck(if (builtin.abi.isAndroid()) .{ .major = 30, .minor = 0, .patch = 0 } else .{ .major = 2, .minor = 27, .patch = 0 });
             const sys = if (use_c) std.c else linux;
             const rc = sys.memfd_create(name, flags);
-            switch (errno(rc)) {
+            switch (sys.errno(rc)) {
                 .SUCCESS => return @intCast(rc),
                 .FAULT => unreachable, // name has invalid memory
                 .INVAL => return error.NameTooLong, // or, program has a bug and flags are faulty
@@ -6494,7 +6384,7 @@ pub fn perf_event_open(
     if (native_os == .linux) {
         // There is no syscall wrapper for this function exposed by libcs
         const rc = linux.perf_event_open(attr, pid, cpu, group_fd, flags);
-        switch (errno(rc)) {
+        switch (linux.errno(rc)) {
             .SUCCESS => return @intCast(rc),
             .@"2BIG" => return error.TooBig,
             .ACCES => return error.PermissionDenied,

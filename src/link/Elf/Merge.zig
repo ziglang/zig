@@ -7,15 +7,15 @@ pub const Section = struct {
     type: u32 = 0,
     flags: u64 = 0,
     output_section_index: u32 = 0,
-    bytes: std.ArrayListUnmanaged(u8) = .empty,
+    bytes: std.ArrayList(u8) = .empty,
     table: std.HashMapUnmanaged(
         String,
         Subsection.Index,
         IndexContext,
         std.hash_map.default_max_load_percentage,
     ) = .{},
-    subsections: std.ArrayListUnmanaged(Subsection) = .empty,
-    finalized_subsections: std.ArrayListUnmanaged(Subsection.Index) = .empty,
+    subsections: std.ArrayList(Subsection) = .empty,
+    finalized_subsections: std.ArrayList(Subsection.Index) = .empty,
 
     pub fn deinit(msec: *Section, allocator: Allocator) void {
         msec.bytes.deinit(allocator);
@@ -240,10 +240,10 @@ pub const Subsection = struct {
 pub const InputSection = struct {
     merge_section_index: Section.Index = 0,
     atom_index: Atom.Index = 0,
-    offsets: std.ArrayListUnmanaged(u32) = .empty,
-    subsections: std.ArrayListUnmanaged(Subsection.Index) = .empty,
-    bytes: std.ArrayListUnmanaged(u8) = .empty,
-    strings: std.ArrayListUnmanaged(String) = .empty,
+    offsets: std.ArrayList(u32) = .empty,
+    subsections: std.ArrayList(Subsection.Index) = .empty,
+    bytes: std.ArrayList(u8) = .empty,
+    strings: std.ArrayList(String) = .empty,
 
     pub fn deinit(imsec: *InputSection, allocator: Allocator) void {
         imsec.offsets.deinit(allocator);

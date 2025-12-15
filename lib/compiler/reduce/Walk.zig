@@ -23,7 +23,7 @@ pub const Transformation = union(enum) {
     delete_var_decl: struct {
         var_decl_node: Ast.Node.Index,
         /// Identifier nodes that reference the variable.
-        references: std.ArrayListUnmanaged(Ast.Node.Index),
+        references: std.ArrayList(Ast.Node.Index),
     },
     /// Replace an expression with `undefined`.
     replace_with_undef: Ast.Node.Index,

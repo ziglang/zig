@@ -26,10 +26,10 @@ files: std.MultiArrayList(File.Entry) = .{},
 /// Long-lived list of all file descriptors.
 /// We store them globally rather than per actual File so that we can re-use
 /// one file handle per every object file within an archive.
-file_handles: std.ArrayListUnmanaged(File.Handle) = .empty,
+file_handles: std.ArrayList(File.Handle) = .empty,
 zig_object_index: ?File.Index = null,
 linker_defined_index: ?File.Index = null,
-objects: std.ArrayListUnmanaged(File.Index) = .empty,
+objects: std.ArrayList(File.Index) = .empty,
 shared_objects: std.StringArrayHashMapUnmanaged(File.Index) = .empty,
 
 /// List of all output sections and their associated metadata.
@@ -49,23 +49,23 @@ page_size: u32,
 default_sym_version: elf.Versym,
 
 /// .shstrtab buffer
-shstrtab: std.ArrayListUnmanaged(u8) = .empty,
+shstrtab: std.ArrayList(u8) = .empty,
 /// .symtab buffer
-symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .empty,
+symtab: std.ArrayList(elf.Elf64_Sym) = .empty,
 /// .strtab buffer
-strtab: std.ArrayListUnmanaged(u8) = .empty,
+strtab: std.ArrayList(u8) = .empty,
 /// Dynamic symbol table. Only populated and emitted when linking dynamically.
 dynsym: DynsymSection = .{},
 /// .dynstrtab buffer
-dynstrtab: std.ArrayListUnmanaged(u8) = .empty,
+dynstrtab: std.ArrayList(u8) = .empty,
 /// Version symbol table. Only populated and emitted when linking dynamically.
-versym: std.ArrayListUnmanaged(elf.Versym) = .empty,
+versym: std.ArrayList(elf.Versym) = .empty,
 /// .verneed section
 verneed: VerneedSection = .{},
 /// .got section
 got: GotSection = .{},
 /// .rela.dyn section
-rela_dyn: std.ArrayListUnmanaged(elf.Elf64_Rela) = .empty,
+rela_dyn: std.ArrayList(elf.Elf64_Rela) = .empty,
 /// .dynamic section
 dynamic: DynamicSection = .{},
 /// .hash section
@@ -81,10 +81,10 @@ plt_got: PltGotSection = .{},
 /// .copyrel section
 copy_rel: CopyRelSection = .{},
 /// .rela.plt section
-rela_plt: std.ArrayListUnmanaged(elf.Elf64_Rela) = .empty,
+rela_plt: std.ArrayList(elf.Elf64_Rela) = .empty,
 /// SHT_GROUP sections
 /// Applies only to a relocatable.
-group_sections: std.ArrayListUnmanaged(GroupSection) = .empty,
+group_sections: std.ArrayList(GroupSection) = .empty,
 
 resolver: SymbolResolver = .{},
 
@@ -92,15 +92,15 @@ has_text_reloc: bool = false,
 num_ifunc_dynrelocs: usize = 0,
 
 /// List of range extension thunks.
-thunks: std.ArrayListUnmanaged(Thunk) = .empty,
+thunks: std.ArrayList(Thunk) = .empty,
 
 /// List of output merge sections with deduped contents.
-merge_sections: std.ArrayListUnmanaged(Merge.Section) = .empty,
+merge_sections: std.ArrayList(Merge.Section) = .empty,
 comment_merge_section_index: ?Merge.Section.Index = null,
 
 /// `--verbose-link` output.
 /// Initialized on creation, appended to as inputs are added, printed during `flush`.
-dump_argv_list: std.ArrayListUnmanaged([]const u8),
+dump_argv_list: std.ArrayList([]const u8),
 
 const SectionIndexes = struct {
     copy_rel: ?u32 = null,
@@ -127,7 +127,7 @@ const SectionIndexes = struct {
     symtab: ?u32 = null,
 };
 
-const ProgramHeaderList = std.ArrayListUnmanaged(elf.Elf64_Phdr);
+const ProgramHeaderList = std.ArrayList(elf.Elf64_Phdr);
 
 const OptionalProgramHeaderIndex = enum(u16) {
     none = std.math.maxInt(u16),
@@ -1098,12 +1098,12 @@ fn parseObject(self: *Elf, obj: link.Input.Object) !void {
 fn parseArchive(
     gpa: Allocator,
     diags: *Diags,
-    file_handles: *std.ArrayListUnmanaged(File.Handle),
+    file_handles: *std.ArrayList(File.Handle),
     files: *std.MultiArrayList(File.Entry),
     target: *const std.Target,
     debug_fmt_strip: bool,
     default_sym_version: elf.Versym,
-    objects: *std.ArrayListUnmanaged(File.Index),
+    objects: *std.ArrayList(File.Index),
     obj: link.Input.Object,
     is_static_lib: bool,
 ) !void {
@@ -1748,7 +1748,7 @@ pub fn deleteExport(
 fn checkDuplicates(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
 
-    var dupes = std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayListUnmanaged(File.Index)).init(gpa);
+    var dupes = std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(File.Index)).init(gpa);
     defer {
         for (dupes.values()) |*list| {
             list.deinit(gpa);
@@ -3647,7 +3647,7 @@ fn fileLookup(files: std.MultiArrayList(File.Entry), index: File.Index, zig_obje
 
 pub fn addFileHandle(
     gpa: Allocator,
-    file_handles: *std.ArrayListUnmanaged(File.Handle),
+    file_handles: *std.ArrayList(File.Handle),
     handle: fs.File,
 ) Allocator.Error!File.HandleIndex {
     try file_handles.append(gpa, handle);
@@ -4204,8 +4204,8 @@ pub const Ref = struct {
 };
 
 pub const SymbolResolver = struct {
-    keys: std.ArrayListUnmanaged(Key) = .empty,
-    values: std.ArrayListUnmanaged(Ref) = .empty,
+    keys: std.ArrayList(Key) = .empty,
+    values: std.ArrayList(Ref) = .empty,
     table: std.AutoArrayHashMapUnmanaged(void, void) = .empty,
 
     const Result = struct {
@@ -4303,7 +4303,7 @@ const Section = struct {
     /// List of atoms contributing to this section.
     /// TODO currently this is only used for relocations tracking in relocatable mode
     /// but will be merged with atom_list_2.
-    atom_list: std.ArrayListUnmanaged(Ref) = .empty,
+    atom_list: std.ArrayList(Ref) = .empty,
 
     /// List of atoms contributing to this section.
     /// This can be used by sections that require special handling such as init/fini array, etc.
@@ -4327,7 +4327,7 @@ const Section = struct {
     /// overcapacity can be negative. A simple way to have negative overcapacity is to
     /// allocate a fresh text block, which will have ideal capacity, and then grow it
     /// by 1 byte. It will then have -1 overcapacity.
-    free_list: std.ArrayListUnmanaged(Ref) = .empty,
+    free_list: std.ArrayList(Ref) = .empty,
 };
 
 pub fn sectionSize(self: *Elf, shndx: u32) u64 {

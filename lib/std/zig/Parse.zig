@@ -6,10 +6,10 @@ gpa: Allocator,
 source: []const u8,
 tokens: Ast.TokenList.Slice,
 tok_i: TokenIndex,
-errors: std.ArrayListUnmanaged(AstError),
+errors: std.ArrayList(AstError),
 nodes: Ast.NodeList,
-extra_data: std.ArrayListUnmanaged(u32),
-scratch: std.ArrayListUnmanaged(Node.Index),
+extra_data: std.ArrayList(u32),
+scratch: std.ArrayList(Node.Index),
 
 fn tokenTag(p: *const Parse, token_index: TokenIndex) Token.Tag {
     return p.tokens.items(.tag)[token_index];

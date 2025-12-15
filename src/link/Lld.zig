@@ -312,7 +312,7 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
 
     const link_inputs = comp.link_inputs;
 
-    var object_files: std.ArrayListUnmanaged([*:0]const u8) = .empty;
+    var object_files: std.ArrayList([*:0]const u8) = .empty;
 
     try object_files.ensureUnusedCapacity(arena, link_inputs.len);
     for (link_inputs) |input| {

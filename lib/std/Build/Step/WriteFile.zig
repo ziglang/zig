@@ -11,8 +11,8 @@ const WriteFile = @This();
 step: Step,
 
 // The elements here are pointers because we need stable pointers for the GeneratedFile field.
-files: std.ArrayListUnmanaged(File),
-directories: std.ArrayListUnmanaged(Directory),
+files: std.ArrayList(File),
+directories: std.ArrayList(Directory),
 generated_directory: std.Build.GeneratedFile,
 
 pub const base_id: Step.Id = .write_file;

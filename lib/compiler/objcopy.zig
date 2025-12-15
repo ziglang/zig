@@ -381,8 +381,8 @@ const BinaryElfSegment = struct {
 };
 
 const BinaryElfOutput = struct {
-    segments: std.ArrayListUnmanaged(*BinaryElfSegment),
-    sections: std.ArrayListUnmanaged(*BinaryElfSection),
+    segments: std.ArrayList(*BinaryElfSegment),
+    sections: std.ArrayList(*BinaryElfSection),
     allocator: Allocator,
     shstrtab: ?[]const u8,
 

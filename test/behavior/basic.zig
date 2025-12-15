@@ -1264,12 +1264,9 @@ test "reference to inferred local variable works as expected" {
     try expect(crasher_local.lets_crash != a.lets_crash);
 }
 
-test "@Type returned from block" {
+test "@Int returned from block" {
     const T = comptime b: {
-        break :b @Type(.{ .int = .{
-            .signedness = .unsigned,
-            .bits = 8,
-        } });
+        break :b @Int(.unsigned, 8);
     };
     try std.testing.expect(T == u8);
 }

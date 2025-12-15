@@ -60,6 +60,10 @@ pub fn isDone(wg: *WaitGroup) bool {
     return (state / one_pending) == 0;
 }
 
+pub fn value(wg: *WaitGroup) usize {
+    return wg.state.load(.monotonic) / one_pending;
+}
+
 // Spawns a new thread for the task. This is appropriate when the callee
 // delegates all work.
 pub fn spawnManager(

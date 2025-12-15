@@ -10,7 +10,7 @@ test "concurrent vs main prevents deadlock via oversubscription" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    threaded.cpu_count = 1;
+    threaded.async_limit = .nothing;
 
     var queue: Io.Queue(u8) = .init(&.{});
 
@@ -38,7 +38,7 @@ test "concurrent vs concurrent prevents deadlock via oversubscription" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    threaded.cpu_count = 1;
+    threaded.async_limit = .nothing;
 
     var queue: Io.Queue(u8) = .init(&.{});
 

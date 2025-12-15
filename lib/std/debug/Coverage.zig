@@ -21,7 +21,7 @@ directories: std.ArrayHashMapUnmanaged(String, void, String.MapContext, false),
 ///
 /// Protected by `mutex`.
 files: std.ArrayHashMapUnmanaged(File, void, File.MapContext, false),
-string_bytes: std.ArrayListUnmanaged(u8),
+string_bytes: std.ArrayList(u8),
 /// Protects the other fields.
 mutex: std.Thread.Mutex,
 

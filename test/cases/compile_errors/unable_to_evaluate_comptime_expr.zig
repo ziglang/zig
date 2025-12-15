@@ -42,4 +42,4 @@ pub export fn entry3() void {
 // :13:13: note: initializer of container-level variable must be comptime-known
 // :22:9: error: unable to evaluate comptime expression
 // :22:21: note: operation is runtime due to this operand
-// :21:13: note: enum fields must be comptime-known
+// :21:13: note: enum field values must be comptime-known

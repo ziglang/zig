@@ -1,12 +1,15 @@
-const std = @import("std");
-const builtin = @import("builtin");
 const build_options = @import("build_options");
-const Type = @import("Type.zig");
+const builtin = @import("builtin");
+
+const std = @import("std");
+const Io = std.Io;
 const assert = std.debug.assert;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Allocator = std.mem.Allocator;
+
+const Type = @import("Type.zig");
 const Zcu = @import("Zcu.zig");
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
@@ -2410,6 +2413,7 @@ pub const PointerDeriveStep = union(enum) {
 pub fn pointerDerivation(ptr_val: Value, arena: Allocator, pt: Zcu.PerThread) Allocator.Error!PointerDeriveStep {
     return ptr_val.pointerDerivationAdvanced(arena, pt, false, null) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
+        error.Canceled => @panic("TODO"), // pls remove from error set mlugg
         error.AnalysisFail => unreachable,
     };
 }
@@ -2824,6 +2828,29 @@ pub fn resolveLazy(
                     .val = resolved_val,
                 }));
         },
+        .error_union => |eu| switch (eu.val) {
+            .err_name => return val,
+            .payload => |payload| {
+                const resolved_payload = try Value.fromInterned(payload).resolveLazy(arena, pt);
+                if (resolved_payload.toIntern() == payload) return val;
+                return .fromInterned(try pt.intern(.{ .error_union = .{
+                    .ty = eu.ty,
+                    .val = .{ .payload = resolved_payload.toIntern() },
+                } }));
+            },
+        },
+        .opt => |opt| switch (opt.val) {
+            .none => return val,
+            else => |payload| {
+                const resolved_payload = try Value.fromInterned(payload).resolveLazy(arena, pt);
+                if (resolved_payload.toIntern() == payload) return val;
+                return .fromInterned(try pt.intern(.{ .opt = .{
+                    .ty = opt.ty,
+                    .val = resolved_payload.toIntern(),
+                } }));
+            },
+        },
+
         else => return val,
     }
 }

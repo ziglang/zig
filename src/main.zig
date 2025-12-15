@@ -132,11 +132,11 @@ const debug_usage = normal_usage ++
 
 const usage = if (build_options.enable_debug_extensions) debug_usage else normal_usage;
 
-var log_scopes: std.ArrayListUnmanaged([]const u8) = .empty;
+var log_scopes: std.ArrayList([]const u8) = .empty;
 
 pub fn log(
     comptime level: std.log.Level,
-    comptime scope: @Type(.enum_literal),
+    comptime scope: @EnumLiteral(),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -884,7 +884,7 @@ fn buildOutputType(
     var link_emit_relocs = false;
     var build_id: ?std.zig.BuildId = null;
     var runtime_args_start: ?usize = null;
-    var test_filters: std.ArrayListUnmanaged([]const u8) = .empty;
+    var test_filters: std.ArrayList([]const u8) = .empty;
     var test_runner_path: ?[]const u8 = null;
     var override_local_cache_dir: ?[]const u8 = try EnvVar.ZIG_LOCAL_CACHE_DIR.get(arena);
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
@@ -912,12 +912,12 @@ fn buildOutputType(
     var pdb_out_path: ?[]const u8 = null;
     var error_limit: ?Zcu.ErrorInt = null;
     // These are before resolving sysroot.
-    var extra_cflags: std.ArrayListUnmanaged([]const u8) = .empty;
-    var extra_rcflags: std.ArrayListUnmanaged([]const u8) = .empty;
+    var extra_cflags: std.ArrayList([]const u8) = .empty;
+    var extra_rcflags: std.ArrayList([]const u8) = .empty;
     var symbol_wrap_set: std.StringArrayHashMapUnmanaged(void) = .empty;
     var rc_includes: std.zig.RcIncludes = .any;
     var manifest_file: ?[]const u8 = null;
-    var linker_export_symbol_names: std.ArrayListUnmanaged([]const u8) = .empty;
+    var linker_export_symbol_names: std.ArrayList([]const u8) = .empty;
 
     // Tracks the position in c_source_files which have already their owner populated.
     var c_source_files_owner_index: usize = 0;
@@ -925,7 +925,7 @@ fn buildOutputType(
     var rc_source_files_owner_index: usize = 0;
 
     // null means replace with the test executable binary
-    var test_exec_args: std.ArrayListUnmanaged(?[]const u8) = .empty;
+    var test_exec_args: std.ArrayList(?[]const u8) = .empty;
 
     // These get set by CLI flags and then snapshotted when a `-M` flag is
     // encountered.
@@ -934,8 +934,8 @@ fn buildOutputType(
     // These get appended to by CLI flags and then slurped when a `-M` flag
     // is encountered.
     var cssan: ClangSearchSanitizer = .{};
-    var cc_argv: std.ArrayListUnmanaged([]const u8) = .empty;
-    var deps: std.ArrayListUnmanaged(CliModule.Dep) = .empty;
+    var cc_argv: std.ArrayList([]const u8) = .empty;
+    var deps: std.ArrayList(CliModule.Dep) = .empty;
 
     // Contains every module specified via -M. The dependencies are added
     // after argument parsing is completed. We use a StringArrayHashMap to make
@@ -3374,7 +3374,7 @@ fn buildOutputType(
 
     process.raiseFileDescriptorLimit();
 
-    var file_system_inputs: std.ArrayListUnmanaged(u8) = .empty;
+    var file_system_inputs: std.ArrayList(u8) = .empty;
     defer file_system_inputs.deinit(gpa);
 
     // Deduplicate rpath entries
@@ -3698,29 +3698,29 @@ const CreateModule = struct {
     /// directly after computing the target and used to compute link_libc,
     /// link_libcpp, and then the libraries are filtered into
     /// `unresolved_link_inputs` and `windows_libs`.
-    cli_link_inputs: std.ArrayListUnmanaged(link.UnresolvedInput),
+    cli_link_inputs: std.ArrayList(link.UnresolvedInput),
     windows_libs: std.StringArrayHashMapUnmanaged(void),
     /// The local variable `unresolved_link_inputs` is fed into library
     /// resolution, mutating the input array, and producing this data as
     /// output. Allocated with gpa.
-    link_inputs: std.ArrayListUnmanaged(link.Input),
+    link_inputs: std.ArrayList(link.Input),
 
-    c_source_files: std.ArrayListUnmanaged(Compilation.CSourceFile),
-    rc_source_files: std.ArrayListUnmanaged(Compilation.RcSourceFile),
+    c_source_files: std.ArrayList(Compilation.CSourceFile),
+    rc_source_files: std.ArrayList(Compilation.RcSourceFile),
 
     /// e.g. -m3dnow or -mno-outline-atomics. They correspond to std.Target llvm cpu feature names.
     /// This array is populated by zig cc frontend and then has to be converted to zig-style
     /// CPU features.
-    llvm_m_args: std.ArrayListUnmanaged([]const u8),
+    llvm_m_args: std.ArrayList([]const u8),
     sysroot: ?[]const u8,
-    lib_directories: std.ArrayListUnmanaged(Directory),
-    lib_dir_args: std.ArrayListUnmanaged([]const u8),
+    lib_directories: std.ArrayList(Directory),
+    lib_dir_args: std.ArrayList([]const u8),
     libc_installation: ?LibCInstallation,
     want_native_include_dirs: bool,
     frameworks: std.StringArrayHashMapUnmanaged(Framework),
     native_system_include_paths: []const []const u8,
-    framework_dirs: std.ArrayListUnmanaged([]const u8),
-    rpath_list: std.ArrayListUnmanaged([]const u8),
+    framework_dirs: std.ArrayList([]const u8),
+    rpath_list: std.ArrayList([]const u8),
     each_lib_rpath: ?bool,
     libc_paths_file: ?[]const u8,
 };
@@ -3826,7 +3826,7 @@ fn createModule(
         // We need to know whether the set of system libraries contains anything besides these
         // to decide whether to trigger native path detection logic.
         // Preserves linker input order.
-        var unresolved_link_inputs: std.ArrayListUnmanaged(link.UnresolvedInput) = .empty;
+        var unresolved_link_inputs: std.ArrayList(link.UnresolvedInput) = .empty;
         defer unresolved_link_inputs.deinit(gpa);
         try unresolved_link_inputs.ensureUnusedCapacity(gpa, create_module.cli_link_inputs.items.len);
         var any_name_queries_remaining = false;
@@ -3883,7 +3883,7 @@ fn createModule(
         if (create_module.sysroot) |root| {
             for (create_module.lib_dir_args.items) |lib_dir_arg| {
                 if (fs.path.isAbsolute(lib_dir_arg)) {
-                    const stripped_dir = lib_dir_arg[fs.path.diskDesignator(lib_dir_arg).len..];
+                    const stripped_dir = lib_dir_arg[fs.path.parsePath(lib_dir_arg).root.len..];
                     const full_path = try fs.path.join(arena, &[_][]const u8{ root, stripped_dir });
                     addLibDirectoryWarn(&create_module.lib_directories, full_path);
                 } else {
@@ -4215,11 +4215,11 @@ fn serveUpdateResults(s: *Server, comp: *Compilation) !void {
     if (comp.time_report) |*tr| {
         var decls_len: u32 = 0;
 
-        var file_name_bytes: std.ArrayListUnmanaged(u8) = .empty;
+        var file_name_bytes: std.ArrayList(u8) = .empty;
         defer file_name_bytes.deinit(gpa);
         var files: std.AutoArrayHashMapUnmanaged(Zcu.File.Index, void) = .empty;
         defer files.deinit(gpa);
-        var decl_data: std.ArrayListUnmanaged(u8) = .empty;
+        var decl_data: std.ArrayList(u8) = .empty;
         defer decl_data.deinit(gpa);
 
         // Each decl needs at least 34 bytes:
@@ -4546,7 +4546,7 @@ fn cmdTranslateC(
     comp: *Compilation,
     arena: Allocator,
     fancy_output: ?*Compilation.CImportResult,
-    file_system_inputs: ?*std.ArrayListUnmanaged(u8),
+    file_system_inputs: ?*std.ArrayList(u8),
     prog_node: std.Progress.Node,
 ) !void {
     dev.check(.translate_c_command);
@@ -4754,7 +4754,7 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 }
 
 fn sanitizeExampleName(arena: Allocator, bytes: []const u8) error{OutOfMemory}![]const u8 {
-    var result: std.ArrayListUnmanaged(u8) = .empty;
+    var result: std.ArrayList(u8) = .empty;
     for (bytes, 0..) |byte, i| switch (byte) {
         '0'...'9' => {
             if (i == 0) try result.append(arena, '_');
@@ -5139,8 +5139,8 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
                 defer fetch_prog_node.end();
 
                 var job_queue: Package.Fetch.JobQueue = .{
+                    .io = io,
                     .http_client = &http_client,
-                    .thread_pool = &thread_pool,
                     .global_cache = dirs.global_cache,
                     .read_only = false,
                     .recursive = true,
@@ -5173,7 +5173,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
 
                 var fetch: Package.Fetch = .{
                     .arena = std.heap.ArenaAllocator.init(gpa),
-                    .io = io,
                     .location = .{ .relative_path = phantom_package_root },
                     .location_tok = 0,
                     .hash_tok = .none,
@@ -5207,10 +5206,8 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, io: Io, args: []const []const u8) 
                     &fetch,
                 );
 
-                job_queue.thread_pool.spawnWg(&job_queue.wait_group, Package.Fetch.workerRun, .{
-                    &fetch, "root",
-                });
-                job_queue.wait_group.wait();
+                job_queue.group.async(io, Package.Fetch.workerRun, .{ &fetch, "root" });
+                job_queue.group.wait(io);
 
                 try job_queue.consolidateErrors();
 
@@ -5486,7 +5483,7 @@ fn jitCmd(
     });
     defer thread_pool.deinit();
 
-    var child_argv: std.ArrayListUnmanaged([]const u8) = .empty;
+    var child_argv: std.ArrayList([]const u8) = .empty;
     try child_argv.ensureUnusedCapacity(arena, args.len + 4);
 
     // We want to release all the locks before executing the child process, so we make a nice
@@ -6687,7 +6684,7 @@ const ClangSearchSanitizer = struct {
     fn addIncludePath(
         self: *@This(),
         ally: Allocator,
-        argv: *std.ArrayListUnmanaged([]const u8),
+        argv: *std.ArrayList([]const u8),
         group: Group,
         arg: []const u8,
         dir: []const u8,
@@ -6899,8 +6896,8 @@ fn cmdFetch(
     defer global_cache_directory.handle.close();
 
     var job_queue: Package.Fetch.JobQueue = .{
+        .io = io,
         .http_client = &http_client,
-        .thread_pool = &thread_pool,
         .global_cache = global_cache_directory,
         .recursive = false,
         .read_only = false,
@@ -6912,7 +6909,6 @@ fn cmdFetch(
 
     var fetch: Package.Fetch = .{
         .arena = std.heap.ArenaAllocator.init(gpa),
-        .io = io,
         .location = .{ .path_or_url = path_or_url },
         .location_tok = 0,
         .hash_tok = .none,
@@ -6942,7 +6938,7 @@ fn cmdFetch(
     defer fetch.deinit();
 
     fetch.run() catch |err| switch (err) {
-        error.OutOfMemory => fatal("out of memory", .{}),
+        error.OutOfMemory, error.Canceled => |e| return e,
         error.FetchFailed => {}, // error bundle checked below
     };
 
@@ -7436,10 +7432,10 @@ fn handleModArg(
     opt_root_src_orig: ?[]const u8,
     create_module: *CreateModule,
     mod_opts: *Package.Module.CreateOptions.Inherited,
-    cc_argv: *std.ArrayListUnmanaged([]const u8),
+    cc_argv: *std.ArrayList([]const u8),
     target_arch_os_abi: *?[]const u8,
     target_mcpu: *?[]const u8,
-    deps: *std.ArrayListUnmanaged(CliModule.Dep),
+    deps: *std.ArrayList(CliModule.Dep),
     c_source_files_owner_index: *usize,
     rc_source_files_owner_index: *usize,
     cssan: *ClangSearchSanitizer,
@@ -7513,12 +7509,12 @@ fn anyObjectLinkInputs(link_inputs: []const link.UnresolvedInput) bool {
     return false;
 }
 
-fn addLibDirectoryWarn(lib_directories: *std.ArrayListUnmanaged(Directory), path: []const u8) void {
+fn addLibDirectoryWarn(lib_directories: *std.ArrayList(Directory), path: []const u8) void {
     return addLibDirectoryWarn2(lib_directories, path, false);
 }
 
 fn addLibDirectoryWarn2(
-    lib_directories: *std.ArrayListUnmanaged(Directory),
+    lib_directories: *std.ArrayList(Directory),
     path: []const u8,
     ignore_not_found: bool,
 ) void {

@@ -6,14 +6,14 @@ file_handle: File.HandleIndex,
 tag: enum { dylib, tbd },
 
 exports: std.MultiArrayList(Export) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .empty,
+strtab: std.ArrayList(u8) = .empty,
 id: ?Id = null,
 ordinal: u16 = 0,
 
-symbols: std.ArrayListUnmanaged(Symbol) = .empty,
-symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
-globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .empty,
-dependents: std.ArrayListUnmanaged(Id) = .empty,
+symbols: std.ArrayList(Symbol) = .empty,
+symbols_extra: std.ArrayList(u32) = .empty,
+globals: std.ArrayList(MachO.SymbolResolver.Index) = .empty,
+dependents: std.ArrayList(Id) = .empty,
 rpaths: std.StringArrayHashMapUnmanaged(void) = .empty,
 umbrella: File.Index,
 platform: ?MachO.Platform = null,
@@ -90,11 +90,8 @@ fn parseBinary(self: *Dylib, macho_file: *MachO) !void {
         if (amt != lc_buffer.len) return error.InputOutput;
     }
 
-    var it = LoadCommandIterator{
-        .ncmds = header.ncmds,
-        .buffer = lc_buffer,
-    };
-    while (it.next()) |cmd| switch (cmd.cmd()) {
+    var it = LoadCommandIterator.init(&header, lc_buffer) catch |err| std.debug.panic("bad dylib: {t}", .{err});
+    while (it.next() catch |err| std.debug.panic("bad dylib: {t}", .{err})) |cmd| switch (cmd.hdr.cmd) {
         .ID_DYLIB => {
             self.id = try Id.fromLoadCommand(gpa, cmd.cast(macho.dylib_command).?, cmd.getDylibPathName());
         },
@@ -698,7 +695,7 @@ pub const TargetMatcher = struct {
     allocator: Allocator,
     cpu_arch: std.Target.Cpu.Arch,
     platform: macho.PLATFORM,
-    target_strings: std.ArrayListUnmanaged([]const u8) = .empty,
+    target_strings: std.ArrayList([]const u8) = .empty,
 
     pub fn init(allocator: Allocator, cpu_arch: std.Target.Cpu.Arch, platform: macho.PLATFORM) !TargetMatcher {
         var self = TargetMatcher{

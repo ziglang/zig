@@ -380,28 +380,19 @@ pub fn resolveTargetQuery(io: Io, query: Target.Query) DetectError!Target {
 
     // For x86, we need to populate some CPU feature flags depending on architecture
     // and mode:
-    //  * 16bit_mode => if the abi is code16
+    //  * 16bit_mode => if the arch is x86_16
     //  * 32bit_mode => if the arch is x86
     // However, the "mode" flags can be used as overrides, so if the user explicitly
     // sets one of them, that takes precedence.
     switch (query_cpu_arch) {
         .x86_16 => {
-            cpu.features.addFeature(
-                @intFromEnum(Target.x86.Feature.@"16bit_mode"),
-            );
+            cpu.features.addFeature(@intFromEnum(Target.x86.Feature.@"16bit_mode"));
         },
         .x86 => {
             if (!Target.x86.featureSetHasAny(query.cpu_features_add, .{
                 .@"16bit_mode", .@"32bit_mode",
             })) {
-                switch (query_abi) {
-                    .code16 => cpu.features.addFeature(
-                        @intFromEnum(Target.x86.Feature.@"16bit_mode"),
-                    ),
-                    else => cpu.features.addFeature(
-                        @intFromEnum(Target.x86.Feature.@"32bit_mode"),
-                    ),
-                }
+                cpu.features.addFeature(@intFromEnum(Target.x86.Feature.@"32bit_mode"));
             }
         },
         .arm, .armeb => {
@@ -409,9 +400,7 @@ pub fn resolveTargetQuery(io: Io, query: Target.Query) DetectError!Target {
             //     What do we do if the user specifies +thumb_mode?
         },
         .thumb, .thumbeb => {
-            cpu.features.addFeature(
-                @intFromEnum(Target.arm.Feature.thumb_mode),
-            );
+            cpu.features.addFeature(@intFromEnum(Target.arm.Feature.thumb_mode));
         },
         else => {},
     }
@@ -472,6 +461,11 @@ pub fn resolveTargetQuery(io: Io, query: Target.Query) DetectError!Target {
         // https://github.com/llvm/llvm-project/issues/135283
         if (result.cpu.arch.isMIPS() and result.abi.float() == .soft) {
             result.cpu.features.addFeature(@intFromEnum(Target.mips.Feature.soft_float));
+        }
+
+        // https://github.com/llvm/llvm-project/issues/168992
+        if (result.cpu.arch == .s390x) {
+            result.cpu.features.removeFeature(@intFromEnum(Target.s390x.Feature.vector));
         }
     }
 
