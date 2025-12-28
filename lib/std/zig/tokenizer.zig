@@ -1702,6 +1702,49 @@ test "invalid tabs and carriage returns" {
     try testTokenize("\rpub\rswitch\r", &.{ .keyword_pub, .keyword_switch });
 }
 
+test "bang" {
+    try testTokenize("a!=b", &.{ .identifier, .bang_equal, .identifier });
+    try testTokenize("!a", &.{ .bang, .identifier });
+    try testTokenize("anyerror!void", &.{ .identifier, .bang, .identifier });
+    try testTokenize("!void", &.{ .bang, .identifier });
+}
+
+test "ampersand" {
+    try testTokenize("&a", &.{ .ampersand, .identifier });
+    try testTokenize("&", &.{.ampersand});
+    try testTokenize("&=", &.{.ampersand_equal});
+    try testTokenize("&[_]", &.{ .ampersand, .l_bracket, .identifier, .r_bracket });
+    try testTokenize("&.", &.{ .ampersand, .period });
+}
+
+test "caret" {
+    try testTokenize("^", &.{.caret});
+    try testTokenize("^=", &.{.caret_equal});
+}
+
+test "percent" {
+    try testTokenize("%", &.{.percent});
+    try testTokenize("%=", &.{.percent_equal});
+}
+
+test "wrapping operators" {
+    try testTokenize("-%", &.{.minus_percent});
+    try testTokenize("+%", &.{.plus_percent});
+    try testTokenize("*%", &.{.asterisk_percent});
+}
+
+test "angle brackets" {
+    try testTokenize("=>", &.{.equal_angle_bracket_right});
+    try testTokenize("<", &.{.angle_bracket_left});
+    try testTokenize("<=", &.{.angle_bracket_left_equal});
+    try testTokenize("<<", &.{.angle_bracket_angle_bracket_left});
+    try testTokenize("<<=", &.{.angle_bracket_angle_bracket_left_equal});
+    try testTokenize(">", &.{.angle_bracket_right});
+    try testTokenize(">=", &.{.angle_bracket_right_equal});
+    try testTokenize(">>", &.{.angle_bracket_angle_bracket_right});
+    try testTokenize(">>=", &.{.angle_bracket_angle_bracket_right_equal});
+}
+
 test "fuzzable properties upheld" {
     return std.testing.fuzz({}, testPropertiesUpheld, .{});
 }
