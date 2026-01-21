@@ -537,6 +537,13 @@ fn struct_decl(
     try w.file.get().scopes.putNoClobber(gpa, node, &namespace.base);
     try w.scanDecls(namespace, container_decl.ast.members);
 
+    // TODO: Support for doctests on file-as-a-struct types without using
+    // the filename to find the associated test.
+    const stem = std.fs.path.stem(w.file.path());
+    if (namespace.doctests.get(stem)) |doctest_node| {
+        try w.file.get().doctests.put(gpa, parent_decl.get().ast_node, doctest_node);
+    }
+
     for (container_decl.ast.members) |member| switch (ast.nodeTag(member)) {
         .container_field_init,
         .container_field_align,
