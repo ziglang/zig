@@ -229,7 +229,7 @@ pub fn packAllEnums(target: std.Target) bool {
 pub fn defaultAlignment(target: std.Target) u29 {
     switch (target.cpu.arch) {
         .avr => return 1,
-        .arm => if (target.abi.isAndroid() or target.os.tag == .ios) return 16 else return 8,
+        .arm => if (target.abi.isAndroid() or target.abi.isOpenHarmony() or target.os.tag == .ios) return 16 else return 8,
         .sparc => if (target.cpu.has(.sparc, .v9)) return 16 else return 8,
         .mips, .mipsel => switch (target.abi) {
             .none, .gnuabi64 => return 16,
@@ -240,9 +240,9 @@ pub fn defaultAlignment(target: std.Target) u29 {
     }
 }
 pub fn systemCompiler(target: std.Target) LangOpts.Compiler {
-    // Android is linux but not gcc, so these checks go first
+    // Android/OpenHarmony are linux but not gcc, so these checks go first
     // the rest for documentation as fn returns .clang
-    if (target.abi.isAndroid() or
+    if (target.abi.isAndroid() or target.abi.isOpenHarmony() or
         target.os.tag.isBSD() or
         target.os.tag == .fuchsia or
         target.os.tag == .solaris or

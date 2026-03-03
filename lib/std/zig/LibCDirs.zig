@@ -48,7 +48,7 @@ pub fn detect(
                 // We tried to integrate with the native system C compiler,
                 // however, it is not installed. So we must rely on our bundled
                 // libc files.
-                if (std.zig.target.canBuildLibC(target)) {
+                if (std.zig.target.canBuildLibC(target) or target.abi.isOpenHarmony()) {
                     return detectFromBuilding(arena, zig_lib_dir, target);
                 }
                 return e;
@@ -60,6 +60,9 @@ pub fn detect(
 
     // If not linking system libraries, build and provide our own libc by
     // default if possible.
+    if (target.abi.isOpenHarmony()) {
+        return detectFromBuilding(arena, zig_lib_dir, target);
+    }
     if (std.zig.target.canBuildLibC(target)) {
         return detectFromBuilding(arena, zig_lib_dir, target);
     }
@@ -166,6 +169,10 @@ pub fn detectFromBuilding(
         };
     }
 
+    if (target.abi.isOpenHarmony()) {
+        return detectFromBuildingOpenHarmony(arena, zig_lib_dir, target);
+    }
+
     const generic_name = libCGenericName(target);
     // Some architecture families are handled by the same set of headers.
     const arch_name = if (target.isMuslLibC() or target.isWasiLibC())
@@ -224,6 +231,70 @@ pub fn detectFromBuilding(
     };
 }
 
+fn detectFromBuildingOpenHarmony(
+    arena: Allocator,
+    zig_lib_dir: []const u8,
+    target: *const std.Target,
+) !LibCDirs {
+    const s = std.fs.path.sep_str;
+    const os_name = @tagName(target.os.tag);
+    const arch_name = openHarmonyArchNameHeaders(target.cpu.arch);
+    const abi_name = openHarmonyAbiNameHeaders(target.abi);
+
+    const ohos_arch_include_dir = try std.fmt.allocPrint(
+        arena,
+        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-{s}",
+        .{ zig_lib_dir, arch_name, os_name, abi_name },
+    );
+    const ohos_generic_include_dir = try std.fmt.allocPrint(
+        arena,
+        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "generic-ohos",
+        .{zig_lib_dir},
+    );
+
+    // Keep musl as fallback because OHOS headers in-tree are overlay-style and
+    // intentionally do not duplicate all common musl headers.
+    const musl_arch_name = std.zig.target.muslArchNameHeaders(target.cpu.arch);
+    const musl_arch_include_dir = try std.fmt.allocPrint(
+        arena,
+        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-musl",
+        .{ zig_lib_dir, musl_arch_name, os_name },
+    );
+    const musl_generic_include_dir = try std.fmt.allocPrint(
+        arena,
+        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "generic-musl",
+        .{zig_lib_dir},
+    );
+
+    const generic_arch_name = std.zig.target.osArchName(target);
+    const arch_os_include_dir = try std.fmt.allocPrint(
+        arena,
+        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-any",
+        .{ zig_lib_dir, generic_arch_name, os_name },
+    );
+    const generic_os_include_dir = try std.fmt.allocPrint(
+        arena,
+        "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "any-{s}-any",
+        .{ zig_lib_dir, os_name },
+    );
+
+    const list = try arena.alloc([]const u8, 6);
+    list[0] = ohos_arch_include_dir;
+    list[1] = ohos_generic_include_dir;
+    list[2] = musl_arch_include_dir;
+    list[3] = musl_generic_include_dir;
+    list[4] = arch_os_include_dir;
+    list[5] = generic_os_include_dir;
+
+    return .{
+        .libc_include_dir_list = list,
+        .libc_installation = null,
+        .libc_framework_dir_list = &.{},
+        .sysroot = null,
+        .darwin_sdk_layout = .vendored,
+    };
+}
+
 fn libCGenericName(target: *const std.Target) [:0]const u8 {
     switch (target.os.tag) {
         .windows => return "mingw",
@@ -251,9 +322,10 @@ fn libCGenericName(target: *const std.Target) [:0]const u8 {
         .muslsf,
         .muslx32,
         .none,
+        => return "musl",
         .ohos,
         .ohoseabi,
-        => return "musl",
+        => return "ohos",
         .code16,
         .eabi,
         .eabihf,
@@ -269,8 +341,66 @@ fn libCGenericName(target: *const std.Target) [:0]const u8 {
     }
 }
 
+fn openHarmonyArchNameHeaders(arch: std.Target.Cpu.Arch) [:0]const u8 {
+    return switch (arch) {
+        .arm, .armeb, .thumb, .thumbeb => "arm",
+        .aarch64, .aarch64_be => "aarch64",
+        else => @tagName(arch),
+    };
+}
+
+fn openHarmonyAbiNameHeaders(abi: std.Target.Abi) [:0]const u8 {
+    return switch (abi) {
+        .ohos => "ohos",
+        .ohoseabi => "ohoseabi",
+        else => unreachable,
+    };
+}
+
 const LibCDirs = @This();
 const builtin = @import("builtin");
 const std = @import("../std.zig");
 const LibCInstallation = std.zig.LibCInstallation;
 const Allocator = std.mem.Allocator;
+
+test "detectFromBuilding openharmony include order" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const allocator = arena_state.allocator();
+    const zig_lib_dir = "/zig/lib";
+    var target: std.Target = undefined;
+
+    target.os = std.Target.Os.Tag.defaultVersionRange(.linux, .aarch64, .ohos);
+    target.cpu = std.Target.Cpu.baseline(.aarch64, target.os);
+    target.abi = .ohos;
+    target.ofmt = .elf;
+    target.dynamic_linker = .none;
+
+    const dirs = try detectFromBuilding(allocator, zig_lib_dir, &target);
+    try std.testing.expectEqual(@as(usize, 6), dirs.libc_include_dir_list.len);
+    try std.testing.expectEqualStrings("/zig/lib/libc/include/aarch64-linux-ohos", dirs.libc_include_dir_list[0]);
+    try std.testing.expectEqualStrings("/zig/lib/libc/include/generic-ohos", dirs.libc_include_dir_list[1]);
+    try std.testing.expectEqualStrings("/zig/lib/libc/include/aarch64-linux-musl", dirs.libc_include_dir_list[2]);
+    try std.testing.expectEqualStrings("/zig/lib/libc/include/generic-musl", dirs.libc_include_dir_list[3]);
+}
+
+test "detectFromBuilding openharmony arm include order" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const allocator = arena_state.allocator();
+    const zig_lib_dir = "/zig/lib";
+    var target: std.Target = undefined;
+
+    target.os = std.Target.Os.Tag.defaultVersionRange(.linux, .arm, .ohoseabi);
+    target.cpu = std.Target.Cpu.baseline(.arm, target.os);
+    target.abi = .ohoseabi;
+    target.ofmt = .elf;
+    target.dynamic_linker = .none;
+
+    const dirs = try detectFromBuilding(allocator, zig_lib_dir, &target);
+    try std.testing.expectEqual(@as(usize, 6), dirs.libc_include_dir_list.len);
+    try std.testing.expectEqualStrings("/zig/lib/libc/include/arm-linux-ohoseabi", dirs.libc_include_dir_list[0]);
+    try std.testing.expectEqualStrings("/zig/lib/libc/include/generic-ohos", dirs.libc_include_dir_list[1]);
+    try std.testing.expectEqualStrings("/zig/lib/libc/include/arm-linux-musl", dirs.libc_include_dir_list[2]);
+    try std.testing.expectEqualStrings("/zig/lib/libc/include/generic-musl", dirs.libc_include_dir_list[3]);
+}

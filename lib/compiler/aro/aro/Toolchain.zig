@@ -341,7 +341,7 @@ pub fn buildLinkerArgs(tc: *Toolchain, argv: *std.ArrayList([]const u8)) !void {
 }
 
 fn getDefaultRuntimeLibKind(tc: *const Toolchain) RuntimeLibKind {
-    if (tc.getTarget().abi.isAndroid()) {
+    if (tc.getTarget().abi.isAndroid() or tc.getTarget().abi.isOpenHarmony()) {
         return .compiler_rt;
     }
     return .libgcc;
@@ -367,7 +367,7 @@ pub fn getCompilerRt(tc: *const Toolchain, component: []const u8, file_kind: Fil
 
 fn getLibGCCKind(tc: *const Toolchain) LibGCCKind {
     const target = tc.getTarget();
-    if (tc.driver.static_libgcc or tc.driver.static or tc.driver.static_pie or target.abi.isAndroid()) {
+    if (tc.driver.static_libgcc or tc.driver.static or tc.driver.static_pie or target.abi.isAndroid() or target.abi.isOpenHarmony()) {
         return .static;
     }
     if (tc.driver.shared_libgcc) {
@@ -382,7 +382,7 @@ fn getUnwindLibKind(tc: *const Toolchain) !UnwindLibKind {
         switch (tc.getRuntimeLibKind()) {
             .compiler_rt => {
                 const target = tc.getTarget();
-                if (target.abi.isAndroid() or target.os.tag == .aix) {
+                if (target.abi.isAndroid() or target.abi.isOpenHarmony() or target.os.tag == .aix) {
                     return .compiler_rt;
                 } else {
                     return .none;
@@ -415,13 +415,13 @@ fn getAsNeededOption(is_solaris: bool, needed: bool) []const u8 {
 fn addUnwindLibrary(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !void {
     const unw = try tc.getUnwindLibKind();
     const target = tc.getTarget();
-    if ((target.abi.isAndroid() and unw == .libgcc) or
+    if (((target.abi.isAndroid() or target.abi.isOpenHarmony()) and unw == .libgcc) or
         target.ofmt == .wasm or
         target_util.isWindowsMSVCEnvironment(target) or
         unw == .none) return;
 
     const lgk = tc.getLibGCCKind();
-    const as_needed = lgk == .unspecified and !target.abi.isAndroid() and !target_util.isCygwinMinGW(target) and target.os.tag != .aix;
+    const as_needed = lgk == .unspecified and !target.abi.isAndroid() and !target.abi.isOpenHarmony() and !target_util.isCygwinMinGW(target) and target.os.tag != .aix;
     if (as_needed) {
         try argv.append(getAsNeededOption(target.os.tag == .solaris, true));
     }
@@ -480,7 +480,7 @@ pub fn addRuntimeLibs(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !v
         },
     }
 
-    if (target.abi.isAndroid() and !tc.driver.static and !tc.driver.static_pie) {
+    if ((target.abi.isAndroid() or target.abi.isOpenHarmony()) and !tc.driver.static and !tc.driver.static_pie) {
         try argv.append("-ldl");
     }
 }

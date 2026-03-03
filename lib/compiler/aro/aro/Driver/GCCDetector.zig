@@ -183,48 +183,70 @@ fn collectLibDirsAndTriples(
         // TODO
         return;
     }
-    if (target.abi.isAndroid()) {
+    if (target.abi.isAndroid() or target.abi.isOpenHarmony()) {
         const AArch64AndroidTriples: [1][]const u8 = .{"aarch64-linux-android"};
+        const AArch64OpenHarmonyTriples: [1][]const u8 = .{"aarch64-linux-ohos"};
         const ARMAndroidTriples: [1][]const u8 = .{"arm-linux-androideabi"};
+        const ARMOpenHarmonyTriples: [1][]const u8 = .{"arm-linux-ohoseabi"};
         const MIPSELAndroidTriples: [1][]const u8 = .{"mipsel-linux-android"};
         const MIPS64ELAndroidTriples: [1][]const u8 = .{"mips64el-linux-android"};
         const X86AndroidTriples: [1][]const u8 = .{"i686-linux-android"};
         const X86_64AndroidTriples: [1][]const u8 = .{"x86_64-linux-android"};
+        const X86_64OpenHarmonyTriples: [1][]const u8 = .{"x86_64-linux-ohos"};
+        const is_android = target.abi.isAndroid();
 
         switch (target.cpu.arch) {
             .aarch64 => {
                 lib_dirs.appendSliceAssumeCapacity(&AArch64LibDirs);
-                triple_aliases.appendSliceAssumeCapacity(&AArch64AndroidTriples);
+                if (is_android) {
+                    triple_aliases.appendSliceAssumeCapacity(&AArch64AndroidTriples);
+                } else {
+                    triple_aliases.appendSliceAssumeCapacity(&AArch64OpenHarmonyTriples);
+                }
             },
             .arm,
             .thumb,
             => {
                 lib_dirs.appendSliceAssumeCapacity(&ARMLibDirs);
-                triple_aliases.appendSliceAssumeCapacity(&ARMAndroidTriples);
+                if (is_android) {
+                    triple_aliases.appendSliceAssumeCapacity(&ARMAndroidTriples);
+                } else {
+                    triple_aliases.appendSliceAssumeCapacity(&ARMOpenHarmonyTriples);
+                }
             },
             .mipsel => {
-                lib_dirs.appendSliceAssumeCapacity(&MIPSELLibDirs);
-                triple_aliases.appendSliceAssumeCapacity(&MIPSELAndroidTriples);
-                biarch_libdirs.appendSliceAssumeCapacity(&MIPS64ELLibDirs);
-                biarch_triple_aliases.appendSliceAssumeCapacity(&MIPS64ELAndroidTriples);
+                if (is_android) {
+                    lib_dirs.appendSliceAssumeCapacity(&MIPSELLibDirs);
+                    triple_aliases.appendSliceAssumeCapacity(&MIPSELAndroidTriples);
+                    biarch_libdirs.appendSliceAssumeCapacity(&MIPS64ELLibDirs);
+                    biarch_triple_aliases.appendSliceAssumeCapacity(&MIPS64ELAndroidTriples);
+                }
             },
             .mips64el => {
-                lib_dirs.appendSliceAssumeCapacity(&MIPS64ELLibDirs);
-                triple_aliases.appendSliceAssumeCapacity(&MIPS64ELAndroidTriples);
-                biarch_libdirs.appendSliceAssumeCapacity(&MIPSELLibDirs);
-                biarch_triple_aliases.appendSliceAssumeCapacity(&MIPSELAndroidTriples);
+                if (is_android) {
+                    lib_dirs.appendSliceAssumeCapacity(&MIPS64ELLibDirs);
+                    triple_aliases.appendSliceAssumeCapacity(&MIPS64ELAndroidTriples);
+                    biarch_libdirs.appendSliceAssumeCapacity(&MIPSELLibDirs);
+                    biarch_triple_aliases.appendSliceAssumeCapacity(&MIPSELAndroidTriples);
+                }
             },
             .x86_64 => {
                 lib_dirs.appendSliceAssumeCapacity(&X86_64LibDirs);
-                triple_aliases.appendSliceAssumeCapacity(&X86_64AndroidTriples);
-                biarch_libdirs.appendSliceAssumeCapacity(&X86LibDirs);
-                biarch_triple_aliases.appendSliceAssumeCapacity(&X86AndroidTriples);
+                if (is_android) {
+                    triple_aliases.appendSliceAssumeCapacity(&X86_64AndroidTriples);
+                    biarch_libdirs.appendSliceAssumeCapacity(&X86LibDirs);
+                    biarch_triple_aliases.appendSliceAssumeCapacity(&X86AndroidTriples);
+                } else {
+                    triple_aliases.appendSliceAssumeCapacity(&X86_64OpenHarmonyTriples);
+                }
             },
             .x86 => {
-                lib_dirs.appendSliceAssumeCapacity(&X86LibDirs);
-                triple_aliases.appendSliceAssumeCapacity(&X86AndroidTriples);
-                biarch_libdirs.appendSliceAssumeCapacity(&X86_64LibDirs);
-                biarch_triple_aliases.appendSliceAssumeCapacity(&X86_64AndroidTriples);
+                if (is_android) {
+                    lib_dirs.appendSliceAssumeCapacity(&X86LibDirs);
+                    triple_aliases.appendSliceAssumeCapacity(&X86AndroidTriples);
+                    biarch_libdirs.appendSliceAssumeCapacity(&X86_64LibDirs);
+                    biarch_triple_aliases.appendSliceAssumeCapacity(&X86_64AndroidTriples);
+                }
             },
             else => {},
         }

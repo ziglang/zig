@@ -28,19 +28,21 @@ fn buildExtraOpts(self: *Linux, tc: *const Toolchain) !void {
     const gpa = tc.driver.comp.gpa;
     const target = tc.getTarget();
     const is_android = target.abi.isAndroid();
-    if (self.distro.isAlpine() or is_android) {
+    const is_openharmony = target.abi.isOpenHarmony();
+    const isAndroidOrOpenHarmony = is_android or is_openharmony;
+    if (self.distro.isAlpine() or isAndroidOrOpenHarmony) {
         try self.extra_opts.ensureUnusedCapacity(gpa, 2);
         self.extra_opts.appendAssumeCapacity("-z");
         self.extra_opts.appendAssumeCapacity("now");
     }
 
-    if (self.distro.isOpenSUSE() or self.distro.isUbuntu() or self.distro.isAlpine() or is_android) {
+    if (self.distro.isOpenSUSE() or self.distro.isUbuntu() or self.distro.isAlpine() or isAndroidOrOpenHarmony) {
         try self.extra_opts.ensureUnusedCapacity(gpa, 2);
         self.extra_opts.appendAssumeCapacity("-z");
         self.extra_opts.appendAssumeCapacity("relro");
     }
 
-    if ((target.cpu.arch.isArm() and !target.cpu.arch.isThumb()) or target.cpu.arch.isAARCH64() or is_android) {
+    if ((target.cpu.arch.isArm() and !target.cpu.arch.isThumb()) or target.cpu.arch.isAARCH64() or isAndroidOrOpenHarmony) {
         try self.extra_opts.ensureUnusedCapacity(gpa, 2);
         self.extra_opts.appendAssumeCapacity("-z");
         self.extra_opts.appendAssumeCapacity("max-page-size=4096");
@@ -51,7 +53,7 @@ fn buildExtraOpts(self: *Linux, tc: *const Toolchain) !void {
     }
 
     if (!target.cpu.arch.isMIPS() and target.cpu.arch != .hexagon) {
-        const hash_style = if (is_android) .both else self.distro.getHashStyle();
+        const hash_style = if (isAndroidOrOpenHarmony) .both else self.distro.getHashStyle();
         try self.extra_opts.append(gpa, switch (hash_style) {
             inline else => |tag| "--hash-style=" ++ @tagName(tag),
         });
@@ -156,7 +158,7 @@ fn getStatic(self: *const Linux, d: *const Driver) bool {
 
 pub fn getDefaultLinker(self: *const Linux, target: std.Target) []const u8 {
     _ = self;
-    if (target.abi.isAndroid()) {
+    if (target.abi.isAndroid() or target.abi.isOpenHarmony()) {
         return "ld.lld";
     }
     return "ld";
@@ -170,6 +172,8 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.Arra
     const is_static_pie = try self.getStaticPIE(d);
     const is_static = self.getStatic(d);
     const is_android = target.abi.isAndroid();
+    const is_openharmony = target.abi.isOpenHarmony();
+    const isAndroidOrOpenHarmony = is_android or is_openharmony;
     const is_ve = target.cpu.arch == .ve;
     const has_crt_begin_end_files = target.abi != .none; // TODO: clang checks for MIPS vendor
 
@@ -224,7 +228,7 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.Arra
     try argv.appendSlice(&.{ "-o", d.output_name orelse "a.out" });
 
     if (!d.nostdlib and !d.nostartfiles and !d.relocatable) {
-        if (!is_android) {
+        if (!isAndroidOrOpenHarmony) {
             if (!d.shared) {
                 const crt1 = if (is_pie)
                     "Scrt1.o"
@@ -242,7 +246,7 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.Arra
 
         if (has_crt_begin_end_files) {
             var path: []const u8 = "";
-            if (tc.getRuntimeLibKind() == .compiler_rt and !is_android) {
+            if (tc.getRuntimeLibKind() == .compiler_rt and !isAndroidOrOpenHarmony) {
                 const crt_begin = try tc.getCompilerRt("crtbegin", .object);
                 if (tc.filesystem.exists(crt_begin)) {
                     path = crt_begin;
@@ -250,12 +254,12 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.Arra
             }
             if (path.len == 0) {
                 const crt_begin = if (tc.driver.shared)
-                    if (is_android) "crtbegin_so.o" else "crtbeginS.o"
+                    if (isAndroidOrOpenHarmony) "crtbegin_so.o" else "crtbeginS.o"
                 else if (is_static)
-                    if (is_android) "crtbegin_static.o" else "crtbeginT.o"
+                    if (isAndroidOrOpenHarmony) "crtbegin_static.o" else "crtbeginT.o"
                 else if (is_pie or is_static_pie)
-                    if (is_android) "crtbegin_dynamic.o" else "crtbeginS.o"
-                else if (is_android) "crtbegin_dynamic.o" else "crtbegin.o";
+                    if (isAndroidOrOpenHarmony) "crtbegin_dynamic.o" else "crtbeginS.o"
+                else if (isAndroidOrOpenHarmony) "crtbegin_dynamic.o" else "crtbegin.o";
                 path = try tc.getFilePath(crt_begin);
             }
             try argv.append(path);
@@ -291,7 +295,7 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.Arra
         if (!d.nostartfiles) {
             if (has_crt_begin_end_files) {
                 var path: []const u8 = "";
-                if (tc.getRuntimeLibKind() == .compiler_rt and !is_android) {
+                if (tc.getRuntimeLibKind() == .compiler_rt and !isAndroidOrOpenHarmony) {
                     const crt_end = try tc.getCompilerRt("crtend", .object);
                     if (tc.filesystem.exists(crt_end)) {
                         path = crt_end;
@@ -299,15 +303,15 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.Arra
                 }
                 if (path.len == 0) {
                     const crt_end = if (d.shared)
-                        if (is_android) "crtend_so.o" else "crtendS.o"
+                        if (isAndroidOrOpenHarmony) "crtend_so.o" else "crtendS.o"
                     else if (is_pie or is_static_pie)
-                        if (is_android) "crtend_android.o" else "crtendS.o"
-                    else if (is_android) "crtend_android.o" else "crtend.o";
+                        if (isAndroidOrOpenHarmony) "crtend_android.o" else "crtendS.o"
+                    else if (isAndroidOrOpenHarmony) "crtend_android.o" else "crtend.o";
                     path = try tc.getFilePath(crt_end);
                 }
                 try argv.append(path);
             }
-            if (!is_android) {
+            if (!isAndroidOrOpenHarmony) {
                 try argv.append(try tc.getFilePath("crtn.o"));
             }
         }
@@ -318,14 +322,15 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.Arra
 
 fn getMultiarchTriple(target: std.Target) ?[]const u8 {
     const is_android = target.abi.isAndroid();
+    const is_openharmony = target.abi.isOpenHarmony();
     const is_mips_r6 = target.cpu.has(.mips, .mips32r6);
     return switch (target.cpu.arch) {
-        .arm, .thumb => if (is_android) "arm-linux-androideabi" else if (target.abi == .gnueabihf) "arm-linux-gnueabihf" else "arm-linux-gnueabi",
+        .arm, .thumb => if (is_android) "arm-linux-androideabi" else if (is_openharmony) "arm-linux-ohoseabi" else if (target.abi == .gnueabihf) "arm-linux-gnueabihf" else "arm-linux-gnueabi",
         .armeb, .thumbeb => if (target.abi == .gnueabihf) "armeb-linux-gnueabihf" else "armeb-linux-gnueabi",
-        .aarch64 => if (is_android) "aarch64-linux-android" else "aarch64-linux-gnu",
+        .aarch64 => if (is_android) "aarch64-linux-android" else if (is_openharmony) "aarch64-linux-ohos" else "aarch64-linux-gnu",
         .aarch64_be => "aarch64_be-linux-gnu",
-        .x86 => if (is_android) "i686-linux-android" else "i386-linux-gnu",
-        .x86_64 => if (is_android) "x86_64-linux-android" else if (target.abi == .gnux32) "x86_64-linux-gnux32" else "x86_64-linux-gnu",
+        .x86 => if (is_android) "i686-linux-android" else if (is_openharmony) null else "i386-linux-gnu",
+        .x86_64 => if (is_android) "x86_64-linux-android" else if (is_openharmony) "x86_64-linux-ohos" else if (target.abi == .gnux32) "x86_64-linux-gnux32" else "x86_64-linux-gnu",
         .m68k => "m68k-linux-gnu",
         .mips => if (is_mips_r6) "mipsisa32r6-linux-gnu" else "mips-linux-gnu",
         .mipsel => if (is_android) "mipsel-linux-android" else if (is_mips_r6) "mipsisa32r6el-linux-gnu" else "mipsel-linux-gnu",
@@ -514,4 +519,35 @@ test Linux {
     for (expected, argv.items) |expected_item, actual_item| {
         try std.testing.expectEqualStrings(expected_item, actual_item);
     }
+}
+
+test "getMultiarchTriple openharmony targets" {
+    var target: std.Target = undefined;
+
+    target.os = std.Target.Os.Tag.defaultVersionRange(.linux, .aarch64, .ohos);
+    target.cpu = std.Target.Cpu.baseline(.aarch64, target.os);
+    target.abi = .ohos;
+    try std.testing.expectEqualStrings("aarch64-linux-ohos", getMultiarchTriple(target).?);
+
+    target.os = std.Target.Os.Tag.defaultVersionRange(.linux, .arm, .ohoseabi);
+    target.cpu = std.Target.Cpu.baseline(.arm, target.os);
+    target.abi = .ohoseabi;
+    try std.testing.expectEqualStrings("arm-linux-ohoseabi", getMultiarchTriple(target).?);
+
+    target.os = std.Target.Os.Tag.defaultVersionRange(.linux, .x86_64, .ohos);
+    target.cpu = std.Target.Cpu.baseline(.x86_64, target.os);
+    target.abi = .ohos;
+    try std.testing.expectEqualStrings("x86_64-linux-ohos", getMultiarchTriple(target).?);
+}
+
+test "getDefaultLinker openharmony uses lld" {
+    const linux: Linux = .{};
+    var target: std.Target = undefined;
+    target.os = std.Target.Os.Tag.defaultVersionRange(.linux, .aarch64, .ohos);
+    target.cpu = std.Target.Cpu.baseline(.aarch64, target.os);
+    target.abi = .ohos;
+    target.ofmt = .elf;
+    target.dynamic_linker = .none;
+
+    try std.testing.expectEqualStrings("ld.lld", linux.getDefaultLinker(target));
 }

@@ -2232,6 +2232,18 @@ pub const DynamicLinker = struct {
 
                     else => none,
                 }
+            else if (abi.isOpenHarmony())
+                switch (cpu.arch) {
+                    .arm => if (abi == .ohoseabi) init("/system/bin/linker") else none,
+
+                    .aarch64,
+                    .x86_64,
+                    => if (abi == .ohos) initFmt("/system/bin/linker{s}", .{
+                        if (ptrBitWidth_cpu_abi(cpu, abi) == 64) "64" else "",
+                    }) else none,
+
+                    else => none,
+                }
             else if (abi.isMusl())
                 switch (cpu.arch) {
                     .arm,

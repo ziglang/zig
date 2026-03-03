@@ -444,7 +444,7 @@ fn findNativeCrtDirPosix(self: *LibCInstallation, args: FindNativeOptions) FindE
     self.crt_dir = try ccPrintFileName(.{
         .allocator = args.allocator,
         .search_basename = switch (args.target.os.tag) {
-            .linux => if (args.target.abi.isAndroid()) "crtbegin_dynamic.o" else "crt1.o",
+            .linux => if (args.target.abi.isAndroid() or args.target.abi.isOpenHarmony()) "crtbegin_dynamic.o" else "crt1.o",
             else => "crt1.o",
         },
         .want_dirname = .only_dir,
@@ -734,6 +734,21 @@ pub const CrtBasenames = struct {
         const target = args.target;
 
         if (target.abi.isAndroid()) return switch (mode) {
+            .dynamic_lib => .{
+                .crtbegin = "crtbegin_so.o",
+                .crtend = "crtend_so.o",
+            },
+            .dynamic_exe, .dynamic_pie => .{
+                .crtbegin = "crtbegin_dynamic.o",
+                .crtend = "crtend_android.o",
+            },
+            .static_exe, .static_pie => .{
+                .crtbegin = "crtbegin_static.o",
+                .crtend = "crtend_android.o",
+            },
+        };
+
+        if (target.abi.isOpenHarmony()) return switch (mode) {
             .dynamic_lib => .{
                 .crtbegin = "crtbegin_so.o",
                 .crtend = "crtend_so.o",

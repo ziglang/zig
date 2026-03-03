@@ -311,6 +311,9 @@ fn generateSystemDefines(comp: *Compilation, w: anytype) !void {
     if (comp.target.abi.isAndroid()) {
         try w.writeAll("#define __ANDROID__ 1\n");
     }
+    if (comp.target.abi.isOpenHarmony()) {
+        try w.writeAll("#define __OHOS__ 1\n");
+    }
 
     // architecture macros
     switch (comp.target.cpu.arch) {
