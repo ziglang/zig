@@ -17,8 +17,6 @@ export fn d() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:16: error: pointer modifier invalid on discard
 // :7:18: error: pointer modifier invalid on discard

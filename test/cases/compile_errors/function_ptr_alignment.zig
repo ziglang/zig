@@ -9,7 +9,6 @@ comptime {
 }
 
 // error
-// backend=stage2
 // target=x86_64-linux
 //
 // :8:41: error: expected type '*align(2) const fn () void', found '*const fn () void'

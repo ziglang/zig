@@ -19,15 +19,13 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_member_pointer : _BoolConstant<__is_member_pointer(_Tp)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_member_pointer : _BoolConstant<__is_member_pointer(_Tp)> {};
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_member_object_pointer
-    : _BoolConstant<__is_member_object_pointer(_Tp)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_member_object_pointer : _BoolConstant<__is_member_object_pointer(_Tp)> {};
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_member_function_pointer
-    : _BoolConstant<__is_member_function_pointer(_Tp)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_member_function_pointer : _BoolConstant<__is_member_function_pointer(_Tp)> {};
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp>

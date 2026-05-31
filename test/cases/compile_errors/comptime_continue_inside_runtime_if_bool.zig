@@ -9,8 +9,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:22: error: comptime control flow inside runtime block
 // :6:15: note: runtime control flow here

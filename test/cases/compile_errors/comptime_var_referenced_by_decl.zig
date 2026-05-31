@@ -47,19 +47,19 @@ export var h: *[1]u32 = h: {
 // error
 //
 // :1:27: error: global variable contains reference to comptime var
-// :2:18: note: 'a' points to comptime var declared here
+// :2:5: note: 'a' points to comptime var declared here
 // :6:30: error: global variable contains reference to comptime var
-// :7:18: note: 'b[0]' points to comptime var declared here
+// :7:5: note: 'b[0]' points to comptime var declared here
 // :11:30: error: global variable contains reference to comptime var
-// :12:18: note: 'c' points to comptime var declared here
+// :12:5: note: 'c' points to comptime var declared here
 // :16:33: error: global variable contains reference to comptime var
-// :17:18: note: 'd' points to comptime var declared here
+// :17:5: note: 'd' points to comptime var declared here
 // :22:24: error: global variable contains reference to comptime var
-// :23:18: note: 'e.ptr' points to comptime var declared here
+// :23:5: note: 'e.ptr' points to comptime var declared here
 // :28:33: error: global variable contains reference to comptime var
-// :29:18: note: 'f' points to comptime var declared here
+// :29:5: note: 'f' points to comptime var declared here
 // :34:40: error: global variable contains reference to comptime var
 // :34:40: note: 'g' points to 'v0[0]', where
-// :36:24: note: 'v0[1]' points to comptime var declared here
+// :36:5: note: 'v0[1]' points to comptime var declared here
 // :42:28: error: global variable contains reference to comptime var
-// :43:22: note: 'h' points to comptime var declared here
+// :43:5: note: 'h' points to comptime var declared here

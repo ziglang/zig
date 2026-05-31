@@ -23,7 +23,7 @@ extern "C" void android_set_abort_message(const char* msg);
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-_LIBCPP_WEAK void __libcpp_verbose_abort(char const* format, ...) _LIBCPP_VERBOSE_ABORT_NOEXCEPT {
+_LIBCPP_WEAK void __libcpp_verbose_abort(char const* format, ...) noexcept {
   // Write message to stderr. We do this before formatting into a
   // buffer so that we still get some information out if that fails.
   {

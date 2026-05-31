@@ -166,7 +166,7 @@ struct SizeClassAllocator32LocalCache {
       DCHECK_GT(c->count, 0);
     }
     void *res = c->batch[--c->count];
-    PREFETCH(c->batch[c->count - 1]);
+    PREFETCH(c->batch[c->count > 0 ? c->count - 1 : 0]);
     stats_.Add(AllocatorStatAllocated, c->class_size);
     return res;
   }

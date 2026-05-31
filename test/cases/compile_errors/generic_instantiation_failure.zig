@@ -19,8 +19,6 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :18:43: error: value of type 'type' ignored
 // :18:43: note: all non-void values must be used

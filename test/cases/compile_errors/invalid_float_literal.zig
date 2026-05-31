@@ -7,7 +7,5 @@ pub fn main() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:29: error: expected expression, found '.'

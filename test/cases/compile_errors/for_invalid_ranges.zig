@@ -25,8 +25,6 @@ export fn e() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:13: error: expected type 'usize', found '*const [5:0]u8'
 // :7:10: error: type 'usize' cannot represent integer value '-1'

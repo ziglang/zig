@@ -5,8 +5,6 @@ export fn entry() u32 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:23: error: @ptrCast increases pointer alignment
 // :3:32: note: '*u8' has alignment '1'

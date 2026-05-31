@@ -28,8 +28,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:22: error: shift amount '24' is too large for operand type 'u24'
 // :11:22: error: shift amount '24' is too large for operand type 'u24'

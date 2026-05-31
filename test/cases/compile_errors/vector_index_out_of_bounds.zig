@@ -4,7 +4,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:30: error: expected 3 vector elements; found 4

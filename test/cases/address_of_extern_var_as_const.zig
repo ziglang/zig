@@ -6,5 +6,5 @@ export const p_external_variable = &external_variable;
 
 // compile
 // output_mode=Obj
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux

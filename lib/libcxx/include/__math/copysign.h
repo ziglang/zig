@@ -33,7 +33,7 @@ namespace __math {
 }
 
 template <class _A1, class _A2, __enable_if_t<is_arithmetic<_A1>::value && is_arithmetic<_A2>::value, int> = 0>
-[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI typename __promote<_A1, _A2>::type copysign(_A1 __x, _A2 __y) _NOEXCEPT {
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI __promote_t<_A1, _A2> copysign(_A1 __x, _A2 __y) _NOEXCEPT {
   return ::__builtin_copysign(__x, __y);
 }
 

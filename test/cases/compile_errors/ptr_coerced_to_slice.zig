@@ -12,8 +12,6 @@ export fn baz() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:25: error: expected type '[]const u8', found '[*]const u8'
 // :7:25: error: expected type '[]const u8', found '[*c]const u8'

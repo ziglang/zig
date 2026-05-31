@@ -77,6 +77,7 @@ struct __maybe_derive_from_unary_function // bool is true
 template <class _Tp>
 struct __maybe_derive_from_unary_function<_Tp, false> {};
 
+_LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _Tp, bool = __derives_from_binary_function<_Tp>::value>
 struct __maybe_derive_from_binary_function // bool is true
     : public __derives_from_binary_function<_Tp>::type {};
@@ -99,6 +100,7 @@ struct __weak_result_type_imp<_Tp, false>
 
 template <class _Tp>
 struct __weak_result_type : public __weak_result_type_imp<_Tp> {};
+_LIBCPP_SUPPRESS_DEPRECATED_POP
 
 // 0 argument case
 

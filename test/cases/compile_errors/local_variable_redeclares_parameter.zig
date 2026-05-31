@@ -6,8 +6,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:11: error: local constant 'a' shadows function parameter from outer scope
 // :1:6: note: previous declaration here

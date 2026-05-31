@@ -38,7 +38,7 @@ static bool is_aligned_to(void* ptr, size_t align) {
 }
 #endif
 
-class _LIBCPP_EXPORTED_FROM_ABI __new_delete_memory_resource_imp : public memory_resource {
+class _LIBCPP_HIDDEN __new_delete_memory_resource_imp : public memory_resource {
   void* do_allocate(size_t bytes, size_t align) override {
 #if _LIBCPP_HAS_ALIGNED_ALLOCATION
     return std::__libcpp_allocate<std::byte>(__element_count(bytes), align);
@@ -48,7 +48,7 @@ class _LIBCPP_EXPORTED_FROM_ABI __new_delete_memory_resource_imp : public memory
     std::byte* result = std::__libcpp_allocate<std::byte>(__element_count(bytes), align);
     if (!is_aligned_to(result, align)) {
       std::__libcpp_deallocate<std::byte>(result, __element_count(bytes), align);
-      __throw_bad_alloc();
+      std::__throw_bad_alloc();
     }
     return result;
 #endif
@@ -63,8 +63,8 @@ class _LIBCPP_EXPORTED_FROM_ABI __new_delete_memory_resource_imp : public memory
 
 // null_memory_resource()
 
-class _LIBCPP_EXPORTED_FROM_ABI __null_memory_resource_imp : public memory_resource {
-  void* do_allocate(size_t, size_t) override { __throw_bad_alloc(); }
+class _LIBCPP_HIDDEN __null_memory_resource_imp : public memory_resource {
+  void* do_allocate(size_t, size_t) override { std::__throw_bad_alloc(); }
   void do_deallocate(void*, size_t, size_t) override {}
   bool do_is_equal(const memory_resource& other) const noexcept override { return &other == this; }
 };

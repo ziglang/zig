@@ -4,7 +4,5 @@ export fn foo() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:49: error: comptime dereference requires '[]const u8' to have a well-defined layout

@@ -5,7 +5,5 @@ export fn b() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:5: error: unbounded for loop

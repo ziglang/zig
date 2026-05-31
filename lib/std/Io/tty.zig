@@ -37,7 +37,7 @@ pub const Color = enum {
 pub const Config = union(enum) {
     no_color,
     escape_codes,
-    windows_api: if (native_os == .windows) WindowsContext else void,
+    windows_api: if (native_os == .windows) WindowsContext else noreturn,
 
     /// Detect suitable TTY configuration options for the given file (commonly stdout/stderr).
     /// This includes feature checks for ANSI escape codes and the Windows console API, as well as
@@ -76,9 +76,9 @@ pub const Config = union(enum) {
         reset_attributes: u16,
     };
 
-    pub const SetColorError = std.os.windows.SetConsoleTextAttributeError || std.io.Writer.Error;
+    pub const SetColorError = std.os.windows.SetConsoleTextAttributeError || std.Io.Writer.Error;
 
-    pub fn setColor(conf: Config, w: *std.io.Writer, color: Color) SetColorError!void {
+    pub fn setColor(conf: Config, w: *std.Io.Writer, color: Color) SetColorError!void {
         nosuspend switch (conf) {
             .no_color => return,
             .escape_codes => {
@@ -105,7 +105,7 @@ pub const Config = union(enum) {
                 };
                 try w.writeAll(color_string);
             },
-            .windows_api => |ctx| if (native_os == .windows) {
+            .windows_api => |ctx| {
                 const attributes = switch (color) {
                     .black => 0,
                     .red => windows.FOREGROUND_RED,
@@ -130,8 +130,6 @@ pub const Config = union(enum) {
                 };
                 try w.flush();
                 try windows.SetConsoleTextAttribute(ctx.handle, attributes);
-            } else {
-                unreachable;
             },
         };
     }

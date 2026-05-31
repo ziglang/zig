@@ -6,29 +6,29 @@ file_handle: File.HandleIndex,
 index: File.Index,
 
 header: ?elf.Elf64_Ehdr = null,
-shdrs: std.ArrayListUnmanaged(elf.Elf64_Shdr) = .empty,
+shdrs: std.ArrayList(elf.Elf64_Shdr) = .empty,
 
-symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .empty,
-strtab: std.ArrayListUnmanaged(u8) = .empty,
+symtab: std.ArrayList(elf.Elf64_Sym) = .empty,
+strtab: std.ArrayList(u8) = .empty,
 first_global: ?Symbol.Index = null,
-symbols: std.ArrayListUnmanaged(Symbol) = .empty,
-symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
-symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index) = .empty,
-relocs: std.ArrayListUnmanaged(elf.Elf64_Rela) = .empty,
+symbols: std.ArrayList(Symbol) = .empty,
+symbols_extra: std.ArrayList(u32) = .empty,
+symbols_resolver: std.ArrayList(Elf.SymbolResolver.Index) = .empty,
+relocs: std.ArrayList(elf.Elf64_Rela) = .empty,
 
-atoms: std.ArrayListUnmanaged(Atom) = .empty,
-atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .empty,
-atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
+atoms: std.ArrayList(Atom) = .empty,
+atoms_indexes: std.ArrayList(Atom.Index) = .empty,
+atoms_extra: std.ArrayList(u32) = .empty,
 
-groups: std.ArrayListUnmanaged(Elf.Group) = .empty,
-group_data: std.ArrayListUnmanaged(u32) = .empty,
+groups: std.ArrayList(Elf.Group) = .empty,
+group_data: std.ArrayList(u32) = .empty,
 
-input_merge_sections: std.ArrayListUnmanaged(Merge.InputSection) = .empty,
-input_merge_sections_indexes: std.ArrayListUnmanaged(Merge.InputSection.Index) = .empty,
+input_merge_sections: std.ArrayList(Merge.InputSection) = .empty,
+input_merge_sections_indexes: std.ArrayList(Merge.InputSection.Index) = .empty,
 
-fdes: std.ArrayListUnmanaged(Fde) = .empty,
-cies: std.ArrayListUnmanaged(Cie) = .empty,
-eh_frame_data: std.ArrayListUnmanaged(u8) = .empty,
+fdes: std.ArrayList(Fde) = .empty,
+cies: std.ArrayList(Cie) = .empty,
+eh_frame_data: std.ArrayList(u8) = .empty,
 
 alive: bool = true,
 dirty: bool = true,
@@ -189,7 +189,7 @@ pub fn validateEFlags(
     e_flags: elf.Word,
 ) !void {
     switch (target.cpu.arch) {
-        .riscv64 => {
+        .riscv64, .riscv64be => {
             const flags: riscv.Eflags = @bitCast(e_flags);
             var any_errors: bool = false;
 
@@ -366,7 +366,7 @@ fn initAtoms(
                 const rel_count: u32 = @intCast(relocs.len);
                 self.setAtomFields(atom_ptr, .{ .rel_index = rel_index, .rel_count = rel_count });
                 try self.relocs.appendUnalignedSlice(gpa, relocs);
-                if (target.cpu.arch == .riscv64) {
+                if (target.cpu.arch.isRiscv64()) {
                     sortRelocs(self.relocs.items[rel_index..][0..rel_count]);
                 }
             }
@@ -445,7 +445,7 @@ fn parseEhFrame(
     // We expect relocations to be sorted by r_offset as per this comment in mold linker:
     // https://github.com/rui314/mold/blob/8e4f7b53832d8af4f48a633a8385cbc932d1944e/src/input-files.cc#L653
     // Except for RISCV and Loongarch which do not seem to be uphold this convention.
-    if (target.cpu.arch == .riscv64) {
+    if (target.cpu.arch.isRiscv64()) {
         sortRelocs(self.relocs.items[rel_start..][0..relocs.len]);
     }
     const fdes_start = self.fdes.items.len;
@@ -634,7 +634,7 @@ pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
 
         const is_import = blk: {
             if (!elf_file.isEffectivelyDynLib()) break :blk false;
-            const vis = @as(elf.STV, @enumFromInt(esym.st_other));
+            const vis: elf.STV = @enumFromInt(@as(u3, @truncate(esym.st_other)));
             if (vis == .HIDDEN) break :blk false;
             break :blk true;
         };
@@ -707,7 +707,7 @@ pub fn markImportsExports(self: *Object, elf_file: *Elf) void {
         const file = sym.file(elf_file).?;
         // https://github.com/ziglang/zig/issues/21678
         if (@as(u16, @bitCast(sym.version_index)) == @as(u16, @bitCast(elf.Versym.LOCAL))) continue;
-        const vis: elf.STV = @enumFromInt(sym.elfSym(elf_file).st_other);
+        const vis: elf.STV = @enumFromInt(@as(u3, @truncate(sym.elfSym(elf_file).st_other)));
         if (vis == .HIDDEN) continue;
         if (file == .shared_object and !sym.isAbs(elf_file)) {
             sym.flags.import = true;
@@ -861,7 +861,10 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
         for (imsec.strings.items, imsec.subsections.items) |str, *imsec_msub| {
             const string = imsec.bytes.items[str.pos..][0..str.len];
             const res = try msec.insert(gpa, string);
-            if (!res.found_existing) {
+            if (res.found_existing) {
+                const msub = msec.mergeSubsection(res.sub.*);
+                msub.alignment = msub.alignment.maxStrict(atom_ptr.alignment);
+            } else {
                 const msub_index = try msec.addMergeSubsection(gpa);
                 const msub = msec.mergeSubsection(msub_index);
                 msub.merge_section_index = imsec.merge_section_index;
@@ -952,7 +955,7 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
         const is_tls = sym.type(elf_file) == elf.STT_TLS;
         const name = if (is_tls) ".tls_common" else ".common";
         const name_offset = @as(u32, @intCast(self.strtab.items.len));
-        try self.strtab.writer(gpa).print("{s}\x00", .{name});
+        try self.strtab.print(gpa, "{s}\x00", .{name});
 
         var sh_flags: u32 = elf.SHF_ALLOC | elf.SHF_WRITE;
         if (is_tls) sh_flags |= elf.SHF_TLS;
@@ -1431,7 +1434,7 @@ pub fn group(self: *Object, index: Elf.Group.Index) *Elf.Group {
     return &self.groups.items[index];
 }
 
-pub fn fmtSymtab(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.symtab) {
+pub fn fmtSymtab(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.symtab) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
@@ -1442,7 +1445,7 @@ const Format = struct {
     object: *Object,
     elf_file: *Elf,
 
-    fn symtab(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn symtab(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const object = f.object;
         const elf_file = f.elf_file;
         try writer.writeAll("  locals\n");
@@ -1461,7 +1464,7 @@ const Format = struct {
         }
     }
 
-    fn atoms(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn atoms(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const object = f.object;
         try writer.writeAll("  atoms\n");
         for (object.atoms_indexes.items) |atom_index| {
@@ -1470,7 +1473,7 @@ const Format = struct {
         }
     }
 
-    fn cies(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn cies(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const object = f.object;
         try writer.writeAll("  cies\n");
         for (object.cies.items, 0..) |cie, i| {
@@ -1478,7 +1481,7 @@ const Format = struct {
         }
     }
 
-    fn fdes(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn fdes(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const object = f.object;
         try writer.writeAll("  fdes\n");
         for (object.fdes.items, 0..) |fde, i| {
@@ -1486,7 +1489,7 @@ const Format = struct {
         }
     }
 
-    fn groups(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn groups(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const object = f.object;
         const elf_file = f.elf_file;
         try writer.writeAll("  groups\n");
@@ -1504,39 +1507,39 @@ const Format = struct {
     }
 };
 
-pub fn fmtAtoms(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.atoms) {
+pub fn fmtAtoms(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.atoms) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-pub fn fmtCies(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.cies) {
+pub fn fmtCies(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.cies) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-pub fn fmtFdes(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.fdes) {
+pub fn fmtFdes(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.fdes) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-pub fn fmtGroups(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.groups) {
+pub fn fmtGroups(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.groups) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-pub fn fmtPath(self: Object) std.fmt.Formatter(Object, formatPath) {
+pub fn fmtPath(self: Object) std.fmt.Alt(Object, formatPath) {
     return .{ .data = self };
 }
 
-fn formatPath(object: Object, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatPath(object: Object, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     if (object.archive) |ar| {
         try writer.print("{f}({f})", .{ ar.path, object.path });
     } else {

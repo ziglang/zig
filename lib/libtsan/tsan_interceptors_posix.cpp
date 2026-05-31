@@ -12,6 +12,9 @@
 // sanitizer_common/sanitizer_common_interceptors.inc
 //===----------------------------------------------------------------------===//
 
+#include <stdarg.h>
+
+#include "interception/interception.h"
 #include "sanitizer_common/sanitizer_allocator_dlsym.h"
 #include "sanitizer_common/sanitizer_atomic.h"
 #include "sanitizer_common/sanitizer_errno.h"
@@ -19,21 +22,20 @@
 #include "sanitizer_common/sanitizer_internal_defs.h"
 #include "sanitizer_common/sanitizer_libc.h"
 #include "sanitizer_common/sanitizer_linux.h"
+#include "sanitizer_common/sanitizer_platform_interceptors.h"
 #include "sanitizer_common/sanitizer_platform_limits_netbsd.h"
 #include "sanitizer_common/sanitizer_platform_limits_posix.h"
 #include "sanitizer_common/sanitizer_posix.h"
 #include "sanitizer_common/sanitizer_stacktrace.h"
 #include "sanitizer_common/sanitizer_tls_get_addr.h"
-#include "interception/interception.h"
+#include "sanitizer_common/sanitizer_vector.h"
+#include "tsan_fd.h"
 #include "tsan_interceptors.h"
 #include "tsan_interface.h"
-#include "tsan_platform.h"
-#include "tsan_suppressions.h"
-#include "tsan_rtl.h"
 #include "tsan_mman.h"
-#include "tsan_fd.h"
-
-#include <stdarg.h>
+#include "tsan_platform.h"
+#include "tsan_rtl.h"
+#include "tsan_suppressions.h"
 
 using namespace __tsan;
 
@@ -177,7 +179,7 @@ struct ThreadSignalContext {
   SignalDesc pending_signals[kSigCount];
   // emptyset and oldset are too big for stack.
   __sanitizer_sigset_t emptyset;
-  __sanitizer_sigset_t oldset;
+  __sanitizer::Vector<__sanitizer_sigset_t> oldset;
 };
 
 void EnterBlockingFunc(ThreadState *thr) {
@@ -558,6 +560,7 @@ static void SetJmp(ThreadState *thr, uptr sp) {
   buf->shadow_stack_pos = thr->shadow_stack_pos;
   ThreadSignalContext *sctx = SigCtx(thr);
   buf->int_signal_send = sctx ? sctx->int_signal_send : 0;
+  buf->oldset_stack_size = sctx ? sctx->oldset.Size() : 0;
   buf->in_blocking_func = atomic_load(&thr->in_blocking_func, memory_order_relaxed);
   buf->in_signal_handler = atomic_load(&thr->in_signal_handler,
       memory_order_relaxed);
@@ -574,8 +577,11 @@ static void LongJmp(ThreadState *thr, uptr *env) {
       while (thr->shadow_stack_pos > buf->shadow_stack_pos)
         FuncExit(thr);
       ThreadSignalContext *sctx = SigCtx(thr);
-      if (sctx)
+      if (sctx) {
         sctx->int_signal_send = buf->int_signal_send;
+        while (sctx->oldset.Size() > buf->oldset_stack_size)
+          sctx->oldset.PopBack();
+      }
       atomic_store(&thr->in_blocking_func, buf->in_blocking_func,
           memory_order_relaxed);
       atomic_store(&thr->in_signal_handler, buf->in_signal_handler,
@@ -742,6 +748,41 @@ TSAN_INTERCEPTOR(void, free, void *p) {
   user_free(thr, pc, p);
 }
 
+#  if SANITIZER_INTERCEPT_FREE_SIZED
+TSAN_INTERCEPTOR(void, free_sized, void *p, uptr size) {
+  if (UNLIKELY(!p))
+    return;
+  if (in_symbolizer())
+    return InternalFree(p);
+  if (DlsymAlloc::PointerIsMine(p))
+    return DlsymAlloc::Free(p);
+  invoke_free_hook(p);
+  SCOPED_INTERCEPTOR_RAW(free_sized, p, size);
+  user_free(thr, pc, p);
+}
+#    define TSAN_MAYBE_INTERCEPT_FREE_SIZED INTERCEPT_FUNCTION(free_sized)
+#  else
+#    define TSAN_MAYBE_INTERCEPT_FREE_SIZED
+#  endif
+
+#  if SANITIZER_INTERCEPT_FREE_ALIGNED_SIZED
+TSAN_INTERCEPTOR(void, free_aligned_sized, void *p, uptr alignment, uptr size) {
+  if (UNLIKELY(!p))
+    return;
+  if (in_symbolizer())
+    return InternalFree(p);
+  if (DlsymAlloc::PointerIsMine(p))
+    return DlsymAlloc::Free(p);
+  invoke_free_hook(p);
+  SCOPED_INTERCEPTOR_RAW(free_aligned_sized, p, alignment, size);
+  user_free(thr, pc, p);
+}
+#    define TSAN_MAYBE_INTERCEPT_FREE_ALIGNED_SIZED \
+      INTERCEPT_FUNCTION(free_aligned_sized)
+#  else
+#    define TSAN_MAYBE_INTERCEPT_FREE_ALIGNED_SIZED
+#  endif
+
 TSAN_INTERCEPTOR(void, cfree, void *p) {
   if (UNLIKELY(!p))
     return;
@@ -758,6 +799,9 @@ TSAN_INTERCEPTOR(uptr, malloc_usable_size, void *p) {
   SCOPED_INTERCEPTOR_RAW(malloc_usable_size, p);
   return user_alloc_usable_size(p);
 }
+#else
+#  define TSAN_MAYBE_INTERCEPT_FREE_SIZED
+#  define TSAN_MAYBE_INTERCEPT_FREE_ALIGNED_SIZED
 #endif
 
 TSAN_INTERCEPTOR(char *, strcpy, char *dst, const char *src) {
@@ -892,10 +936,9 @@ constexpr u32 kGuardWaiter = 1 << 17;
 
 static int guard_acquire(ThreadState *thr, uptr pc, atomic_uint32_t *g,
                          bool blocking_hooks = true) {
-  if (blocking_hooks)
-    OnPotentiallyBlockingRegionBegin();
-  auto on_exit = at_scope_exit([blocking_hooks] {
-    if (blocking_hooks)
+  bool in_potentially_blocking_region = false;
+  auto on_exit = at_scope_exit([&] {
+    if (in_potentially_blocking_region)
       OnPotentiallyBlockingRegionEnd();
   });
 
@@ -912,8 +955,13 @@ static int guard_acquire(ThreadState *thr, uptr pc, atomic_uint32_t *g,
     } else {
       if ((cmp & kGuardWaiter) ||
           atomic_compare_exchange_strong(g, &cmp, cmp | kGuardWaiter,
-                                         memory_order_relaxed))
+                                         memory_order_relaxed)) {
+        if (blocking_hooks && !in_potentially_blocking_region) {
+          in_potentially_blocking_region = true;
+          OnPotentiallyBlockingRegionBegin();
+        }
         FutexWait(g, cmp | kGuardWaiter);
+      }
     }
   }
 }
@@ -976,6 +1024,7 @@ void PlatformCleanUpThreadState(ThreadState *thr) {
       &thr->signal_ctx, memory_order_relaxed);
   if (sctx) {
     atomic_store(&thr->signal_ctx, 0, memory_order_relaxed);
+    sctx->oldset.Reset();
     UnmapOrDie(sctx, sizeof(*sctx));
   }
 }
@@ -2172,7 +2221,8 @@ void ProcessPendingSignalsImpl(ThreadState *thr) {
     return;
   atomic_fetch_add(&thr->in_signal_handler, 1, memory_order_relaxed);
   internal_sigfillset(&sctx->emptyset);
-  int res = REAL(pthread_sigmask)(SIG_SETMASK, &sctx->emptyset, &sctx->oldset);
+  __sanitizer_sigset_t *oldset = sctx->oldset.PushBack();
+  int res = REAL(pthread_sigmask)(SIG_SETMASK, &sctx->emptyset, oldset);
   CHECK_EQ(res, 0);
   for (int sig = 0; sig < kSigCount; sig++) {
     SignalDesc *signal = &sctx->pending_signals[sig];
@@ -2182,8 +2232,9 @@ void ProcessPendingSignalsImpl(ThreadState *thr) {
                             &signal->ctx);
     }
   }
-  res = REAL(pthread_sigmask)(SIG_SETMASK, &sctx->oldset, 0);
+  res = REAL(pthread_sigmask)(SIG_SETMASK, oldset, 0);
   CHECK_EQ(res, 0);
+  sctx->oldset.PopBack();
   atomic_fetch_add(&thr->in_signal_handler, -1, memory_order_relaxed);
 }
 
@@ -2951,6 +3002,8 @@ void InitializeInterceptors() {
   TSAN_INTERCEPT(realloc);
   TSAN_INTERCEPT(reallocarray);
   TSAN_INTERCEPT(free);
+  TSAN_MAYBE_INTERCEPT_FREE_SIZED;
+  TSAN_MAYBE_INTERCEPT_FREE_ALIGNED_SIZED;
   TSAN_INTERCEPT(cfree);
   TSAN_INTERCEPT(munmap);
   TSAN_MAYBE_INTERCEPT_MEMALIGN;
@@ -3073,6 +3126,10 @@ void InitializeInterceptors() {
 #if !SANITIZER_ANDROID
   TSAN_INTERCEPT(dl_iterate_phdr);
 #endif
+
+  // Symbolization indirectly calls dl_iterate_phdr
+  ready_to_symbolize = true;
+
   TSAN_MAYBE_INTERCEPT_ON_EXIT;
   TSAN_INTERCEPT(__cxa_atexit);
   TSAN_INTERCEPT(_exit);

@@ -16,5 +16,5 @@ fn bar(a: f32) u8 {
 }
 fn baz(_: u8) void {}
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux

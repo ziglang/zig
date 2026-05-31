@@ -279,6 +279,10 @@ template <class T>
 #    include <__utility/unreachable.h>
 #  endif
 
+#  if _LIBCPP_STD_VER >= 26
+#    include <__variant/monostate.h>
+#  endif
+
 #  include <version>
 
 // standard-mandated includes

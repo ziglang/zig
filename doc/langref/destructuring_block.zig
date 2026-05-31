@@ -15,8 +15,8 @@ pub fn main() void {
         break :blk .{ min, max };
     };
 
-    print("min = {}", .{ min });
-    print("max = {}", .{ max });
+    print("min = {}\n", .{ min });
+    print("max = {}\n", .{ max });
 }
 
 // exe=succeed

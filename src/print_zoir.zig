@@ -113,4 +113,4 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Zoir = std.zig.Zoir;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;

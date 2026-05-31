@@ -27,8 +27,6 @@ export fn quux() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:8: error: cannot assign to constant
 // :7:8: error: cannot assign to constant

@@ -11,5 +11,5 @@ pub fn main() !void {
 }
 
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 //

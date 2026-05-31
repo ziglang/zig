@@ -46,7 +46,7 @@ using binary_semaphore = counting_semaphore<1>; // since C++20
 */
 
 #if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
-#  include <__cxx03/semaphore>
+#  include <__cxx03/__config>
 #else
 #  include <__config>
 

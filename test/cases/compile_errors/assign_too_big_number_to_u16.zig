@@ -4,7 +4,5 @@ export fn foo() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:26: error: type 'u16' cannot represent integer value '753664'

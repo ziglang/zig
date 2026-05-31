@@ -13,8 +13,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :11:41: error: field 'b' has index '1' but pointer value is index '0' of struct 'tmp.Foo'
 // :1:13: note: struct declared here

@@ -581,19 +581,19 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
     relocs_log.debug("{x}: {s}", .{ self.value, name });
 
     var has_error = false;
-    var stream = std.io.fixedBufferStream(buffer);
+    var stream: Writer = .fixed(buffer);
     var i: usize = 0;
     while (i < relocs.len) : (i += 1) {
         const rel = relocs[i];
-        const rel_offset = rel.offset - self.off;
+        const rel_offset: usize = @intCast(rel.offset - self.off);
         const subtractor = if (rel.meta.has_subtractor) relocs[i - 1] else null;
 
         if (rel.tag == .@"extern") {
             if (rel.getTargetSymbol(self, macho_file).getFile(macho_file) == null) continue;
         }
 
-        try stream.seekTo(rel_offset);
-        self.resolveRelocInner(rel, subtractor, buffer, macho_file, stream.writer()) catch |err| {
+        stream.end = rel_offset;
+        self.resolveRelocInner(rel, subtractor, buffer, macho_file, &stream) catch |err| {
             switch (err) {
                 error.RelaxFail => {
                     const target = switch (rel.tag) {
@@ -630,6 +630,7 @@ const ResolveError = error{
     UnexpectedRemainder,
     Overflow,
     OutOfMemory,
+    WriteFailed,
 };
 
 fn resolveRelocInner(
@@ -638,7 +639,7 @@ fn resolveRelocInner(
     subtractor: ?Relocation,
     code: []u8,
     macho_file: *MachO,
-    writer: anytype,
+    writer: *Writer,
 ) ResolveError!void {
     const t = &macho_file.base.comp.root_mod.resolved_target.result;
     const cpu_arch = t.cpu.arch;
@@ -900,9 +901,9 @@ const x86_64 = struct {
         for (insts) |inst| try inst.encode(&stream, .{});
     }
 
-    const bits = @import("../../arch/x86_64/bits.zig");
-    const encoder = @import("../../arch/x86_64/encoder.zig");
-    const Disassembler = @import("../../arch/x86_64/Disassembler.zig");
+    const bits = @import("../../codegen/x86_64/bits.zig");
+    const encoder = @import("../../codegen/x86_64/encoder.zig");
+    const Disassembler = @import("../../codegen/x86_64/Disassembler.zig");
     const Immediate = bits.Immediate;
     const Instruction = encoder.Instruction;
 };
@@ -1072,7 +1073,7 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
     assert(i == buffer.len);
 }
 
-pub fn fmt(atom: Atom, macho_file: *MachO) std.fmt.Formatter(Format, Format.print) {
+pub fn fmt(atom: Atom, macho_file: *MachO) std.fmt.Alt(Format, Format.print) {
     return .{ .data = .{
         .atom = atom,
         .macho_file = macho_file,
@@ -1147,7 +1148,7 @@ const math = std.math;
 const mem = std.mem;
 const log = std.log.scoped(.link);
 const relocs_log = std.log.scoped(.link_relocs);
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 const Allocator = mem.Allocator;
 const AtomicBool = std.atomic.Value(bool);
 

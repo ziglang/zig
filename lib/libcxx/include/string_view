@@ -235,7 +235,8 @@ namespace std {
 #  include <__type_traits/is_convertible.h>
 #  include <__type_traits/is_same.h>
 #  include <__type_traits/is_standard_layout.h>
-#  include <__type_traits/is_trivial.h>
+#  include <__type_traits/is_trivially_constructible.h>
+#  include <__type_traits/is_trivially_copyable.h>
 #  include <__type_traits/remove_cvref.h>
 #  include <__type_traits/remove_reference.h>
 #  include <__type_traits/type_identity.h>
@@ -302,7 +303,10 @@ public:
 
   static_assert(!is_array<value_type>::value, "Character type of basic_string_view must not be an array");
   static_assert(is_standard_layout<value_type>::value, "Character type of basic_string_view must be standard-layout");
-  static_assert(is_trivial<value_type>::value, "Character type of basic_string_view must be trivial");
+  static_assert(is_trivially_default_constructible<value_type>::value,
+                "Character type of basic_string_view must be trivially default constructible");
+  static_assert(is_trivially_copyable<value_type>::value,
+                "Character type of basic_string_view must be trivially copyable");
   static_assert(is_same<_CharT, typename traits_type::char_type>::value,
                 "traits_type::char_type must be the same type as CharT");
 
@@ -447,7 +451,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 size_type
   copy(_CharT* __s, size_type __n, size_type __pos = 0) const {
     if (__pos > size())
-      __throw_out_of_range("string_view::copy");
+      std::__throw_out_of_range("string_view::copy");
     size_type __rlen = std::min(__n, size() - __pos);
     _Traits::copy(__s, data() + __pos, __rlen);
     return __rlen;
@@ -948,6 +952,7 @@ _LIBCPP_POP_MACROS
 #    include <concepts>
 #    include <cstdlib>
 #    include <iterator>
+#    include <optional>
 #    include <type_traits>
 #  endif
 #endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)

@@ -17,5 +17,5 @@ fn widenSlice(slice: []align(1) const u8) []align(1) const i32 {
     return std.mem.bytesAsSlice(i32, slice);
 }
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux,aarch64-linux

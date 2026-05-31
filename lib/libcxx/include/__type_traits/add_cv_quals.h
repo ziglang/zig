@@ -18,7 +18,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS add_const {
+struct _LIBCPP_NO_SPECIALIZATIONS add_const {
   using type _LIBCPP_NODEBUG = const _Tp;
 };
 
@@ -28,7 +28,7 @@ using add_const_t = typename add_const<_Tp>::type;
 #endif
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS add_cv {
+struct _LIBCPP_NO_SPECIALIZATIONS add_cv {
   using type _LIBCPP_NODEBUG = const volatile _Tp;
 };
 
@@ -38,7 +38,7 @@ using add_cv_t = typename add_cv<_Tp>::type;
 #endif
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS add_volatile {
+struct _LIBCPP_NO_SPECIALIZATIONS add_volatile {
   using type _LIBCPP_NODEBUG = volatile _Tp;
 };
 

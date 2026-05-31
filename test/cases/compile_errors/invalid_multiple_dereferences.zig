@@ -13,8 +13,6 @@ pub const Box = struct {
 };
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:8: error: cannot dereference non-pointer type 'tmp.Box'
 // :11:17: note: struct declared here

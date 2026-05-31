@@ -238,18 +238,6 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
         pub fn toInt(msg: []const u8, key: *const [key_length]u8) T {
             return State.hash(msg, key);
         }
-
-        pub const Error = error{};
-        pub const Writer = std.io.GenericWriter(*Self, Error, write);
-
-        fn write(self: *Self, bytes: []const u8) Error!usize {
-            self.update(bytes);
-            return bytes.len;
-        }
-
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
     };
 }
 

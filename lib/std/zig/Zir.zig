@@ -260,6 +260,10 @@ pub const Inst = struct {
         /// `[N:S]T` syntax. Source location is the array type expression node.
         /// Uses the `pl_node` union field. Payload is `ArrayTypeSentinel`.
         array_type_sentinel,
+        /// `@Int` builtin.
+        /// Uses the `pl_node` union field with `Bin` payload.
+        /// lhs is signedness, rhs is bit count.
+        reify_int,
         /// `@Vector` builtin.
         /// Uses the `pl_node` union field with `Bin` payload.
         /// lhs is length, rhs is element type.
@@ -420,6 +424,7 @@ pub const Inst = struct {
         /// is the local's value.
         dbg_var_val,
         /// Uses a name to identify a Decl and takes a pointer to it.
+        ///
         /// Uses the `str_tok` union field.
         decl_ref,
         /// Uses a name to identify a Decl and uses it as a value.
@@ -440,12 +445,17 @@ pub const Inst = struct {
         /// Payload is `Bin`.
         /// No OOB safety check is emitted.
         elem_ptr,
-        /// Given an array, slice, or pointer, returns the element at the provided index.
+        /// Given a pointer to an array, slice, or pointer, loads the element
+        /// at the provided index.
+        ///
         /// Uses the `pl_node` union field. AST node is a[b] syntax. Payload is `Bin`.
-        elem_val_node,
-        /// Same as `elem_val_node` but used only for for loop.
-        /// Uses the `pl_node` union field. AST node is the condition of a for loop.
-        /// Payload is `Bin`.
+        elem_ptr_load,
+        /// Given an array, slice, or pointer, returns the element at the
+        /// provided index.
+        ///
+        /// Uses the `pl_node` union field. AST node is the condition of a for
+        /// loop. Payload is `Bin`.
+        ///
         /// No OOB safety check is emitted.
         elem_val,
         /// Same as `elem_val` but takes the index as an immediate value.
@@ -472,19 +482,26 @@ pub const Inst = struct {
         /// to the named field. The field name is stored in string_bytes. Used by a.b syntax.
         /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
         field_ptr,
-        /// Given a struct or object that contains virtual fields, returns the named field.
+        /// Given a pointer to a struct or object that contains virtual fields, loads from the
+        /// named field.
+        ///
         /// The field name is stored in string_bytes. Used by a.b syntax.
+        ///
         /// This instruction also accepts a pointer.
+        ///
         /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
-        field_val,
+        field_ptr_load,
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
         /// to the named field. The field name is a comptime instruction. Used by @field.
         /// Uses `pl_node` field. The AST node is the builtin call. Payload is FieldNamed.
         field_ptr_named,
-        /// Given a struct or object that contains virtual fields, returns the named field.
+        /// Given a pointer to a struct or object that contains virtual fields,
+        /// loads from the named field.
+        ///
         /// The field name is a comptime instruction. Used by @field.
+        ///
         /// Uses `pl_node` field. The AST node is the builtin call. Payload is FieldNamed.
-        field_val_named,
+        field_ptr_named_load,
         /// Returns a function type, or a function instance, depending on whether
         /// the body_len is 0. Calling convention is auto.
         /// Uses the `pl_node` union field. `payload_index` points to a `Func`.
@@ -1099,6 +1116,7 @@ pub const Inst = struct {
                 .array_mul,
                 .array_type,
                 .array_type_sentinel,
+                .reify_int,
                 .vector_type,
                 .elem_type,
                 .indexable_ptr_elem_type,
@@ -1138,16 +1156,16 @@ pub const Inst = struct {
                 .elem_ptr,
                 .elem_val,
                 .elem_ptr_node,
-                .elem_val_node,
+                .elem_ptr_load,
                 .elem_val_imm,
                 .ensure_result_used,
                 .ensure_result_non_error,
                 .ensure_err_union_payload_void,
                 .@"export",
                 .field_ptr,
-                .field_val,
+                .field_ptr_load,
                 .field_ptr_named,
-                .field_val_named,
+                .field_ptr_named_load,
                 .func,
                 .func_inferred,
                 .func_fancy,
@@ -1396,6 +1414,7 @@ pub const Inst = struct {
                 .array_mul,
                 .array_type,
                 .array_type_sentinel,
+                .reify_int,
                 .vector_type,
                 .elem_type,
                 .indexable_ptr_elem_type,
@@ -1432,12 +1451,12 @@ pub const Inst = struct {
                 .elem_ptr,
                 .elem_val,
                 .elem_ptr_node,
-                .elem_val_node,
+                .elem_ptr_load,
                 .elem_val_imm,
                 .field_ptr,
-                .field_val,
+                .field_ptr_load,
                 .field_ptr_named,
-                .field_val_named,
+                .field_ptr_named_load,
                 .func,
                 .func_inferred,
                 .func_fancy,
@@ -1631,6 +1650,7 @@ pub const Inst = struct {
                 .array_mul = .pl_node,
                 .array_type = .pl_node,
                 .array_type_sentinel = .pl_node,
+                .reify_int = .pl_node,
                 .vector_type = .pl_node,
                 .elem_type = .un_node,
                 .indexable_ptr_elem_type = .un_node,
@@ -1679,7 +1699,7 @@ pub const Inst = struct {
                 .elem_ptr = .pl_node,
                 .elem_ptr_node = .pl_node,
                 .elem_val = .pl_node,
-                .elem_val_node = .pl_node,
+                .elem_ptr_load = .pl_node,
                 .elem_val_imm = .elem_val_imm,
                 .ensure_result_used = .un_node,
                 .ensure_result_non_error = .un_node,
@@ -1688,9 +1708,9 @@ pub const Inst = struct {
                 .error_value = .str_tok,
                 .@"export" = .pl_node,
                 .field_ptr = .pl_node,
-                .field_val = .pl_node,
+                .field_ptr_load = .pl_node,
                 .field_ptr_named = .pl_node,
-                .field_val_named = .pl_node,
+                .field_ptr_named_load = .pl_node,
                 .func = .pl_node,
                 .func_inferred = .pl_node,
                 .func_fancy = .pl_node,
@@ -2022,10 +2042,43 @@ pub const Inst = struct {
         /// Implement builtin `@errorFromInt`.
         /// `operand` is payload index to `UnNode`.
         error_from_int,
-        /// Implement builtin `@Type`.
-        /// `operand` is payload index to `Reify`.
+        /// Given a comptime-known operand of type `[]const A`, returns the type `*const [operand.len]B`.
+        /// The types `A` and `B` are determined from `ReifySliceArgInfo`.
+        /// This instruction is used to provide result types to arguments of `@Fn`, `@Struct`, etc.
+        /// `operand` is payload index to `UnNode`.
+        /// `small` is a bitcast `ReifySliceArgInfo`.
+        reify_slice_arg_ty,
+        /// Like `reify_slice_arg_ty` for the specific case of `[]const []const u8` to `[]const TagInt`,
+        /// as needed for `@Enum`.
+        /// `operand` is payload index to `BinNode`. lhs is the type `TagInt`. rhs is the `[]const []const u8` value.
+        /// `small` is unused.
+        reify_enum_value_slice_ty,
+        /// Given a comptime-known operand of type `type`, returns the type `?operand` if possible, otherwise `?noreturn`.
+        /// Used for the final arg of `@Pointer` to allow reifying pointers to opaque types.
+        /// `operand` is payload index to `UnNode`.
+        /// `small` is unused.
+        reify_pointer_sentinel_ty,
+        /// Implements builtin `@Tuple`.
+        /// `operand` is payload index to `UnNode`.
+        reify_tuple,
+        /// Implements builtin `@Pointer`.
+        /// `operand` is payload index to `ReifyPointer`.
+        reify_pointer,
+        /// Implements builtin `@Fn`.
+        /// `operand` is payload index to `ReifyFn`.
+        reify_fn,
+        /// Implements builtin `@Struct`.
+        /// `operand` is payload index to `ReifyStruct`.
         /// `small` contains `NameStrategy`.
-        reify,
+        reify_struct,
+        /// Implements builtin `@Union`.
+        /// `operand` is payload index to `ReifyUnion`.
+        /// `small` contains `NameStrategy`.
+        reify_union,
+        /// Implements builtin `@Enum`.
+        /// `operand` is payload index to `ReifyEnum`.
+        /// `small` contains `NameStrategy`.
+        reify_enum,
         /// Implements the `@cmpxchgStrong` and `@cmpxchgWeak` builtins.
         /// `small` 0=>weak 1=>strong
         /// `operand` is payload index to `Cmpxchg`.
@@ -2111,6 +2164,11 @@ pub const Inst = struct {
         /// This instruction is always `noreturn`, however, it is not considered as such by ZIR-level queries. This allows AstGen to assume that
         /// any code may have gone here, avoiding false-positive "unreachable code" errors.
         astgen_error,
+        /// Given a type, strips away any error unions or optionals stacked
+        /// on top and returns the base type. That base type must be a float.
+        /// For example: Provided with error{Foo}!?f64, returns f64.
+        /// `operand` is `operand: Air.Inst.Ref`.
+        float_op_result_ty,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2124,13 +2182,10 @@ pub const Inst = struct {
         /// ZIR is structured so that the outermost "main" struct of any file
         /// is always at index 0.
         main_struct_inst = 0,
-        ref_start_index = static_len,
         _,
 
-        pub const static_len = 124;
-
         pub fn toRef(i: Index) Inst.Ref {
-            return @enumFromInt(@intFromEnum(Index.ref_start_index) + @intFromEnum(i));
+            return @enumFromInt(Ref.static_len + @intFromEnum(i));
         }
 
         pub fn toOptional(i: Index) OptionalIndex {
@@ -2142,7 +2197,6 @@ pub const Inst = struct {
         /// ZIR is structured so that the outermost "main" struct of any file
         /// is always at index 0.
         main_struct_inst = 0,
-        ref_start_index = Index.static_len,
         none = std.math.maxInt(u32),
         _,
 
@@ -2212,6 +2266,11 @@ pub const Inst = struct {
         manyptr_const_u8_sentinel_0_type,
         slice_const_u8_type,
         slice_const_u8_sentinel_0_type,
+        manyptr_const_slice_const_u8_type,
+        slice_const_slice_const_u8_type,
+        optional_type_type,
+        manyptr_const_type_type,
+        slice_const_type_type,
         vector_8_i8_type,
         vector_16_i8_type,
         vector_32_i8_type,
@@ -2291,11 +2350,13 @@ pub const Inst = struct {
 
         _,
 
+        pub const static_len = @typeInfo(@This()).@"enum".fields.len - 1;
+
         pub fn toIndex(inst: Ref) ?Index {
             assert(inst != .none);
             const ref_int = @intFromEnum(inst);
-            if (ref_int >= @intFromEnum(Index.ref_start_index)) {
-                return @enumFromInt(ref_int - @intFromEnum(Index.ref_start_index));
+            if (ref_int >= static_len) {
+                return @enumFromInt(ref_int - static_len);
             } else {
                 return null;
             }
@@ -3153,6 +3214,23 @@ pub const Inst = struct {
         rhs: Ref,
     };
 
+    pub const ReifySliceArgInfo = enum(u16) {
+        /// Input element type is `type`.
+        /// Output element type is `std.builtin.Type.Fn.Param.Attributes`.
+        type_to_fn_param_attrs,
+        /// Input element type is `[]const u8`.
+        /// Output element type is `type`.
+        string_to_struct_field_type,
+        /// Identical to `string_to_struct_field_type` aside from emitting slightly different error messages.
+        string_to_union_field_type,
+        /// Input element type is `[]const u8`.
+        /// Output element type is `std.builtin.Type.StructField.Attributes`.
+        string_to_struct_field_attrs,
+        /// Input element type is `[]const u8`.
+        /// Output element type is `std.builtin.Type.UnionField.Attributes`.
+        string_to_union_field_attrs,
+    };
+
     pub const UnNode = struct {
         node: Ast.Node.Offset,
         operand: Ref,
@@ -3163,12 +3241,55 @@ pub const Inst = struct {
         index: u32,
     };
 
-    pub const Reify = struct {
+    pub const ReifyPointer = struct {
+        node: Ast.Node.Offset,
+        size: Ref,
+        attrs: Ref,
+        elem_ty: Ref,
+        sentinel: Ref,
+    };
+
+    pub const ReifyFn = struct {
+        node: Ast.Node.Offset,
+        param_types: Ref,
+        param_attrs: Ref,
+        ret_ty: Ref,
+        fn_attrs: Ref,
+    };
+
+    pub const ReifyStruct = struct {
+        src_line: u32,
         /// This node is absolute, because `reify` instructions are tracked across updates, and
         /// this simplifies the logic for getting source locations for types.
         node: Ast.Node.Index,
-        operand: Ref,
+        layout: Ref,
+        backing_ty: Ref,
+        field_names: Ref,
+        field_types: Ref,
+        field_attrs: Ref,
+    };
+
+    pub const ReifyUnion = struct {
         src_line: u32,
+        /// This node is absolute, because `reify` instructions are tracked across updates, and
+        /// this simplifies the logic for getting source locations for types.
+        node: Ast.Node.Index,
+        layout: Ref,
+        arg_ty: Ref,
+        field_names: Ref,
+        field_types: Ref,
+        field_attrs: Ref,
+    };
+
+    pub const ReifyEnum = struct {
+        src_line: u32,
+        /// This node is absolute, because `reify` instructions are tracked across updates, and
+        /// this simplifies the logic for getting source locations for types.
+        node: Ast.Node.Index,
+        tag_ty: Ref,
+        mode: Ref,
+        field_names: Ref,
+        field_values: Ref,
     };
 
     /// Trailing:
@@ -3480,14 +3601,19 @@ pub const Inst = struct {
         calling_convention,
         address_space,
         float_mode,
+        signedness,
         reduce_op,
         call_modifier,
         prefetch_options,
         export_options,
         extern_options,
-        type_info,
         branch_hint,
         clobbers,
+        pointer_size,
+        pointer_attributes,
+        fn_attributes,
+        container_layout,
+        enum_mode,
         // Values
         calling_convention_c,
         calling_convention_inline,
@@ -4077,8 +4203,8 @@ pub const DeclContents = struct {
     /// This is a simple optional because ZIR guarantees that a `func`/`func_inferred`/`func_fancy` instruction
     /// can only occur once per `declaration`.
     func_decl: ?Inst.Index,
-    explicit_types: std.ArrayListUnmanaged(Inst.Index),
-    other: std.ArrayListUnmanaged(Inst.Index),
+    explicit_types: std.ArrayList(Inst.Index),
+    other: std.ArrayList(Inst.Index),
 
     pub const init: DeclContents = .{
         .func_decl = null,
@@ -4102,7 +4228,7 @@ pub const DeclContents = struct {
 /// nested declarations; to find all declarations, call this function recursively on the type declarations discovered
 /// in `contents.explicit_types`.
 ///
-/// This populates an `ArrayListUnmanaged` because an iterator would need to allocate memory anyway.
+/// This populates an `ArrayList` because an iterator would need to allocate memory anyway.
 pub fn findTrackable(zir: Zir, gpa: Allocator, contents: *DeclContents, decl_inst: Zir.Inst.Index) !void {
     contents.clear();
 
@@ -4174,6 +4300,7 @@ fn findTrackableInner(
         .array_mul,
         .array_type,
         .array_type_sentinel,
+        .reify_int,
         .vector_type,
         .elem_type,
         .indexable_ptr_elem_type,
@@ -4210,7 +4337,7 @@ fn findTrackableInner(
         .div,
         .elem_ptr_node,
         .elem_ptr,
-        .elem_val_node,
+        .elem_ptr_load,
         .elem_val,
         .elem_val_imm,
         .ensure_result_used,
@@ -4220,9 +4347,9 @@ fn findTrackableInner(
         .error_value,
         .@"export",
         .field_ptr,
-        .field_val,
+        .field_ptr_load,
         .field_ptr_named,
-        .field_val_named,
+        .field_ptr_named_load,
         .import,
         .int,
         .int_big,
@@ -4416,6 +4543,12 @@ fn findTrackableInner(
                 .select,
                 .int_from_error,
                 .error_from_int,
+                .reify_slice_arg_ty,
+                .reify_enum_value_slice_ty,
+                .reify_pointer_sentinel_ty,
+                .reify_tuple,
+                .reify_pointer,
+                .reify_fn,
                 .cmpxchg,
                 .c_va_arg,
                 .c_va_copy,
@@ -4436,6 +4569,7 @@ fn findTrackableInner(
                 .tuple_decl,
                 .dbg_empty_stmt,
                 .astgen_error,
+                .float_op_result_ty,
                 => return,
 
                 // `@TypeOf` has a body.
@@ -4446,7 +4580,11 @@ fn findTrackableInner(
                 },
 
                 // Reifications and opaque declarations need tracking, but have no body.
-                .reify, .opaque_decl => return contents.other.append(gpa, inst),
+                .reify_enum,
+                .reify_struct,
+                .reify_union,
+                .opaque_decl,
+                => return contents.other.append(gpa, inst),
 
                 // Struct declarations need tracking and have bodies.
                 .struct_decl => {
@@ -5229,7 +5367,9 @@ pub fn assertTrackable(zir: Zir, inst_idx: Zir.Inst.Index) void {
             .union_decl,
             .enum_decl,
             .opaque_decl,
-            .reify,
+            .reify_enum,
+            .reify_struct,
+            .reify_union,
             => {}, // tracked in order, as the owner instructions of explicit container types
             else => unreachable, // assertion failure; not trackable
         },

@@ -4,8 +4,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:47: error: expected type 'builtin.AtomicOrder', found 'u32'
 // :?:?: note: enum declared here

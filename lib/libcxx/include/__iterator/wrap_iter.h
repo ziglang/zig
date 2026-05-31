@@ -112,9 +112,9 @@ private:
   template <class _CharT, class _Traits>
   friend class basic_string_view;
   template <class _Tp, class _Alloc>
-  friend class _LIBCPP_TEMPLATE_VIS vector;
+  friend class vector;
   template <class _Tp, size_t>
-  friend class _LIBCPP_TEMPLATE_VIS span;
+  friend class span;
   template <class _Tp, size_t _Size>
   friend struct array;
 };
@@ -236,7 +236,7 @@ struct __libcpp_is_contiguous_iterator<__wrap_iter<_It> > : true_type {};
 #endif
 
 template <class _It>
-struct _LIBCPP_TEMPLATE_VIS pointer_traits<__wrap_iter<_It> > {
+struct pointer_traits<__wrap_iter<_It> > {
   typedef __wrap_iter<_It> pointer;
   typedef typename pointer_traits<_It>::element_type element_type;
   typedef typename pointer_traits<_It>::difference_type difference_type;

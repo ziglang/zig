@@ -16,11 +16,13 @@
 #include <__algorithm/unwrap_range.h>
 #include <__config>
 #include <__cstddef/size_t.h>
+#include <__fwd/memory.h>
 #include <__iterator/iterator_traits.h>
 #include <__iterator/reverse_iterator.h>
 #include <__memory/addressof.h>
 #include <__memory/allocator_traits.h>
 #include <__memory/construct_at.h>
+#include <__memory/destroy.h>
 #include <__memory/pointer_traits.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/extent.h>
@@ -31,7 +33,6 @@
 #include <__type_traits/is_trivially_constructible.h>
 #include <__type_traits/is_trivially_relocatable.h>
 #include <__type_traits/is_unbounded_array.h>
-#include <__type_traits/negation.h>
 #include <__type_traits/remove_const.h>
 #include <__type_traits/remove_extent.h>
 #include <__utility/exception_guard.h>
@@ -511,14 +512,6 @@ __uninitialized_allocator_value_construct_n_multidimensional(_Alloc& __alloc, _B
 
 #endif // _LIBCPP_STD_VER >= 17
 
-// Destroy all elements in [__first, __last) from left to right using allocator destruction.
-template <class _Alloc, class _Iter, class _Sent>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
-__allocator_destroy(_Alloc& __alloc, _Iter __first, _Sent __last) {
-  for (; __first != __last; ++__first)
-    allocator_traits<_Alloc>::destroy(__alloc, std::__to_address(__first));
-}
-
 template <class _Alloc, class _Iter>
 class _AllocatorDestroyRangeReverse {
 public:
@@ -556,17 +549,17 @@ __uninitialized_allocator_copy_impl(_Alloc& __alloc, _Iter1 __first1, _Sent1 __l
 }
 
 template <class _Alloc, class _Type>
-struct __allocator_has_trivial_copy_construct : _Not<__has_construct<_Alloc, _Type*, const _Type&> > {};
+inline const bool __allocator_has_trivial_copy_construct_v = !__has_construct_v<_Alloc, _Type*, const _Type&>;
 
 template <class _Type>
-struct __allocator_has_trivial_copy_construct<allocator<_Type>, _Type> : true_type {};
+inline const bool __allocator_has_trivial_copy_construct_v<allocator<_Type>, _Type> = true;
 
 template <class _Alloc,
           class _In,
           class _Out,
           __enable_if_t<is_trivially_copy_constructible<_In>::value && is_trivially_copy_assignable<_In>::value &&
                             is_same<__remove_const_t<_In>, __remove_const_t<_Out> >::value &&
-                            __allocator_has_trivial_copy_construct<_Alloc, _In>::value,
+                            __allocator_has_trivial_copy_construct_v<_Alloc, _In>,
                         int> = 0>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _Out*
 __uninitialized_allocator_copy_impl(_Alloc&, _In* __first1, _In* __last1, _Out* __first2) {
@@ -592,16 +585,16 @@ __uninitialized_allocator_copy(_Alloc& __alloc, _Iter1 __first1, _Sent1 __last1,
 }
 
 template <class _Alloc, class _Type>
-struct __allocator_has_trivial_move_construct : _Not<__has_construct<_Alloc, _Type*, _Type&&> > {};
+inline const bool __allocator_has_trivial_move_construct_v = !__has_construct_v<_Alloc, _Type*, _Type&&>;
 
 template <class _Type>
-struct __allocator_has_trivial_move_construct<allocator<_Type>, _Type> : true_type {};
+inline const bool __allocator_has_trivial_move_construct_v<allocator<_Type>, _Type> = true;
 
 template <class _Alloc, class _Tp>
-struct __allocator_has_trivial_destroy : _Not<__has_destroy<_Alloc, _Tp*> > {};
+inline const bool __allocator_has_trivial_destroy_v = !__has_destroy_v<_Alloc, _Tp*>;
 
 template <class _Tp, class _Up>
-struct __allocator_has_trivial_destroy<allocator<_Tp>, _Up> : true_type {};
+inline const bool __allocator_has_trivial_destroy_v<allocator<_Tp>, _Up> = true;
 
 // __uninitialized_allocator_relocate relocates the objects in [__first, __last) into __result.
 // Relocation means that the objects in [__first, __last) are placed into __result as-if by move-construct and destroy,
@@ -620,11 +613,11 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 void __uninitialized_allocat
     _Alloc& __alloc, _ContiguousIterator __first, _ContiguousIterator __last, _ContiguousIterator __result) {
   static_assert(__libcpp_is_contiguous_iterator<_ContiguousIterator>::value, "");
   using _ValueType = typename iterator_traits<_ContiguousIterator>::value_type;
-  static_assert(__is_cpp17_move_insertable<_Alloc>::value,
-                "The specified type does not meet the requirements of Cpp17MoveInsertable");
+  static_assert(
+      __is_cpp17_move_insertable_v<_Alloc>, "The specified type does not meet the requirements of Cpp17MoveInsertable");
   if (__libcpp_is_constant_evaluated() || !__libcpp_is_trivially_relocatable<_ValueType>::value ||
-      !__allocator_has_trivial_move_construct<_Alloc, _ValueType>::value ||
-      !__allocator_has_trivial_destroy<_Alloc, _ValueType>::value) {
+      !__allocator_has_trivial_move_construct_v<_Alloc, _ValueType> ||
+      !__allocator_has_trivial_destroy_v<_Alloc, _ValueType>) {
     auto __destruct_first = __result;
     auto __guard          = std::__make_exception_guard(
         _AllocatorDestroyRangeReverse<_Alloc, _ContiguousIterator>(__alloc, __destruct_first, __result));

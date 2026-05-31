@@ -124,6 +124,7 @@
 
 // macOS system headers
 #include <mach/clock.h>
+#include <mach/exception.h>
 #include <mach/mach.h>
 #include <mach/mach_time.h>
 #include <mach/thread_state.h>
@@ -177,7 +178,8 @@
 #include <os/lock.h>
 #include <simd/simd.h>
 #include <xpc/xpc.h>
-#include <CommonCrypto/CommonDigest.h>
+#include <CommonCrypto/CommonCrypto.h>
+#include <CommonCrypto/CommonRandom.h> // Not included by CommonCrypto.h
 
 #include <objc/message.h>
 #include <objc/NSObject.h>
@@ -194,6 +196,9 @@
 // Depended on by sqlite-amalgamation
 #include <sys/file.h>
 #include <malloc/malloc.h>
+
+// Depended on by bdwgc
+#include <mach-o/getsect.h>
 
 // Provided by macOS LibC
 #include <memory.h>

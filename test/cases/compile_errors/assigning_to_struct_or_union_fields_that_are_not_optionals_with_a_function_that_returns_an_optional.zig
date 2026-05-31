@@ -15,8 +15,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :11:20: error: expected type 'u8', found '?u8'
 // :11:20: note: cannot convert optional to payload type

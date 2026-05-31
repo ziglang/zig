@@ -4,7 +4,5 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:15: error: type 'u8' cannot represent integer value '300'

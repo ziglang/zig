@@ -5,7 +5,41 @@ const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
+    bool,
+    clamps,
+    coprocessor,
+    dcache,
+    debug,
     density,
+    dfpaccel,
+    div32,
+    exception,
+    extendedl32r,
+    fp,
+    highpriinterrupts,
+    highpriinterrupts_level3,
+    highpriinterrupts_level4,
+    highpriinterrupts_level5,
+    highpriinterrupts_level6,
+    highpriinterrupts_level7,
+    interrupt,
+    loop,
+    mac16,
+    minmax,
+    miscsr,
+    mul16,
+    mul32,
+    mul32high,
+    nsa,
+    prid,
+    regprotect,
+    rvector,
+    sext,
+    threadptr,
+    timers1,
+    timers2,
+    timers3,
+    windowed,
 };
 
 pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
@@ -17,9 +51,189 @@ pub const all_features = blk: {
     const len = @typeInfo(Feature).@"enum".fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
+    result[@intFromEnum(Feature.bool)] = .{
+        .llvm_name = "bool",
+        .description = "Enable Xtensa Boolean extension",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.clamps)] = .{
+        .llvm_name = "clamps",
+        .description = "Enable Xtensa CLAMPS option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.coprocessor)] = .{
+        .llvm_name = "coprocessor",
+        .description = "Enable Xtensa Coprocessor option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.dcache)] = .{
+        .llvm_name = "dcache",
+        .description = "Enable Xtensa Data Cache option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.debug)] = .{
+        .llvm_name = "debug",
+        .description = "Enable Xtensa Debug option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.density)] = .{
         .llvm_name = "density",
         .description = "Enable Density instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.dfpaccel)] = .{
+        .llvm_name = "dfpaccel",
+        .description = "Enable Xtensa Double Precision FP acceleration",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.div32)] = .{
+        .llvm_name = "div32",
+        .description = "Enable Xtensa Div32 option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.exception)] = .{
+        .llvm_name = "exception",
+        .description = "Enable Xtensa Exception option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.extendedl32r)] = .{
+        .llvm_name = "extendedl32r",
+        .description = "Enable Xtensa Extended L32R option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.fp)] = .{
+        .llvm_name = "fp",
+        .description = "Enable Xtensa Single FP instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.highpriinterrupts)] = .{
+        .llvm_name = "highpriinterrupts",
+        .description = "Enable Xtensa HighPriInterrupts option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.highpriinterrupts_level3)] = .{
+        .llvm_name = "highpriinterrupts-level3",
+        .description = "Enable Xtensa HighPriInterrupts Level3",
+        .dependencies = featureSet(&[_]Feature{
+            .highpriinterrupts,
+        }),
+    };
+    result[@intFromEnum(Feature.highpriinterrupts_level4)] = .{
+        .llvm_name = "highpriinterrupts-level4",
+        .description = "Enable Xtensa HighPriInterrupts Level4",
+        .dependencies = featureSet(&[_]Feature{
+            .highpriinterrupts,
+        }),
+    };
+    result[@intFromEnum(Feature.highpriinterrupts_level5)] = .{
+        .llvm_name = "highpriinterrupts-level5",
+        .description = "Enable Xtensa HighPriInterrupts Level5",
+        .dependencies = featureSet(&[_]Feature{
+            .highpriinterrupts,
+        }),
+    };
+    result[@intFromEnum(Feature.highpriinterrupts_level6)] = .{
+        .llvm_name = "highpriinterrupts-level6",
+        .description = "Enable Xtensa HighPriInterrupts Level6",
+        .dependencies = featureSet(&[_]Feature{
+            .highpriinterrupts,
+        }),
+    };
+    result[@intFromEnum(Feature.highpriinterrupts_level7)] = .{
+        .llvm_name = "highpriinterrupts-level7",
+        .description = "Enable Xtensa HighPriInterrupts Level7",
+        .dependencies = featureSet(&[_]Feature{
+            .highpriinterrupts,
+        }),
+    };
+    result[@intFromEnum(Feature.interrupt)] = .{
+        .llvm_name = "interrupt",
+        .description = "Enable Xtensa Interrupt option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.loop)] = .{
+        .llvm_name = "loop",
+        .description = "Enable Xtensa Loop extension",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.mac16)] = .{
+        .llvm_name = "mac16",
+        .description = "Enable Xtensa MAC16 instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.minmax)] = .{
+        .llvm_name = "minmax",
+        .description = "Enable Xtensa MINMAX option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.miscsr)] = .{
+        .llvm_name = "miscsr",
+        .description = "Enable Xtensa Miscellaneous SR option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.mul16)] = .{
+        .llvm_name = "mul16",
+        .description = "Enable Xtensa Mul16 option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.mul32)] = .{
+        .llvm_name = "mul32",
+        .description = "Enable Xtensa Mul32 option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.mul32high)] = .{
+        .llvm_name = "mul32high",
+        .description = "Enable Xtensa Mul32High option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.nsa)] = .{
+        .llvm_name = "nsa",
+        .description = "Enable Xtensa NSA option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.prid)] = .{
+        .llvm_name = "prid",
+        .description = "Enable Xtensa Processor ID option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.regprotect)] = .{
+        .llvm_name = "regprotect",
+        .description = "Enable Xtensa Region Protection option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.rvector)] = .{
+        .llvm_name = "rvector",
+        .description = "Enable Xtensa Relocatable Vector option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.sext)] = .{
+        .llvm_name = "sext",
+        .description = "Enable Xtensa Sign Extend option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.threadptr)] = .{
+        .llvm_name = "threadptr",
+        .description = "Enable Xtensa THREADPTR option",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.timers1)] = .{
+        .llvm_name = "timers1",
+        .description = "Enable Xtensa Timers 1",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.timers2)] = .{
+        .llvm_name = "timers2",
+        .description = "Enable Xtensa Timers 2",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.timers3)] = .{
+        .llvm_name = "timers3",
+        .description = "Enable Xtensa Timers 3",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.windowed)] = .{
+        .llvm_name = "windowed",
+        .description = "Enable Xtensa Windowed Register option",
         .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);

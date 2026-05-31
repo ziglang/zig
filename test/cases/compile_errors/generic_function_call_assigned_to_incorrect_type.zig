@@ -7,7 +7,5 @@ fn myAlloc(comptime arg: type) anyerror!arg {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:18: error: expected type '[]i32', found 'anyerror!i32'

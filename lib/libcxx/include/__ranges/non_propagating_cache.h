@@ -36,7 +36,7 @@ namespace ranges {
 // may refer to internal details of the source view.
 template <class _Tp>
   requires is_object_v<_Tp>
-class _LIBCPP_TEMPLATE_VIS __non_propagating_cache {
+class __non_propagating_cache {
   struct __from_tag {};
   struct __forward_tag {};
 

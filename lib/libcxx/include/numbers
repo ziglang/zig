@@ -59,7 +59,7 @@ namespace std::numbers {
 */
 
 #if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
-#  include <__cxx03/numbers>
+#  include <__cxx03/__config>
 #else
 #  include <__concepts/arithmetic.h>
 #  include <__config>

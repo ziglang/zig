@@ -1,7 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const mem = std.mem;
-const io = std.io;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Cache = std.Build.Cache;
@@ -174,7 +173,7 @@ fn serveDocsFile(
     // The desired API is actually sendfile, which will require enhancing std.http.Server.
     // We load the file with every request so that the user can make changes to the file
     // and refresh the HTML page without restarting this server.
-    const file_contents = try context.lib_dir.readFileAlloc(gpa, name, 10 * 1024 * 1024);
+    const file_contents = try context.lib_dir.readFileAlloc(name, gpa, .limited(10 * 1024 * 1024));
     defer gpa.free(file_contents);
     try request.respond(file_contents, .{
         .extra_headers = &.{
@@ -264,7 +263,7 @@ fn serveWasm(
     });
     // std.http.Server does not have a sendfile API yet.
     const bin_path = try wasm_base_path.join(arena, bin_name);
-    const file_contents = try bin_path.root_dir.handle.readFileAlloc(gpa, bin_path.sub_path, 10 * 1024 * 1024);
+    const file_contents = try bin_path.root_dir.handle.readFileAlloc(bin_path.sub_path, gpa, .limited(10 * 1024 * 1024));
     defer gpa.free(file_contents);
     try request.respond(file_contents, .{
         .extra_headers = &.{
@@ -285,7 +284,7 @@ fn buildWasmBinary(
 ) !Cache.Path {
     const gpa = context.gpa;
 
-    var argv: std.ArrayListUnmanaged([]const u8) = .empty;
+    var argv: std.ArrayList([]const u8) = .empty;
 
     try argv.appendSlice(arena, &.{
         context.zig_exe_path, //
@@ -318,7 +317,7 @@ fn buildWasmBinary(
     child.stderr_behavior = .Pipe;
     try child.spawn();
 
-    var poller = std.io.poll(gpa, enum { stdout, stderr }, .{
+    var poller = std.Io.poll(gpa, enum { stdout, stderr }, .{
         .stdout = child.stdout.?,
         .stderr = child.stderr.?,
     });
@@ -346,28 +345,15 @@ fn buildWasmBinary(
                 }
             },
             .error_bundle => {
-                const EbHdr = std.zig.Server.Message.ErrorBundle;
-                const eb_hdr = @as(*align(1) const EbHdr, @ptrCast(body));
-                const extra_bytes =
-                    body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
-                const string_bytes =
-                    body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
-                // TODO: use @ptrCast when the compiler supports it
-                const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
-                const extra_array = try arena.alloc(u32, unaligned_extra.len);
-                @memcpy(extra_array, unaligned_extra);
-                result_error_bundle = .{
-                    .string_bytes = try arena.dupe(u8, string_bytes),
-                    .extra = extra_array,
-                };
+                result_error_bundle = try std.zig.Server.allocErrorBundle(arena, body);
             },
             .emit_digest => {
-                const EmitDigest = std.zig.Server.Message.EmitDigest;
-                const emit_digest = @as(*align(1) const EmitDigest, @ptrCast(body));
+                var r: std.Io.Reader = .fixed(body);
+                const emit_digest = r.takeStruct(std.zig.Server.Message.EmitDigest, .little) catch unreachable;
                 if (!emit_digest.flags.cache_hit) {
                     std.log.info("source changes detected; rebuilt wasm component", .{});
                 }
-                const digest = body[@sizeOf(EmitDigest)..][0..Cache.bin_digest_len];
+                const digest = r.takeArray(Cache.bin_digest_len) catch unreachable;
                 result = .{
                     .root_dir = Cache.Directory.cwd(),
                     .sub_path = try std.fs.path.join(arena, &.{
@@ -408,8 +394,7 @@ fn buildWasmBinary(
     }
 
     if (result_error_bundle.errorMessageCount() > 0) {
-        const color = std.zig.Color.auto;
-        result_error_bundle.renderToStdErr(color.renderOptions());
+        result_error_bundle.renderToStdErr(.{}, true);
         std.log.err("the following command failed with {d} compilation errors:\n{s}", .{
             result_error_bundle.errorMessageCount(),
             try std.Build.Step.allocPrintCmd(arena, null, argv.items),
@@ -430,7 +415,10 @@ fn sendMessage(file: std.fs.File, tag: std.zig.Client.Message.Tag) !void {
         .tag = tag,
         .bytes_len = 0,
     };
-    try file.writeAll(std.mem.asBytes(&header));
+    var w = file.writer(&.{});
+    w.interface.writeStruct(header, .little) catch |err| switch (err) {
+        error.WriteFailed => return w.err.?,
+    };
 }
 
 fn openBrowserTab(gpa: Allocator, url: []const u8) !void {

@@ -43,8 +43,6 @@ export fn entry7() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:31: error: backing integer type 'u32' has bit size 32 but the struct fields have a total bit size of 29
 // :9:31: error: backing integer type 'i31' has bit size 31 but the struct fields have a total bit size of 32

@@ -15,6 +15,10 @@
 
 #  include <__exception/operations.h>
 #  include <__fwd/memory.h>
+#  include <__iterator/ostreambuf_iterator.h>
+#  include <__locale_dir/num.h>
+#  include <__locale_dir/pad_and_output.h>
+#  include <__memory/addressof.h>
 #  include <__memory/unique_ptr.h>
 #  include <__new/exceptions.h>
 #  include <__ostream/put_character_sequence.h>
@@ -26,7 +30,6 @@
 #  include <__utility/declval.h>
 #  include <bitset>
 #  include <ios>
-#  include <locale>
 #  include <streambuf>
 #  include <string_view>
 
@@ -40,7 +43,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _CharT, class _Traits>
-class _LIBCPP_TEMPLATE_VIS basic_ostream : virtual public basic_ios<_CharT, _Traits> {
+class basic_ostream : virtual public basic_ios<_CharT, _Traits> {
 public:
   // types (inherited from basic_ios (27.5.4)):
   typedef _CharT char_type;
@@ -70,7 +73,7 @@ protected:
 
 public:
   // 27.7.2.4 Prefix/suffix:
-  class _LIBCPP_TEMPLATE_VIS sentry;
+  class sentry;
 
   // 27.7.2.6 Formatted output:
   inline _LIBCPP_HIDE_FROM_ABI_AFTER_V1 basic_ostream& operator<<(basic_ostream& (*__pf)(basic_ostream&)) {
@@ -180,7 +183,7 @@ protected:
 };
 
 template <class _CharT, class _Traits>
-class _LIBCPP_TEMPLATE_VIS basic_ostream<_CharT, _Traits>::sentry {
+class basic_ostream<_CharT, _Traits>::sentry {
   bool __ok_;
   basic_ostream<_CharT, _Traits>& __os_;
 
@@ -339,7 +342,7 @@ basic_ostream<_CharT, _Traits>& basic_ostream<_CharT, _Traits>::operator<<(const
 
 template <class _CharT, class _Traits>
 _LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>& operator<<(basic_ostream<_CharT, _Traits>& __os, _CharT __c) {
-  return std::__put_character_sequence(__os, &__c, 1);
+  return std::__put_character_sequence(__os, std::addressof(__c), 1);
 }
 
 template <class _CharT, class _Traits>
@@ -353,9 +356,9 @@ _LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>& operator<<(basic_ostream<_
       typedef ostreambuf_iterator<_CharT, _Traits> _Ip;
       if (std::__pad_and_output(
               _Ip(__os),
-              &__c,
-              (__os.flags() & ios_base::adjustfield) == ios_base::left ? &__c + 1 : &__c,
-              &__c + 1,
+              std::addressof(__c),
+              std::addressof(__c) + (((__os.flags() & ios_base::adjustfield) == ios_base::left) ? 1 : 0),
+              std::addressof(__c) + 1,
               __os,
               __os.fill())
               .failed())
@@ -407,7 +410,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const char* __strn) {
       if (__len > __bs) {
         __wb = (_CharT*)malloc(__len * sizeof(_CharT));
         if (__wb == 0)
-          __throw_bad_alloc();
+          std::__throw_bad_alloc();
         __h.reset(__wb);
       }
       for (_CharT* __p = __wb; *__strn != '\0'; ++__strn, ++__p)

@@ -2,8 +2,12 @@
 #ifndef __ASM_GENERIC_PARAM_H
 #define __ASM_GENERIC_PARAM_H
 
+#ifndef __USER_HZ
+#define __USER_HZ	100
+#endif
+
 #ifndef HZ
-#define HZ 100
+#define HZ __USER_HZ
 #endif
 
 #ifndef EXEC_PAGESIZE

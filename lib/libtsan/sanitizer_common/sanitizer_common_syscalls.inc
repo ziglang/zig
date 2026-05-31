@@ -3205,6 +3205,28 @@ POST_SYSCALL(futex)
   COMMON_SYSCALL_BLOCKING_END();
 }
 
+PRE_SYSCALL(copy_file_range)
+(int fdin, __sanitizer___kernel_off_t *offin, int fdout,
+ __sanitizer___kernel_off_t *offout, SIZE_T size, unsigned int flags) {
+  if (offin != nullptr) {
+    PRE_READ(offin, sizeof(*offin));
+  }
+  if (offout != nullptr) {
+    PRE_READ(offout, sizeof(*offout));
+  }
+}
+
+POST_SYSCALL(copy_file_range)
+(SSIZE_T, int fdin, __sanitizer___kernel_off_t *offin, int fdout,
+ __sanitizer___kernel_off_t *offout, SIZE_T size, unsigned int flags) {
+  if (offin != nullptr) {
+    POST_WRITE(offin, sizeof(*offin));
+  }
+  if (offout != nullptr) {
+    POST_WRITE(offout, sizeof(*offout));
+  }
+}
+
 }  // extern "C"
 
 #  undef PRE_SYSCALL

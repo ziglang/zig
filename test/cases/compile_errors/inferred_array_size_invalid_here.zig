@@ -9,8 +9,6 @@ export fn entry2() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:16: error: unable to infer array size
 // :6:35: error: unable to infer array size

@@ -25,10 +25,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "cet_unwind.h"
 #include "config.h"
 #include "libunwind.h"
 #include "libunwind_ext.h"
+#include "shadow_stack_unwind.h"
 #include "unwind.h"
 
 #if !defined(_LIBUNWIND_ARM_EHABI) && !defined(__USING_SJLJ_EXCEPTIONS__) &&   \
@@ -36,14 +36,17 @@
 
 #ifndef _LIBUNWIND_SUPPORT_SEH_UNWIND
 
-// When CET is enabled, each "call" instruction will push return address to
-// CET shadow stack, each "ret" instruction will pop current CET shadow stack
-// top and compare it with target address which program will return.
-// In exception handing, some stack frames will be skipped before jumping to
-// landing pad and we must adjust CET shadow stack accordingly.
-// _LIBUNWIND_POP_CET_SSP is used to adjust CET shadow stack pointer and we
-// directly jump to __libunwind_Registers_x86/x86_64_jumpto instead of using
-// a regular function call to avoid pushing to CET shadow stack again.
+// When shadow stack is enabled, a separate stack containing only return
+// addresses would be maintained. On function return, the return address would
+// be compared to the popped address from shadow stack to ensure the return
+// target is not tempered with. When unwinding, we're skipping the normal return
+// procedure for multiple frames and thus need to pop the return addresses of
+// the skipped frames from shadow stack to avoid triggering an exception (using
+// `_LIBUNWIND_POP_SHSTK_SSP()`). Also, some architectures, like the x86-family
+// CET, push the return adddresses onto shadow stack with common call
+// instructions, so for these architectures, normal function calls should be
+// avoided when invoking the `jumpto()` function. To do this, we use inline
+// assemblies to "goto" the `jumpto()` for these architectures.
 #if !defined(_LIBUNWIND_USE_CET) && !defined(_LIBUNWIND_USE_GCS)
 #define __unw_phase2_resume(cursor, fn)                                        \
   do {                                                                         \
@@ -51,38 +54,38 @@
     __unw_resume((cursor));                                                    \
   } while (0)
 #elif defined(_LIBUNWIND_TARGET_I386)
-#define __cet_ss_step_size 4
+#define __shstk_step_size (4)
 #define __unw_phase2_resume(cursor, fn)                                        \
   do {                                                                         \
-    _LIBUNWIND_POP_CET_SSP((fn));                                              \
-    void *cetRegContext = __libunwind_cet_get_registers((cursor));             \
-    void *cetJumpAddress = __libunwind_cet_get_jump_target();                  \
+    _LIBUNWIND_POP_SHSTK_SSP((fn));                                            \
+    void *shstkRegContext = __libunwind_shstk_get_registers((cursor));         \
+    void *shstkJumpAddress = __libunwind_shstk_get_jump_target();              \
     __asm__ volatile("push %%edi\n\t"                                          \
                      "sub $4, %%esp\n\t"                                       \
-                     "jmp *%%edx\n\t" :: "D"(cetRegContext),                   \
-                     "d"(cetJumpAddress));                                     \
+                     "jmp *%%edx\n\t" ::"D"(shstkRegContext),                  \
+                     "d"(shstkJumpAddress));                                   \
   } while (0)
 #elif defined(_LIBUNWIND_TARGET_X86_64)
-#define __cet_ss_step_size 8
+#define __shstk_step_size (8)
 #define __unw_phase2_resume(cursor, fn)                                        \
   do {                                                                         \
-    _LIBUNWIND_POP_CET_SSP((fn));                                              \
-    void *cetRegContext = __libunwind_cet_get_registers((cursor));             \
-    void *cetJumpAddress = __libunwind_cet_get_jump_target();                  \
-    __asm__ volatile("jmpq *%%rdx\n\t" :: "D"(cetRegContext),                  \
-                     "d"(cetJumpAddress));                                     \
+    _LIBUNWIND_POP_SHSTK_SSP((fn));                                            \
+    void *shstkRegContext = __libunwind_shstk_get_registers((cursor));         \
+    void *shstkJumpAddress = __libunwind_shstk_get_jump_target();              \
+    __asm__ volatile("jmpq *%%rdx\n\t" ::"D"(shstkRegContext),                 \
+                     "d"(shstkJumpAddress));                                   \
   } while (0)
 #elif defined(_LIBUNWIND_TARGET_AARCH64)
-#define __cet_ss_step_size 8
+#define __shstk_step_size (8)
 #define __unw_phase2_resume(cursor, fn)                                        \
   do {                                                                         \
-    _LIBUNWIND_POP_CET_SSP((fn));                                              \
-    void *cetRegContext = __libunwind_cet_get_registers((cursor));             \
-    void *cetJumpAddress = __libunwind_cet_get_jump_target();                  \
+    _LIBUNWIND_POP_SHSTK_SSP((fn));                                            \
+    void *shstkRegContext = __libunwind_shstk_get_registers((cursor));         \
+    void *shstkJumpAddress = __libunwind_shstk_get_jump_target();              \
     __asm__ volatile("mov x0, %0\n\t"                                          \
                      "br %1\n\t"                                               \
                      :                                                         \
-                     : "r"(cetRegContext), "r"(cetJumpAddress)                 \
+                     : "r"(shstkRegContext), "r"(shstkJumpAddress)             \
                      : "x0");                                                  \
   } while (0)
 #endif
@@ -185,10 +188,11 @@ extern int __unw_step_stage2(unw_cursor_t *);
 
 #if defined(_LIBUNWIND_USE_GCS)
 // Enable the GCS target feature to permit gcspop instructions to be used.
-__attribute__((target("gcs")))
+__attribute__((target("+gcs")))
 #endif
 static _Unwind_Reason_Code
-unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *exception_object) {
+unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor,
+              _Unwind_Exception *exception_object) {
   __unw_init_local(cursor, uc);
 
   _LIBUNWIND_TRACE_UNWINDING("unwind_phase2(ex_obj=%p)",
@@ -255,16 +259,16 @@ unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
     }
 #endif
 
-// In CET enabled environment, we check return address stored in normal stack
-// against return address stored in CET shadow stack, if the 2 addresses don't
+// In shadow stack enabled environment, we check return address stored in normal
+// stack against return address stored in shadow stack, if the 2 addresses don't
 // match, it means return address in normal stack has been corrupted, we return
 // _URC_FATAL_PHASE2_ERROR.
 #if defined(_LIBUNWIND_USE_CET) || defined(_LIBUNWIND_USE_GCS)
     if (shadowStackTop != 0) {
       unw_word_t retInNormalStack;
       __unw_get_reg(cursor, UNW_REG_IP, &retInNormalStack);
-      unsigned long retInShadowStack = *(
-          unsigned long *)(shadowStackTop + __cet_ss_step_size * framesWalked);
+      unsigned long retInShadowStack =
+          *(unsigned long *)(shadowStackTop + __shstk_step_size * framesWalked);
       if (retInNormalStack != retInShadowStack)
         return _URC_FATAL_PHASE2_ERROR;
     }
@@ -329,12 +333,12 @@ unwind_phase2(unw_context_t *uc, unw_cursor_t *cursor, _Unwind_Exception *except
 
 #if defined(_LIBUNWIND_USE_GCS)
 // Enable the GCS target feature to permit gcspop instructions to be used.
-__attribute__((target("gcs")))
+__attribute__((target("+gcs")))
 #endif
 static _Unwind_Reason_Code
 unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
-                     _Unwind_Exception *exception_object,
-                     _Unwind_Stop_Fn stop, void *stop_parameter) {
+                     _Unwind_Exception *exception_object, _Unwind_Stop_Fn stop,
+                     void *stop_parameter) {
   __unw_init_local(cursor, uc);
 
   // uc is initialized by __unw_getcontext in the parent frame. The first stack
@@ -439,7 +443,6 @@ unwind_phase2_forced(unw_context_t *uc, unw_cursor_t *cursor,
   // would.
   return _URC_FATAL_PHASE2_ERROR;
 }
-
 
 /// Called by __cxa_throw.  Only returns if there is a fatal error.
 _LIBUNWIND_EXPORT _Unwind_Reason_Code

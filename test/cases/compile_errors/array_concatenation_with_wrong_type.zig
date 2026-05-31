@@ -7,7 +7,5 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:11: error: expected indexable; found 'usize'

@@ -1,5 +1,5 @@
 const std = @import("../../std.zig");
-const errno = linux.E.init;
+const errno = linux.errno;
 const unexpectedErrno = std.posix.unexpectedErrno;
 const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
@@ -642,7 +642,7 @@ pub const Insn = packed struct {
             .dst = @intFromEnum(dst),
             .src = @intFromEnum(src),
             .off = 0,
-            .imm = @as(i32, @intCast(@as(u32, @truncate(imm)))),
+            .imm = @as(i32, @bitCast(@as(u32, @truncate(imm)))),
         };
     }
 
@@ -652,7 +652,7 @@ pub const Insn = packed struct {
             .dst = 0,
             .src = 0,
             .off = 0,
-            .imm = @as(i32, @intCast(@as(u32, @truncate(imm >> 32)))),
+            .imm = @as(i32, @bitCast(@as(u32, @truncate(imm >> 32)))),
         };
     }
 

@@ -20,8 +20,6 @@ export fn qux() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:40: error: unable to cast runtime value to 'comptime_float'
 // :9:18: error: expected integer type, found 'f32'

@@ -130,7 +130,7 @@ struct __mu_return_invokable // false
 
 template <class _Ti, class... _Uj>
 struct __mu_return_invokable<true, _Ti, _Uj...> {
-  using type = __invoke_result_t<_Ti&, _Uj...>;
+  using type _LIBCPP_NODEBUG = __invoke_result_t<_Ti&, _Uj...>;
 };
 
 template <class _Ti, class... _Uj>
@@ -181,12 +181,12 @@ struct __bind_return;
 
 template <class _Fp, class... _BoundArgs, class _TupleUj>
 struct __bind_return<_Fp, tuple<_BoundArgs...>, _TupleUj, true> {
-  using type = __invoke_result_t< _Fp&, typename __mu_return< _BoundArgs, _TupleUj >::type... >;
+  using type _LIBCPP_NODEBUG = __invoke_result_t<_Fp&, typename __mu_return<_BoundArgs, _TupleUj>::type...>;
 };
 
 template <class _Fp, class... _BoundArgs, class _TupleUj>
 struct __bind_return<_Fp, const tuple<_BoundArgs...>, _TupleUj, true> {
-  using type = __invoke_result_t< _Fp&, typename __mu_return< const _BoundArgs, _TupleUj >::type... >;
+  using type _LIBCPP_NODEBUG = __invoke_result_t<_Fp&, typename __mu_return<const _BoundArgs, _TupleUj>::type...>;
 };
 
 template <class _Fp, class _BoundArgs, size_t... _Indx, class _Args>

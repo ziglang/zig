@@ -450,12 +450,7 @@ pub fn wrap(x: anytype, r: anytype) @TypeOf(x) {
             // in the rare usecase of r not being comptime_int or float,
             // take the penalty of having an intermediary type conversion,
             // otherwise the alternative is to unwind iteratively to avoid overflow
-            const R = comptime do: {
-                var info = info_r;
-                info.int.bits += 1;
-                info.int.signedness = .signed;
-                break :do @Type(info);
-            };
+            const R = @Int(.signed, info_r.int.bits + 1);
             const radius: if (info_r.int.signedness == .signed) @TypeOf(r) else R = r;
             return @intCast(@mod(x - radius, 2 * @as(R, r)) - r); // provably impossible to overflow
         },
@@ -636,6 +631,7 @@ test shl {
 
     try testing.expect(shl(i8, -1, -100) == -1);
     try testing.expect(shl(i8, -1, 100) == 0);
+    if (builtin.cpu.arch == .hexagon and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     try testing.expect(@reduce(.And, shl(@Vector(2, i8), .{ -1, 1 }, -100) == @Vector(2, i8){ -1, 0 }));
     try testing.expect(@reduce(.And, shl(@Vector(2, i8), .{ -1, 1 }, 100) == @Vector(2, i8){ 0, 0 }));
 }
@@ -684,6 +680,7 @@ test shr {
 
     try testing.expect(shr(i8, -1, -100) == 0);
     try testing.expect(shr(i8, -1, 100) == -1);
+    if (builtin.cpu.arch == .hexagon and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     try testing.expect(@reduce(.And, shr(@Vector(2, i8), .{ -1, 1 }, -100) == @Vector(2, i8){ 0, 0 }));
     try testing.expect(@reduce(.And, shr(@Vector(2, i8), .{ -1, 1 }, 100) == @Vector(2, i8){ -1, 0 }));
 }
@@ -797,14 +794,14 @@ pub fn Log2IntCeil(comptime T: type) type {
 pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) type {
     assert(from <= to);
     const signedness: std.builtin.Signedness = if (from < 0) .signed else .unsigned;
-    return @Type(.{ .int = .{
-        .signedness = signedness,
-        .bits = @as(u16, @intFromBool(signedness == .signed)) +
+    return @Int(
+        signedness,
+        @as(u16, @intFromBool(signedness == .signed)) +
             switch (if (from < 0) @max(@abs(from) - 1, to) else to) {
                 0 => 0,
                 else => |pos_max| 1 + log2(pos_max),
             },
-    } });
+    );
 }
 
 test IntFittingRange {
@@ -1105,9 +1102,14 @@ test cast {
 pub const AlignCastError = error{UnalignedMemory};
 
 fn AlignCastResult(comptime alignment: Alignment, comptime Ptr: type) type {
-    var ptr_info = @typeInfo(Ptr);
-    ptr_info.pointer.alignment = alignment.toByteUnits();
-    return @Type(ptr_info);
+    const orig = @typeInfo(Ptr).pointer;
+    return @Pointer(orig.size, .{
+        .@"const" = orig.is_const,
+        .@"volatile" = orig.is_volatile,
+        .@"allowzero" = orig.is_allowzero,
+        .@"align" = alignment.toByteUnits(),
+        .@"addrspace" = orig.address_space,
+    }, orig.child, orig.sentinel());
 }
 
 /// Align cast a pointer but return an error if it's the wrong alignment

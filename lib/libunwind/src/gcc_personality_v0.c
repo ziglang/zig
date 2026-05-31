@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+/* zig patch: remove compiler-rt int_lib.h dependency */
 #if __ARM_EABI__
 #ifdef COMPILER_RT_ARMHF_TARGET
 #define COMPILER_RT_ABI
@@ -19,6 +20,7 @@
 #define compilerrt_abort() __builtin_unreachable()
 
 #include <unwind.h>
+/* zig patch: remove unwind-ehabi-helpers.h dependency */
 
 #if defined(__SEH__) && !defined(__USING_SJLJ_EXCEPTIONS__)
 #include <windows.h>

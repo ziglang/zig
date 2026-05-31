@@ -599,11 +599,9 @@ _LIBCPP_HIDE_FROM_ABI inline constexpr long double lerp(long double __a, long do
 }
 
 template <class _A1, class _A2, class _A3>
-inline _LIBCPP_HIDE_FROM_ABI constexpr
-    typename enable_if_t< is_arithmetic<_A1>::value && is_arithmetic<_A2>::value && is_arithmetic<_A3>::value,
-                          __promote<_A1, _A2, _A3> >::type
-    lerp(_A1 __a, _A2 __b, _A3 __t) noexcept {
-  typedef typename __promote<_A1, _A2, _A3>::type __result_type;
+  requires(is_arithmetic_v<_A1> && is_arithmetic_v<_A2> && is_arithmetic_v<_A3>)
+_LIBCPP_HIDE_FROM_ABI inline constexpr __promote_t<_A1, _A2, _A3> lerp(_A1 __a, _A2 __b, _A3 __t) noexcept {
+  using __result_type = __promote_t<_A1, _A2, _A3>;
   static_assert(!(
       _IsSame<_A1, __result_type>::value && _IsSame<_A2, __result_type>::value && _IsSame<_A3, __result_type>::value));
   return std::__lerp((__result_type)__a, (__result_type)__b, (__result_type)__t);

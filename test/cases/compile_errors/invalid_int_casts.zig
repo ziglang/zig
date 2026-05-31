@@ -20,8 +20,6 @@ export fn qux() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:36: error: unable to cast runtime value to 'comptime_int'
 // :9:18: error: expected float type, found 'u32'

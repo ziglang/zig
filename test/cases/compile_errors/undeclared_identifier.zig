@@ -3,7 +3,5 @@ export fn a() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:12: error: use of undeclared identifier 'b'

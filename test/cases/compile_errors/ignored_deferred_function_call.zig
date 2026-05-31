@@ -13,8 +13,6 @@ fn bar2() anyerror {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:14: error: error union is ignored
 // :2:14: note: consider using 'try', 'catch', or 'if'

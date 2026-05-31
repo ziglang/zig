@@ -3,8 +3,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:21: error: expected hex digit or '}', found 'z'
 

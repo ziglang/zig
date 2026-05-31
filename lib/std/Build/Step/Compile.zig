@@ -34,8 +34,7 @@ kind: Kind,
 major_only_filename: ?[]const u8,
 name_only_filename: ?[]const u8,
 formatted_panics: ?bool = null,
-// keep in sync with src/link.zig:CompressDebugSections
-compress_debug_sections: enum { none, zlib, zstd } = .none,
+compress_debug_sections: std.zig.CompressDebugSections = .none,
 verbose_link: bool,
 verbose_cc: bool,
 bundle_compiler_rt: ?bool = null,
@@ -67,13 +66,12 @@ installed_headers: std.array_list.Managed(HeaderInstallation),
 /// created otherwise.
 installed_headers_include_tree: ?*Step.WriteFile = null,
 
-// keep in sync with src/Compilation.zig:RcIncludes
 /// Behavior of automatic detection of include directories when compiling .rc files.
 ///  any: Use MSVC if available, fall back to MinGW.
 ///  msvc: Use MSVC include paths (must be present on the system).
 ///  gnu: Use MinGW include paths (distributed with Zig).
 ///  none: Do not use any autodetected include paths.
-rc_includes: enum { any, msvc, gnu, none } = .any,
+rc_includes: std.zig.RcIncludes = .any,
 
 /// (Windows) .manifest file to embed in the compilation
 /// Set via options; intended to be read-only after that.
@@ -137,6 +135,9 @@ link_z_common_page_size: ?u64 = null,
 /// Maximum page size
 link_z_max_page_size: ?u64 = null,
 
+/// Force a fatal error if any undefined symbols remain.
+link_z_defs: bool = false,
+
 /// (Darwin) Install name for the dylib
 install_name: ?[]const u8 = null,
 
@@ -171,7 +172,7 @@ lto: ?std.zig.LtoMode = null,
 
 dll_export_fns: ?bool = null,
 
-subsystem: ?std.Target.SubSystem = null,
+subsystem: ?std.zig.Subsystem = null,
 
 /// (Windows) When targeting the MinGW ABI, use the unicode entry point (wmain/wWinMain)
 mingw_unicode_entry_point: bool = false,
@@ -192,6 +193,7 @@ want_lto: ?bool = null,
 
 use_llvm: ?bool,
 use_lld: ?bool,
+use_new_linker: ?bool,
 
 /// Corresponds to the `-fallow-so-scripts` / `-fno-allow-so-scripts` CLI
 /// flags, overriding the global user setting provided to the `zig build`
@@ -441,6 +443,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+        .use_new_linker = null,
 
         .zig_process = null,
     };
@@ -1054,15 +1057,15 @@ fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking
     const maybe_path: ?*GeneratedFile = @field(compile, tag_name);
 
     const generated_file = maybe_path orelse {
-        const w = std.debug.lockStderrWriter(&.{});
-        std.Build.dumpBadGetPathHelp(&compile.step, w, .detect(.stderr()), compile.step.owner, asking_step) catch {};
+        const w, const ttyconf = std.debug.lockStderrWriter(&.{});
+        std.Build.dumpBadGetPathHelp(&compile.step, w, ttyconf, compile.step.owner, asking_step) catch {};
         std.debug.unlockStderrWriter();
         @panic("missing emit option for " ++ tag_name);
     };
 
     const path = generated_file.path orelse {
-        const w = std.debug.lockStderrWriter(&.{});
-        std.Build.dumpBadGetPathHelp(&compile.step, w, .detect(.stderr()), compile.step.owner, asking_step) catch {};
+        const w, const ttyconf = std.debug.lockStderrWriter(&.{});
+        std.Build.dumpBadGetPathHelp(&compile.step, w, ttyconf, compile.step.owner, asking_step) catch {};
         std.debug.unlockStderrWriter();
         @panic(tag_name ++ " is null. Is there a missing step dependency?");
     };
@@ -1096,6 +1099,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     try addFlag(&zig_args, "llvm", compile.use_llvm);
     try addFlag(&zig_args, "lld", compile.use_lld);
+    try addFlag(&zig_args, "new-linker", compile.use_new_linker);
 
     if (compile.root_module.resolved_target.?.query.ofmt) |ofmt| {
         try zig_args.append(try std.fmt.allocPrint(arena, "-ofmt={s}", .{@tagName(ofmt)}));
@@ -1549,6 +1553,10 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         try zig_args.append("-z");
         try zig_args.append(b.fmt("max-page-size={d}", .{size}));
     }
+    if (compile.link_z_defs) {
+        try zig_args.append("-z");
+        try zig_args.append("defs");
+    }
 
     if (compile.libc_file) |libc_file| {
         try zig_args.append("--libc");
@@ -1698,7 +1706,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         // This prevents a warning, that should probably be upgraded to an error in Zig's
         // CLI parsing code, when the linker sees an -L directory that does not exist.
 
-        if (prefix_dir.accessZ("lib", .{})) |_| {
+        if (prefix_dir.access("lib", .{})) |_| {
             try zig_args.appendSlice(&.{
                 "-L", b.pathJoin(&.{ search_prefix, "lib" }),
             });
@@ -1709,7 +1717,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
             }),
         }
 
-        if (prefix_dir.accessZ("include", .{})) |_| {
+        if (prefix_dir.access("include", .{})) |_| {
             try zig_args.appendSlice(&.{
                 "-I", b.pathJoin(&.{ search_prefix, "include" }),
             });
@@ -1761,16 +1769,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     if (compile.subsystem) |subsystem| {
         try zig_args.append("--subsystem");
-        try zig_args.append(switch (subsystem) {
-            .Console => "console",
-            .Windows => "windows",
-            .Posix => "posix",
-            .Native => "native",
-            .EfiApplication => "efi_application",
-            .EfiBootServiceDriver => "efi_boot_service_driver",
-            .EfiRom => "efi_rom",
-            .EfiRuntimeDriver => "efi_runtime_driver",
-        });
+        try zig_args.append(@tagName(subsystem));
     }
 
     if (compile.mingw_unicode_entry_point) {
@@ -1802,7 +1801,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
             for (arg, 0..) |c, arg_idx| {
                 if (c == '\\' or c == '"') {
                     // Slow path for arguments that need to be escaped. We'll need to allocate and copy
-                    var escaped: std.ArrayListUnmanaged(u8) = .empty;
+                    var escaped: std.ArrayList(u8) = .empty;
                     try escaped.ensureTotalCapacityPrecise(arena, arg.len + 1);
                     try escaped.appendSlice(arena, arg[0..arg_idx]);
                     for (arg[arg_idx..]) |to_escape| {
@@ -1827,7 +1826,26 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         _ = try std.fmt.bufPrint(&args_hex_hash, "{x}", .{&args_hash});
 
         const args_file = "args" ++ fs.path.sep_str ++ args_hex_hash;
-        try b.cache_root.handle.writeFile(.{ .sub_path = args_file, .data = args });
+        if (b.cache_root.handle.access(args_file, .{})) |_| {
+            // The args file is already present from a previous run.
+        } else |err| switch (err) {
+            error.FileNotFound => {
+                try b.cache_root.handle.makePath("tmp");
+                const rand_int = std.crypto.random.int(u64);
+                const tmp_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
+                try b.cache_root.handle.writeFile(.{ .sub_path = tmp_path, .data = args });
+                defer b.cache_root.handle.deleteFile(tmp_path) catch {
+                    // It's fine if the temporary file can't be cleaned up.
+                };
+                b.cache_root.handle.rename(tmp_path, args_file) catch |rename_err| switch (rename_err) {
+                    error.PathAlreadyExists => {
+                        // The args file was created by another concurrent build process.
+                    },
+                    else => |other_err| return other_err,
+                };
+            },
+            else => |other_err| return other_err,
+        }
 
         const resolved_args_file = try mem.concat(arena, u8, &.{
             "@",
@@ -1913,6 +1931,11 @@ pub fn rebuildInFuzzMode(c: *Compile, gpa: Allocator, progress_node: std.Progres
 
     c.step.result_error_bundle.deinit(gpa);
     c.step.result_error_bundle = std.zig.ErrorBundle.empty;
+
+    if (c.step.result_failed_command) |cmd| {
+        gpa.free(cmd);
+        c.step.result_failed_command = null;
+    }
 
     const zig_args = try getZigArgs(c, true);
     const maybe_output_bin_path = try c.step.evalZigProcess(zig_args, progress_node, false, null, gpa);
@@ -2002,18 +2025,17 @@ fn checkCompileErrors(compile: *Compile) !void {
     const arena = compile.step.owner.allocator;
 
     const actual_errors = ae: {
-        var aw: std.io.Writer.Allocating = .init(arena);
+        var aw: std.Io.Writer.Allocating = .init(arena);
         defer aw.deinit();
         try actual_eb.renderToWriter(.{
-            .ttyconf = .no_color,
             .include_reference_trace = false,
             .include_source_line = false,
-        }, &aw.writer);
+        }, &aw.writer, .no_color);
         break :ae try aw.toOwnedSlice();
     };
 
     // Render the expected lines into a string that we can compare verbatim.
-    var expected_generated: std.ArrayListUnmanaged(u8) = .empty;
+    var expected_generated: std.ArrayList(u8) = .empty;
     const expect_errors = compile.expect_errors.?;
 
     var actual_line_it = mem.splitScalar(u8, actual_errors, '\n');

@@ -322,8 +322,6 @@ template <class R, class... ArgTypes>
 class packaged_task<R(ArgTypes...)>
 {
 public:
-    typedef R result_type; // extension
-
     // construction and destruction
     packaged_task() noexcept;
     template <class F>
@@ -393,7 +391,7 @@ template <class R, class Alloc> struct uses_allocator<packaged_task<R>, Alloc>; 
 #    include <__system_error/error_code.h>
 #    include <__system_error/error_condition.h>
 #    include <__thread/thread.h>
-#    include <__type_traits/add_lvalue_reference.h>
+#    include <__type_traits/add_reference.h>
 #    include <__type_traits/aligned_storage.h>
 #    include <__type_traits/conditional.h>
 #    include <__type_traits/decay.h>
@@ -427,11 +425,11 @@ _LIBCPP_DECLARE_STRONG_ENUM(future_errc){
 _LIBCPP_DECLARE_STRONG_ENUM_EPILOG(future_errc)
 
 template <>
-struct _LIBCPP_TEMPLATE_VIS is_error_code_enum<future_errc> : public true_type {};
+struct is_error_code_enum<future_errc> : public true_type {};
 
 #    ifdef _LIBCPP_CXX03_LANG
 template <>
-struct _LIBCPP_TEMPLATE_VIS is_error_code_enum<future_errc::__lx> : public true_type {};
+struct is_error_code_enum<future_errc::__lx> : public true_type {};
 #    endif
 
 // enum class launch
@@ -440,7 +438,7 @@ _LIBCPP_DECLARE_STRONG_ENUM_EPILOG(launch)
 
 #    ifndef _LIBCPP_CXX03_LANG
 
-typedef underlying_type<launch>::type __launch_underlying_type;
+using __launch_underlying_type _LIBCPP_NODEBUG = __underlying_type_t<launch>;
 
 inline _LIBCPP_HIDE_FROM_ABI constexpr launch operator&(launch __x, launch __y) {
   return static_cast<launch>(static_cast<__launch_underlying_type>(__x) & static_cast<__launch_underlying_type>(__y));
@@ -541,7 +539,7 @@ public:
     lock_guard<mutex> __lk(__mut_);
     bool __has_future_attached = (__state_ & __future_attached) != 0;
     if (__has_future_attached)
-      __throw_future_error(future_errc::future_already_retrieved);
+      std::__throw_future_error(future_errc::future_already_retrieved);
     this->__add_shared();
     __state_ |= __future_attached;
   }
@@ -563,23 +561,19 @@ public:
   template <class _Rep, class _Period>
   future_status _LIBCPP_HIDE_FROM_ABI wait_for(const chrono::duration<_Rep, _Period>& __rel_time) const;
   template <class _Clock, class _Duration>
-  _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS future_status
-  wait_until(const chrono::time_point<_Clock, _Duration>& __abs_time) const;
+  _LIBCPP_HIDE_FROM_ABI future_status wait_until(const chrono::time_point<_Clock, _Duration>& __abs_time) const {
+    unique_lock<mutex> __lk(__mut_);
+    if (__state_ & deferred)
+      return future_status::deferred;
+    while (!(__state_ & ready) && _Clock::now() < __abs_time)
+      __cv_.wait_until(__lk, __abs_time);
+    if (__state_ & ready)
+      return future_status::ready;
+    return future_status::timeout;
+  }
 
   virtual void __execute();
 };
-
-template <class _Clock, class _Duration>
-future_status __assoc_sub_state::wait_until(const chrono::time_point<_Clock, _Duration>& __abs_time) const {
-  unique_lock<mutex> __lk(__mut_);
-  if (__state_ & deferred)
-    return future_status::deferred;
-  while (!(__state_ & ready) && _Clock::now() < __abs_time)
-    __cv_.wait_until(__lk, __abs_time);
-  if (__state_ & ready)
-    return future_status::ready;
-  return future_status::timeout;
-}
 
 template <class _Rep, class _Period>
 inline future_status __assoc_sub_state::wait_for(const chrono::duration<_Rep, _Period>& __rel_time) const {
@@ -612,7 +606,7 @@ public:
 template <class _Rp>
 void __assoc_state<_Rp>::__on_zero_shared() _NOEXCEPT {
   if (this->__state_ & base::__constructed)
-    reinterpret_cast<_Rp*>(&__value_)->~_Rp();
+    reinterpret_cast<_Rp*>(std::addressof(__value_))->~_Rp();
   delete this;
 }
 
@@ -621,8 +615,8 @@ template <class _Arg>
 void __assoc_state<_Rp>::set_value(_Arg&& __arg) {
   unique_lock<mutex> __lk(this->__mut_);
   if (this->__has_value())
-    __throw_future_error(future_errc::promise_already_satisfied);
-  ::new ((void*)&__value_) _Rp(std::forward<_Arg>(__arg));
+    std::__throw_future_error(future_errc::promise_already_satisfied);
+  ::new ((void*)std::addressof(__value_)) _Rp(std::forward<_Arg>(__arg));
   this->__state_ |= base::__constructed | base::ready;
   __cv_.notify_all();
 }
@@ -632,8 +626,8 @@ template <class _Arg>
 void __assoc_state<_Rp>::set_value_at_thread_exit(_Arg&& __arg) {
   unique_lock<mutex> __lk(this->__mut_);
   if (this->__has_value())
-    __throw_future_error(future_errc::promise_already_satisfied);
-  ::new ((void*)&__value_) _Rp(std::forward<_Arg>(__arg));
+    std::__throw_future_error(future_errc::promise_already_satisfied);
+  ::new ((void*)std::addressof(__value_)) _Rp(std::forward<_Arg>(__arg));
   this->__state_ |= base::__constructed;
   __thread_local_data()->__make_ready_at_thread_exit(this);
 }
@@ -644,7 +638,7 @@ _Rp __assoc_state<_Rp>::move() {
   this->__sub_wait(__lk);
   if (this->__exception_ != nullptr)
     std::rethrow_exception(this->__exception_);
-  return std::move(*reinterpret_cast<_Rp*>(&__value_));
+  return std::move(*reinterpret_cast<_Rp*>(std::addressof(__value_)));
 }
 
 template <class _Rp>
@@ -653,7 +647,7 @@ _Rp& __assoc_state<_Rp>::copy() {
   this->__sub_wait(__lk);
   if (this->__exception_ != nullptr)
     std::rethrow_exception(this->__exception_);
-  return *reinterpret_cast<_Rp*>(&__value_);
+  return *reinterpret_cast<_Rp*>(std::addressof(__value_));
 }
 
 template <class _Rp>
@@ -682,7 +676,7 @@ template <class _Rp>
 void __assoc_state<_Rp&>::set_value(_Rp& __arg) {
   unique_lock<mutex> __lk(this->__mut_);
   if (this->__has_value())
-    __throw_future_error(future_errc::promise_already_satisfied);
+    std::__throw_future_error(future_errc::promise_already_satisfied);
   __value_ = std::addressof(__arg);
   this->__state_ |= base::__constructed | base::ready;
   __cv_.notify_all();
@@ -692,7 +686,7 @@ template <class _Rp>
 void __assoc_state<_Rp&>::set_value_at_thread_exit(_Rp& __arg) {
   unique_lock<mutex> __lk(this->__mut_);
   if (this->__has_value())
-    __throw_future_error(future_errc::promise_already_satisfied);
+    std::__throw_future_error(future_errc::promise_already_satisfied);
   __value_ = std::addressof(__arg);
   this->__state_ |= base::__constructed;
   __thread_local_data()->__make_ready_at_thread_exit(this);
@@ -907,14 +901,14 @@ void __async_assoc_state<void, _Fp>::__on_zero_shared() _NOEXCEPT {
 }
 
 template <class _Rp>
-class _LIBCPP_TEMPLATE_VIS promise;
+class promise;
 template <class _Rp>
-class _LIBCPP_TEMPLATE_VIS shared_future;
+class shared_future;
 
 // future
 
 template <class _Rp>
-class _LIBCPP_TEMPLATE_VIS future;
+class future;
 
 template <class _Rp, class _Fp>
 _LIBCPP_HIDE_FROM_ABI future<_Rp> __make_deferred_assoc_state(_Fp&& __f);
@@ -923,7 +917,7 @@ template <class _Rp, class _Fp>
 _LIBCPP_HIDE_FROM_ABI future<_Rp> __make_async_assoc_state(_Fp&& __f);
 
 template <class _Rp>
-class _LIBCPP_TEMPLATE_VIS future {
+class future {
   __assoc_state<_Rp>* __state_;
 
   explicit _LIBCPP_HIDE_FROM_ABI future(__assoc_state<_Rp>* __state);
@@ -994,7 +988,7 @@ _Rp future<_Rp>::get() {
 }
 
 template <class _Rp>
-class _LIBCPP_TEMPLATE_VIS future<_Rp&> {
+class future<_Rp&> {
   __assoc_state<_Rp&>* __state_;
 
   explicit _LIBCPP_HIDE_FROM_ABI future(__assoc_state<_Rp&>* __state);
@@ -1119,7 +1113,7 @@ template <class _Callable>
 class packaged_task;
 
 template <class _Rp>
-class _LIBCPP_TEMPLATE_VIS promise {
+class promise {
   __assoc_state<_Rp>* __state_;
 
   _LIBCPP_HIDE_FROM_ABI explicit promise(nullptr_t) _NOEXCEPT : __state_(nullptr) {}
@@ -1185,21 +1179,21 @@ promise<_Rp>::~promise() {
 template <class _Rp>
 future<_Rp> promise<_Rp>::get_future() {
   if (__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   return future<_Rp>(__state_);
 }
 
 template <class _Rp>
 void promise<_Rp>::set_value(const _Rp& __r) {
   if (__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   __state_->set_value(__r);
 }
 
 template <class _Rp>
 void promise<_Rp>::set_value(_Rp&& __r) {
   if (__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   __state_->set_value(std::move(__r));
 }
 
@@ -1207,21 +1201,21 @@ template <class _Rp>
 void promise<_Rp>::set_exception(exception_ptr __p) {
   _LIBCPP_ASSERT_NON_NULL(__p != nullptr, "promise::set_exception: received nullptr");
   if (__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   __state_->set_exception(__p);
 }
 
 template <class _Rp>
 void promise<_Rp>::set_value_at_thread_exit(const _Rp& __r) {
   if (__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   __state_->set_value_at_thread_exit(__r);
 }
 
 template <class _Rp>
 void promise<_Rp>::set_value_at_thread_exit(_Rp&& __r) {
   if (__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   __state_->set_value_at_thread_exit(std::move(__r));
 }
 
@@ -1229,14 +1223,14 @@ template <class _Rp>
 void promise<_Rp>::set_exception_at_thread_exit(exception_ptr __p) {
   _LIBCPP_ASSERT_NON_NULL(__p != nullptr, "promise::set_exception_at_thread_exit: received nullptr");
   if (__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   __state_->set_exception_at_thread_exit(__p);
 }
 
 // promise<R&>
 
 template <class _Rp>
-class _LIBCPP_TEMPLATE_VIS promise<_Rp&> {
+class promise<_Rp&> {
   __assoc_state<_Rp&>* __state_;
 
   _LIBCPP_HIDE_FROM_ABI explicit promise(nullptr_t) _NOEXCEPT : __state_(nullptr) {}
@@ -1300,14 +1294,14 @@ promise<_Rp&>::~promise() {
 template <class _Rp>
 future<_Rp&> promise<_Rp&>::get_future() {
   if (__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   return future<_Rp&>(__state_);
 }
 
 template <class _Rp>
 void promise<_Rp&>::set_value(_Rp& __r) {
   if (__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   __state_->set_value(__r);
 }
 
@@ -1315,14 +1309,14 @@ template <class _Rp>
 void promise<_Rp&>::set_exception(exception_ptr __p) {
   _LIBCPP_ASSERT_NON_NULL(__p != nullptr, "promise::set_exception: received nullptr");
   if (__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   __state_->set_exception(__p);
 }
 
 template <class _Rp>
 void promise<_Rp&>::set_value_at_thread_exit(_Rp& __r) {
   if (__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   __state_->set_value_at_thread_exit(__r);
 }
 
@@ -1330,7 +1324,7 @@ template <class _Rp>
 void promise<_Rp&>::set_exception_at_thread_exit(exception_ptr __p) {
   _LIBCPP_ASSERT_NON_NULL(__p != nullptr, "promise::set_exception_at_thread_exit: received nullptr");
   if (__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   __state_->set_exception_at_thread_exit(__p);
 }
 
@@ -1347,8 +1341,17 @@ class _LIBCPP_EXPORTED_FROM_ABI promise<void> {
 
 public:
   promise();
-  template <class _Allocator>
-  _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS promise(allocator_arg_t, const _Allocator& __a);
+  template <class _Alloc>
+  _LIBCPP_HIDE_FROM_ABI promise(allocator_arg_t, const _Alloc& __a0) {
+    typedef __assoc_sub_state_alloc<_Alloc> _State;
+    typedef typename __allocator_traits_rebind<_Alloc, _State>::type _A2;
+    typedef __allocator_destructor<_A2> _D2;
+    _A2 __a(__a0);
+    unique_ptr<_State, _D2> __hold(__a.allocate(1), _D2(__a, 1));
+    ::new ((void*)std::addressof(*__hold.get())) _State(__a0);
+    __state_ = std::addressof(*__hold.release());
+  }
+
   _LIBCPP_HIDE_FROM_ABI promise(promise&& __rhs) _NOEXCEPT : __state_(__rhs.__state_) { __rhs.__state_ = nullptr; }
   promise(const promise& __rhs) = delete;
   ~promise();
@@ -1374,24 +1377,13 @@ public:
   void set_exception_at_thread_exit(exception_ptr __p);
 };
 
-template <class _Alloc>
-promise<void>::promise(allocator_arg_t, const _Alloc& __a0) {
-  typedef __assoc_sub_state_alloc<_Alloc> _State;
-  typedef typename __allocator_traits_rebind<_Alloc, _State>::type _A2;
-  typedef __allocator_destructor<_A2> _D2;
-  _A2 __a(__a0);
-  unique_ptr<_State, _D2> __hold(__a.allocate(1), _D2(__a, 1));
-  ::new ((void*)std::addressof(*__hold.get())) _State(__a0);
-  __state_ = std::addressof(*__hold.release());
-}
-
 template <class _Rp>
 inline _LIBCPP_HIDE_FROM_ABI void swap(promise<_Rp>& __x, promise<_Rp>& __y) _NOEXCEPT {
   __x.swap(__y);
 }
 
 template <class _Rp, class _Alloc>
-struct _LIBCPP_TEMPLATE_VIS uses_allocator<promise<_Rp>, _Alloc> : public true_type {};
+struct uses_allocator<promise<_Rp>, _Alloc> : public true_type {};
 
 // packaged_task
 
@@ -1610,10 +1602,7 @@ inline _Rp __packaged_task_function<_Rp(_ArgTypes...)>::operator()(_ArgTypes... 
 }
 
 template <class _Rp, class... _ArgTypes>
-class _LIBCPP_TEMPLATE_VIS packaged_task<_Rp(_ArgTypes...)> {
-public:
-  using result_type _LIBCPP_DEPRECATED = _Rp; // extension
-
+class packaged_task<_Rp(_ArgTypes...)> {
 private:
   __packaged_task_function<_Rp(_ArgTypes...)> __f_;
   promise<_Rp> __p_;
@@ -1665,9 +1654,9 @@ public:
 template <class _Rp, class... _ArgTypes>
 void packaged_task<_Rp(_ArgTypes...)>::operator()(_ArgTypes... __args) {
   if (__p_.__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   if (__p_.__state_->__has_value())
-    __throw_future_error(future_errc::promise_already_satisfied);
+    std::__throw_future_error(future_errc::promise_already_satisfied);
 #    if _LIBCPP_HAS_EXCEPTIONS
   try {
 #    endif // _LIBCPP_HAS_EXCEPTIONS
@@ -1682,9 +1671,9 @@ void packaged_task<_Rp(_ArgTypes...)>::operator()(_ArgTypes... __args) {
 template <class _Rp, class... _ArgTypes>
 void packaged_task<_Rp(_ArgTypes...)>::make_ready_at_thread_exit(_ArgTypes... __args) {
   if (__p_.__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   if (__p_.__state_->__has_value())
-    __throw_future_error(future_errc::promise_already_satisfied);
+    std::__throw_future_error(future_errc::promise_already_satisfied);
 #    if _LIBCPP_HAS_EXCEPTIONS
   try {
 #    endif // _LIBCPP_HAS_EXCEPTIONS
@@ -1699,15 +1688,12 @@ void packaged_task<_Rp(_ArgTypes...)>::make_ready_at_thread_exit(_ArgTypes... __
 template <class _Rp, class... _ArgTypes>
 void packaged_task<_Rp(_ArgTypes...)>::reset() {
   if (!valid())
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   __p_ = promise<_Rp>();
 }
 
 template <class... _ArgTypes>
-class _LIBCPP_TEMPLATE_VIS packaged_task<void(_ArgTypes...)> {
-public:
-  using result_type _LIBCPP_DEPRECATED = void; // extension
-
+class packaged_task<void(_ArgTypes...)> {
 private:
   __packaged_task_function<void(_ArgTypes...)> __f_;
   promise<void> __p_;
@@ -1767,9 +1753,9 @@ packaged_task(_Fp) -> packaged_task<_Stripped>;
 template <class... _ArgTypes>
 void packaged_task<void(_ArgTypes...)>::operator()(_ArgTypes... __args) {
   if (__p_.__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   if (__p_.__state_->__has_value())
-    __throw_future_error(future_errc::promise_already_satisfied);
+    std::__throw_future_error(future_errc::promise_already_satisfied);
 #    if _LIBCPP_HAS_EXCEPTIONS
   try {
 #    endif // _LIBCPP_HAS_EXCEPTIONS
@@ -1785,9 +1771,9 @@ void packaged_task<void(_ArgTypes...)>::operator()(_ArgTypes... __args) {
 template <class... _ArgTypes>
 void packaged_task<void(_ArgTypes...)>::make_ready_at_thread_exit(_ArgTypes... __args) {
   if (__p_.__state_ == nullptr)
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   if (__p_.__state_->__has_value())
-    __throw_future_error(future_errc::promise_already_satisfied);
+    std::__throw_future_error(future_errc::promise_already_satisfied);
 #    if _LIBCPP_HAS_EXCEPTIONS
   try {
 #    endif // _LIBCPP_HAS_EXCEPTIONS
@@ -1803,7 +1789,7 @@ void packaged_task<void(_ArgTypes...)>::make_ready_at_thread_exit(_ArgTypes... _
 template <class... _ArgTypes>
 void packaged_task<void(_ArgTypes...)>::reset() {
   if (!valid())
-    __throw_future_error(future_errc::no_state);
+    std::__throw_future_error(future_errc::no_state);
   __p_ = promise<void>();
 }
 
@@ -1815,7 +1801,7 @@ swap(packaged_task<_Rp(_ArgTypes...)>& __x, packaged_task<_Rp(_ArgTypes...)>& __
 
 #    if _LIBCPP_STD_VER <= 14
 template <class _Callable, class _Alloc>
-struct _LIBCPP_TEMPLATE_VIS uses_allocator<packaged_task<_Callable>, _Alloc> : public true_type {};
+struct uses_allocator<packaged_task<_Callable>, _Alloc> : public true_type {};
 #    endif
 
 template <class _Rp, class _Fp>
@@ -1829,7 +1815,16 @@ template <class _Rp, class _Fp>
 _LIBCPP_HIDE_FROM_ABI future<_Rp> __make_async_assoc_state(_Fp&& __f) {
   unique_ptr<__async_assoc_state<_Rp, _Fp>, __release_shared_count> __h(
       new __async_assoc_state<_Rp, _Fp>(std::forward<_Fp>(__f)));
-  std::thread(&__async_assoc_state<_Rp, _Fp>::__execute, __h.get()).detach();
+#    if _LIBCPP_HAS_EXCEPTIONS
+  try {
+#    endif
+    std::thread(&__async_assoc_state<_Rp, _Fp>::__execute, __h.get()).detach();
+#    if _LIBCPP_HAS_EXCEPTIONS
+  } catch (...) {
+    __h->__make_ready();
+    throw;
+  }
+#    endif
   return future<_Rp>(__h.get());
 }
 
@@ -1899,7 +1894,7 @@ async(_Fp&& __f, _Args&&... __args) {
 // shared_future
 
 template <class _Rp>
-class _LIBCPP_TEMPLATE_VIS shared_future {
+class shared_future {
   __assoc_state<_Rp>* __state_;
 
 public:
@@ -1955,7 +1950,7 @@ shared_future<_Rp>& shared_future<_Rp>::operator=(const shared_future& __rhs) _N
 }
 
 template <class _Rp>
-class _LIBCPP_TEMPLATE_VIS shared_future<_Rp&> {
+class shared_future<_Rp&> {
   __assoc_state<_Rp&>* __state_;
 
 public:

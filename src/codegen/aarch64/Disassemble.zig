@@ -74,10 +74,10 @@ pub fn printInstruction(dis: Disassemble, inst: aarch64.encoding.Instruction, wr
                     dis.operands_separator,
                     imm12,
                 });
-                return if (!elide_shift) writer.print("{s}{f} #{s}", .{
+                return if (!elide_shift) writer.print("{s}{f} #{t}", .{
                     dis.operands_separator,
                     fmtCase(.lsl, dis.case),
-                    @tagName(sh),
+                    sh,
                 });
             },
             .add_subtract_immediate_with_tags => |add_subtract_immediate_with_tags| {
@@ -176,10 +176,10 @@ pub fn printInstruction(dis: Disassemble, inst: aarch64.encoding.Instruction, wr
                     dis.operands_separator,
                     imm16,
                 });
-                return if (!elide_shift) writer.print("{s}{f} #{s}", .{
+                return if (!elide_shift) writer.print("{s}{f} #{t}", .{
                     dis.operands_separator,
                     fmtCase(.lsl, dis.case),
-                    @tagName(hw),
+                    hw,
                 });
             },
             .bitfield => |bitfield| {
@@ -833,8 +833,36 @@ pub fn printInstruction(dis: Disassemble, inst: aarch64.encoding.Instruction, wr
             },
             .rotate_right_into_flags => {},
             .evaluate_into_flags => {},
-            .conditional_compare_register => {},
-            .conditional_compare_immediate => {},
+            .conditional_compare_register => |conditional_compare_register| {
+                const group = conditional_compare_register.group;
+                const sf = group.sf;
+                return writer.print("{f}{s}{f}{s}{f}{s}#0x{x}{s}{f}", .{
+                    fmtCase(group.op, dis.case),
+                    dis.mnemonic_operands_separator,
+                    group.Rn.decode(.{}).general(sf).fmtCase(dis.case),
+                    dis.operands_separator,
+                    group.Rm.decode(.{}).general(sf).fmtCase(dis.case),
+                    dis.operands_separator,
+                    @as(u4, @bitCast(group.nzcv)),
+                    dis.operands_separator,
+                    fmtCase(group.cond, dis.case),
+                });
+            },
+            .conditional_compare_immediate => |conditional_compare_immediate| {
+                const group = conditional_compare_immediate.group;
+                const sf = group.sf;
+                return writer.print("{f}{s}{f}{s}#0x{x}{s}#0x{x}{s}{f}", .{
+                    fmtCase(group.op, dis.case),
+                    dis.mnemonic_operands_separator,
+                    group.Rn.decode(.{}).general(sf).fmtCase(dis.case),
+                    dis.operands_separator,
+                    group.imm5,
+                    dis.operands_separator,
+                    @as(u4, @bitCast(group.nzcv)),
+                    dis.operands_separator,
+                    fmtCase(group.cond, dis.case),
+                });
+            },
             .conditional_select => |conditional_select| {
                 const decoded = conditional_select.decode();
                 if (decoded == .unallocated) break :unallocated;

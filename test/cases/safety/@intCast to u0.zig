@@ -18,5 +18,5 @@ fn bar(one: u1, not_zero: i32) void {
     _ = x;
 }
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux,aarch64-linux

@@ -47,8 +47,9 @@
 ///    An immediate value where bits [1:0] select among four possible
 ///    combining functions and rounding constants (not specified here).
 /// \returns A 128-bit vector of [4 x i32] containing the updated SHA-1 state.
-#define _mm_sha1rnds4_epu32(V1, V2, M) \
-  __builtin_ia32_sha1rnds4((__v4si)(__m128i)(V1), (__v4si)(__m128i)(V2), (M))
+#define _mm_sha1rnds4_epu32(V1, V2, M)                                         \
+  ((__m128i)__builtin_ia32_sha1rnds4((__v4si)(__m128i)(V1),                    \
+                                     (__v4si)(__m128i)(V2), (M)))
 
 /// Calculates the SHA-1 state variable E from the SHA-1 state variables in
 ///    the 128-bit vector of [4 x i32] in \a __X, adds that to the next set of

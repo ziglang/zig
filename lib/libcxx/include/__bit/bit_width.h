@@ -10,8 +10,8 @@
 #define _LIBCPP___BIT_BIT_WIDTH_H
 
 #include <__bit/bit_log2.h>
-#include <__concepts/arithmetic.h>
 #include <__config>
+#include <__type_traits/integer_traits.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -21,7 +21,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <__libcpp_unsigned_integer _Tp>
+template <__unsigned_integer _Tp>
 [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr int bit_width(_Tp __t) noexcept {
   return __t == 0 ? 0 : std::__bit_log2(__t) + 1;
 }

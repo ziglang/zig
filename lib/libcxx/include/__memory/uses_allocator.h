@@ -40,7 +40,7 @@ template <class _Tp, class _Alloc>
 struct __uses_allocator<_Tp, _Alloc, false> : public false_type {};
 
 template <class _Tp, class _Alloc>
-struct _LIBCPP_TEMPLATE_VIS uses_allocator : public __uses_allocator<_Tp, _Alloc> {};
+struct uses_allocator : public __uses_allocator<_Tp, _Alloc> {};
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp, class _Alloc>

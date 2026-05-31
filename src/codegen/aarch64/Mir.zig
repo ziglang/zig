@@ -56,13 +56,13 @@ pub fn emit(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    code: *std.ArrayListUnmanaged(u8),
+    atom_index: u32,
+    w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
 ) !void {
     _ = debug_output;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
-    const gpa = zcu.gpa;
     const func = zcu.funcInfo(func_index);
     const nav = ip.getNav(func.owner_nav);
     const mod = zcu.navFileScope(func.owner_nav).mod.?;
@@ -81,20 +81,19 @@ pub fn emit(
         @as(u5, @intCast(func_align.minStrict(.@"16").toByteUnits().?)),
         Instruction.size,
     ) - 1);
-    try code.ensureUnusedCapacity(gpa, Instruction.size *
-        (code_len + literals_align_gap + mir.literals.len));
-    emitInstructionsForward(code, mir.prologue);
-    emitInstructionsBackward(code, mir.body);
-    const body_end: u32 = @intCast(code.items.len);
-    emitInstructionsBackward(code, mir.epilogue);
-    code.appendNTimesAssumeCapacity(0, Instruction.size * literals_align_gap);
-    code.appendSliceAssumeCapacity(@ptrCast(mir.literals));
+    try w.rebase(w.end, Instruction.size * (code_len + literals_align_gap + mir.literals.len));
+    emitInstructionsForward(w, mir.prologue) catch unreachable;
+    emitInstructionsBackward(w, mir.body) catch unreachable;
+    const body_end: u32 = @intCast(w.end);
+    emitInstructionsBackward(w, mir.epilogue) catch unreachable;
+    w.splatByteAll(0, Instruction.size * literals_align_gap) catch unreachable;
+    w.writeAll(@ptrCast(mir.literals)) catch unreachable;
     mir_log.debug("", .{});
 
     for (mir.nav_relocs) |nav_reloc| try emitReloc(
         lf,
         zcu,
-        func.owner_nav,
+        atom_index,
         switch (try @import("../../codegen.zig").genNavRef(
             lf,
             pt,
@@ -108,11 +107,12 @@ pub fn emit(
         mir.body[nav_reloc.reloc.label],
         body_end - Instruction.size * (1 + nav_reloc.reloc.label),
         nav_reloc.reloc.addend,
+        if (ip.getNav(nav_reloc.nav).getExtern(ip)) |_| .got_load else .direct,
     );
     for (mir.uav_relocs) |uav_reloc| try emitReloc(
         lf,
         zcu,
-        func.owner_nav,
+        atom_index,
         switch (try lf.lowerUav(
             pt,
             uav_reloc.uav.val,
@@ -125,92 +125,98 @@ pub fn emit(
         mir.body[uav_reloc.reloc.label],
         body_end - Instruction.size * (1 + uav_reloc.reloc.label),
         uav_reloc.reloc.addend,
+        .direct,
     );
     for (mir.lazy_relocs) |lazy_reloc| try emitReloc(
         lf,
         zcu,
-        func.owner_nav,
+        atom_index,
         if (lf.cast(.elf)) |ef|
             ef.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(ef, pt, lazy_reloc.symbol) catch |err|
                 return zcu.codegenFail(func.owner_nav, "{s} creating lazy symbol", .{@errorName(err)})
         else if (lf.cast(.macho)) |mf|
             mf.getZigObject().?.getOrCreateMetadataForLazySymbol(mf, pt, lazy_reloc.symbol) catch |err|
                 return zcu.codegenFail(func.owner_nav, "{s} creating lazy symbol", .{@errorName(err)})
-        else if (lf.cast(.coff)) |cf|
-            if (cf.getOrCreateAtomForLazySymbol(pt, lazy_reloc.symbol)) |atom|
-                cf.getAtom(atom).getSymbolIndex().?
-            else |err|
-                return zcu.codegenFail(func.owner_nav, "{s} creating lazy symbol", .{@errorName(err)})
         else
-            return zcu.codegenFail(func.owner_nav, "external symbols unimplemented for {s}", .{@tagName(lf.tag)}),
+            return zcu.codegenFail(func.owner_nav, "external symbols unimplemented for {t}", .{lf.tag}),
         mir.body[lazy_reloc.reloc.label],
         body_end - Instruction.size * (1 + lazy_reloc.reloc.label),
         lazy_reloc.reloc.addend,
+        .direct,
     );
     for (mir.global_relocs) |global_reloc| try emitReloc(
         lf,
         zcu,
-        func.owner_nav,
+        atom_index,
         if (lf.cast(.elf)) |ef|
             try ef.getGlobalSymbol(std.mem.span(global_reloc.name), null)
         else if (lf.cast(.macho)) |mf|
             try mf.getGlobalSymbol(std.mem.span(global_reloc.name), null)
-        else if (lf.cast(.coff)) |cf|
-            try cf.getGlobalSymbol(std.mem.span(global_reloc.name), "compiler_rt")
         else
-            return zcu.codegenFail(func.owner_nav, "external symbols unimplemented for {s}", .{@tagName(lf.tag)}),
+            return zcu.codegenFail(func.owner_nav, "external symbols unimplemented for {t}", .{lf.tag}),
         mir.body[global_reloc.reloc.label],
         body_end - Instruction.size * (1 + global_reloc.reloc.label),
         global_reloc.reloc.addend,
+        .direct,
     );
     const literal_reloc_offset: i19 = @intCast(mir.epilogue.len + literals_align_gap);
     for (mir.literal_relocs) |literal_reloc| {
         var instruction = mir.body[literal_reloc.label];
         instruction.load_store.register_literal.group.imm19 += literal_reloc_offset;
         instruction.write(
-            code.items[body_end - Instruction.size * (1 + literal_reloc.label) ..][0..Instruction.size],
+            w.buffered()[body_end - Instruction.size * (1 + literal_reloc.label) ..][0..Instruction.size],
         );
     }
 }
 
-fn emitInstructionsForward(code: *std.ArrayListUnmanaged(u8), instructions: []const Instruction) void {
-    for (instructions) |instruction| emitInstruction(code, instruction);
+fn emitInstructionsForward(w: *std.Io.Writer, instructions: []const Instruction) !void {
+    for (instructions) |instruction| try emitInstruction(w, instruction);
 }
-fn emitInstructionsBackward(code: *std.ArrayListUnmanaged(u8), instructions: []const Instruction) void {
+fn emitInstructionsBackward(w: *std.Io.Writer, instructions: []const Instruction) !void {
     var instruction_index = instructions.len;
     while (instruction_index > 0) {
         instruction_index -= 1;
-        emitInstruction(code, instructions[instruction_index]);
+        try emitInstruction(w, instructions[instruction_index]);
     }
 }
-fn emitInstruction(code: *std.ArrayListUnmanaged(u8), instruction: Instruction) void {
+fn emitInstruction(w: *std.Io.Writer, instruction: Instruction) !void {
     mir_log.debug("    {f}", .{instruction});
-    instruction.write(code.addManyAsArrayAssumeCapacity(Instruction.size));
+    instruction.write(try w.writableArray(Instruction.size));
 }
 
 fn emitReloc(
     lf: *link.File,
     zcu: *Zcu,
-    owner_nav: InternPool.Nav.Index,
+    atom_index: u32,
     sym_index: u32,
     instruction: Instruction,
     offset: u32,
     addend: u64,
+    kind: enum { direct, got_load },
 ) !void {
     const gpa = zcu.gpa;
     switch (instruction.decode()) {
         else => unreachable,
         .data_processing_immediate => |decoded| if (lf.cast(.elf)) |ef| {
             const zo = ef.zigObjectPtr().?;
-            const atom = zo.symbol(try zo.getOrCreateMetadataForNav(zcu, owner_nav)).atom(ef).?;
+            const atom = zo.symbol(atom_index).atom(ef).?;
             const r_type: std.elf.R_AARCH64 = switch (decoded.decode()) {
                 else => unreachable,
                 .pc_relative_addressing => |pc_relative_addressing| switch (pc_relative_addressing.group.op) {
-                    .adr => .ADR_PREL_LO21,
-                    .adrp => .ADR_PREL_PG_HI21,
+                    .adr => switch (kind) {
+                        .direct => .ADR_PREL_LO21,
+                        .got_load => unreachable,
+                    },
+                    .adrp => switch (kind) {
+                        .direct => .ADR_PREL_PG_HI21,
+                        .got_load => .ADR_GOT_PAGE,
+                    },
                 },
                 .add_subtract_immediate => |add_subtract_immediate| switch (add_subtract_immediate.group.op) {
-                    .add => .ADD_ABS_LO12_NC,
+                    .add => switch (kind) {
+                        .direct => .ADD_ABS_LO12_NC,
+                        .got_load => unreachable,
+                    },
                     .sub => unreachable,
                 },
             };
@@ -221,7 +227,7 @@ fn emitReloc(
             }, zo);
         } else if (lf.cast(.macho)) |mf| {
             const zo = mf.getZigObject().?;
-            const atom = zo.symbols.items[try zo.getOrCreateMetadataForNav(mf, owner_nav)].getAtom(mf).?;
+            const atom = zo.symbols.items[atom_index].getAtom(mf).?;
             switch (decoded.decode()) {
                 else => unreachable,
                 .pc_relative_addressing => |pc_relative_addressing| switch (pc_relative_addressing.group.op) {
@@ -231,7 +237,10 @@ fn emitReloc(
                         .offset = offset,
                         .target = sym_index,
                         .addend = @bitCast(addend),
-                        .type = .page,
+                        .type = switch (kind) {
+                            .direct => .page,
+                            .got_load => .got_load_page,
+                        },
                         .meta = .{
                             .pcrel = true,
                             .has_subtractor = false,
@@ -246,7 +255,10 @@ fn emitReloc(
                         .offset = offset,
                         .target = sym_index,
                         .addend = @bitCast(addend),
-                        .type = .pageoff,
+                        .type = switch (kind) {
+                            .direct => .pageoff,
+                            .got_load => .got_load_pageoff,
+                        },
                         .meta = .{
                             .pcrel = false,
                             .has_subtractor = false,
@@ -260,7 +272,7 @@ fn emitReloc(
         },
         .branch_exception_generating_system => |decoded| if (lf.cast(.elf)) |ef| {
             const zo = ef.zigObjectPtr().?;
-            const atom = zo.symbol(try zo.getOrCreateMetadataForNav(zcu, owner_nav)).atom(ef).?;
+            const atom = zo.symbol(atom_index).atom(ef).?;
             const r_type: std.elf.R_AARCH64 = switch (decoded.decode().unconditional_branch_immediate.group.op) {
                 .b => .JUMP26,
                 .bl => .CALL26,
@@ -272,7 +284,7 @@ fn emitReloc(
             }, zo);
         } else if (lf.cast(.macho)) |mf| {
             const zo = mf.getZigObject().?;
-            const atom = zo.symbols.items[try zo.getOrCreateMetadataForNav(mf, owner_nav)].getAtom(mf).?;
+            const atom = zo.symbols.items[atom_index].getAtom(mf).?;
             try atom.addReloc(mf, .{
                 .tag = .@"extern",
                 .offset = offset,
@@ -289,24 +301,43 @@ fn emitReloc(
         },
         .load_store => |decoded| if (lf.cast(.elf)) |ef| {
             const zo = ef.zigObjectPtr().?;
-            const atom = zo.symbol(try zo.getOrCreateMetadataForNav(zcu, owner_nav)).atom(ef).?;
+            const atom = zo.symbol(atom_index).atom(ef).?;
             const r_type: std.elf.R_AARCH64 = switch (decoded.decode().register_unsigned_immediate.decode()) {
                 .integer => |integer| switch (integer.decode()) {
                     .unallocated, .prfm => unreachable,
-                    .strb, .ldrb, .ldrsb => .LDST8_ABS_LO12_NC,
-                    .strh, .ldrh, .ldrsh => .LDST16_ABS_LO12_NC,
-                    .ldrsw => .LDST32_ABS_LO12_NC,
-                    inline .str, .ldr => |encoded| switch (encoded.sf) {
+                    .strb, .ldrb, .ldrsb => switch (kind) {
+                        .direct => .LDST8_ABS_LO12_NC,
+                        .got_load => unreachable,
+                    },
+                    .strh, .ldrh, .ldrsh => switch (kind) {
+                        .direct => .LDST16_ABS_LO12_NC,
+                        .got_load => unreachable,
+                    },
+                    .ldrsw => switch (kind) {
+                        .direct => .LDST32_ABS_LO12_NC,
+                        .got_load => unreachable,
+                    },
+                    inline .str, .ldr => |encoded, mnemonic| switch (encoded.sf) {
                         .word => .LDST32_ABS_LO12_NC,
-                        .doubleword => .LDST64_ABS_LO12_NC,
+                        .doubleword => switch (kind) {
+                            .direct => .LDST64_ABS_LO12_NC,
+                            .got_load => switch (mnemonic) {
+                                else => comptime unreachable,
+                                .str => unreachable,
+                                .ldr => .LD64_GOT_LO12_NC,
+                            },
+                        },
                     },
                 },
-                .vector => |vector| switch (vector.group.opc1.decode(vector.group.size)) {
-                    .byte => .LDST8_ABS_LO12_NC,
-                    .half => .LDST16_ABS_LO12_NC,
-                    .single => .LDST32_ABS_LO12_NC,
-                    .double => .LDST64_ABS_LO12_NC,
-                    .quad => .LDST128_ABS_LO12_NC,
+                .vector => |vector| switch (kind) {
+                    .direct => switch (vector.group.opc1.decode(vector.group.size)) {
+                        .byte => .LDST8_ABS_LO12_NC,
+                        .half => .LDST16_ABS_LO12_NC,
+                        .single => .LDST32_ABS_LO12_NC,
+                        .double => .LDST64_ABS_LO12_NC,
+                        .quad => .LDST128_ABS_LO12_NC,
+                    },
+                    .got_load => unreachable,
                 },
             };
             try atom.addReloc(gpa, .{
@@ -316,13 +347,16 @@ fn emitReloc(
             }, zo);
         } else if (lf.cast(.macho)) |mf| {
             const zo = mf.getZigObject().?;
-            const atom = zo.symbols.items[try zo.getOrCreateMetadataForNav(mf, owner_nav)].getAtom(mf).?;
+            const atom = zo.symbols.items[atom_index].getAtom(mf).?;
             try atom.addReloc(mf, .{
                 .tag = .@"extern",
                 .offset = offset,
                 .target = sym_index,
                 .addend = @bitCast(addend),
-                .type = .pageoff,
+                .type = switch (kind) {
+                    .direct => .pageoff,
+                    .got_load => .got_load_pageoff,
+                },
                 .meta = .{
                     .pcrel = false,
                     .has_subtractor = false,

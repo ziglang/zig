@@ -899,7 +899,6 @@ test "enum value allocation" {
 }
 
 test "enum literal casting to tagged union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -935,7 +934,6 @@ test "enum literal casting to error union with payload enum" {
 }
 
 test "constant enum initialization with differing sizes" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
@@ -1063,6 +1061,25 @@ test "tag name with signed enum values" {
     var b = LocalFoo.bravo;
     _ = &b;
     try expect(mem.eql(u8, @tagName(b), "bravo"));
+}
+
+test "tag name with large enum values" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    const Kdf = enum(u128) {
+        aes_kdf = 0xea4f8ac1080d74bf60448a629af3d9c9,
+        argon2d = 0x0c0ae303a4a9f7914b44298cdf6d63ef,
+        argon2id = 0xe6a1f0c63efc3db27347db56198b299e,
+    };
+    var kdf: Kdf = .aes_kdf;
+    try expect(mem.eql(u8, @tagName(kdf), "aes_kdf"));
+    var argon2d_value: u128 = undefined;
+    argon2d_value = @intFromEnum(Kdf.argon2d);
+    kdf = @enumFromInt(argon2d_value);
+    try expect(mem.eql(u8, @tagName(kdf), "argon2d"));
+    kdf = .argon2id;
+    try expect(mem.eql(u8, @tagName(kdf), "argon2id"));
 }
 
 test "@tagName in callconv(.c) function" {
@@ -1266,10 +1283,7 @@ test "Non-exhaustive enum backed by comptime_int" {
 test "matching captures causes enum equivalence" {
     const S = struct {
         fn Nonexhaustive(comptime I: type) type {
-            const UTag = @Type(.{ .int = .{
-                .signedness = .unsigned,
-                .bits = @typeInfo(I).int.bits,
-            } });
+            const UTag = @Int(.unsigned, @typeInfo(I).int.bits);
             return enum(UTag) { _ };
         }
     };
@@ -1324,4 +1338,11 @@ test "large enum field values" {
         try expect(e == .max);
         try expect(@intFromEnum(e) == std.math.maxInt(i128));
     }
+}
+
+test "comptime @enumFromInt with signed arithmetic" {
+    const E = enum(i8) { foo = -1, bar = 0 };
+    const x: E = @enumFromInt(@as(i8, -1) * 0);
+    comptime assert(x == .bar);
+    comptime assert(@intFromEnum(x) == 0);
 }

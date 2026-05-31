@@ -9,11 +9,13 @@
 #ifndef _LIBCPP___ALGORITHM_MOVE_H
 #define _LIBCPP___ALGORITHM_MOVE_H
 
+#include <__algorithm/copy.h>
 #include <__algorithm/copy_move_common.h>
 #include <__algorithm/for_each_segment.h>
 #include <__algorithm/iterator_operations.h>
 #include <__algorithm/min.h>
 #include <__config>
+#include <__fwd/bit_reference.h>
 #include <__iterator/iterator_traits.h>
 #include <__iterator/segmented_iterator.h>
 #include <__type_traits/common_type.h>
@@ -96,6 +98,14 @@ struct __move_impl {
 
       __local_first = _Traits::__begin(++__segment_iterator);
     }
+  }
+
+  template <class _Cp, bool _IsConst>
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 pair<__bit_iterator<_Cp, _IsConst>, __bit_iterator<_Cp, false> >
+  operator()(__bit_iterator<_Cp, _IsConst> __first,
+             __bit_iterator<_Cp, _IsConst> __last,
+             __bit_iterator<_Cp, false> __result) {
+    return std::__copy(__first, __last, __result);
   }
 
   // At this point, the iterators have been unwrapped so any `contiguous_iterator` has been unwrapped to a pointer.

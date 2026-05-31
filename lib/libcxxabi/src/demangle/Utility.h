@@ -27,6 +27,8 @@
 
 DEMANGLE_NAMESPACE_BEGIN
 
+class Node;
+
 // Stream that AST nodes write their string representation into after the AST
 // has been parsed.
 class OutputBuffer {
@@ -79,9 +81,23 @@ public:
   OutputBuffer(const OutputBuffer &) = delete;
   OutputBuffer &operator=(const OutputBuffer &) = delete;
 
+  virtual ~OutputBuffer() {}
+
   operator std::string_view() const {
     return std::string_view(Buffer, CurrentPosition);
   }
+
+  /// Called by the demangler when printing the demangle tree. By
+  /// default calls into \c Node::print{Left|Right} but can be overriden
+  /// by clients to track additional state when printing the demangled name.
+  virtual void printLeft(const Node &N);
+  virtual void printRight(const Node &N);
+
+  /// Called when we write to this object anywhere other than the end.
+  virtual void notifyInsertion(size_t /*Position*/, size_t /*Count*/) {}
+
+  /// Called when we make the \c CurrentPosition of this object smaller.
+  virtual void notifyDeletion(size_t /*OldPos*/, size_t /*NewPos*/) {}
 
   /// If a ParameterPackExpansion (or similar type) is encountered, the offset
   /// into the pack that we're currently printing.
@@ -120,11 +136,15 @@ public:
 
   OutputBuffer &prepend(std::string_view R) {
     size_t Size = R.size();
+    if (!Size)
+      return *this;
 
     grow(Size);
     std::memmove(Buffer + Size, Buffer, CurrentPosition);
     std::memcpy(Buffer, &*R.begin(), Size);
     CurrentPosition += Size;
+
+    notifyInsertion(/*Position=*/0, /*Count=*/Size);
 
     return *this;
   }
@@ -161,14 +181,20 @@ public:
     DEMANGLE_ASSERT(Pos <= CurrentPosition, "");
     if (N == 0)
       return;
+
     grow(N);
     std::memmove(Buffer + Pos + N, Buffer + Pos, CurrentPosition - Pos);
     std::memcpy(Buffer + Pos, S, N);
     CurrentPosition += N;
+
+    notifyInsertion(Pos, N);
   }
 
   size_t getCurrentPosition() const { return CurrentPosition; }
-  void setCurrentPosition(size_t NewPos) { CurrentPosition = NewPos; }
+  void setCurrentPosition(size_t NewPos) {
+    notifyDeletion(CurrentPosition, NewPos);
+    CurrentPosition = NewPos;
+  }
 
   char back() const {
     DEMANGLE_ASSERT(CurrentPosition, "");

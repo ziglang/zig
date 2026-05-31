@@ -56,14 +56,14 @@ pub fn writeSymtab(thunk: Thunk, macho_file: *MachO, ctx: anytype) void {
         n_strx += @intCast("__thunk".len);
         ctx.strtab.items[n_strx] = 0;
         n_strx += 1;
-        out_sym.n_type = macho.N_SECT;
+        out_sym.n_type = .{ .bits = .{ .ext = false, .type = .sect, .pext = false, .is_stab = 0 } };
         out_sym.n_sect = @intCast(thunk.out_n_sect + 1);
         out_sym.n_value = @intCast(thunk.getTargetAddress(ref, macho_file));
-        out_sym.n_desc = 0;
+        out_sym.n_desc = @bitCast(@as(u16, 0));
     }
 }
 
-pub fn fmt(thunk: Thunk, macho_file: *MachO) std.fmt.Formatter(Format, Format.default) {
+pub fn fmt(thunk: Thunk, macho_file: *MachO) std.fmt.Alt(Format, Format.default) {
     return .{ .data = .{
         .thunk = thunk,
         .macho_file = macho_file,
@@ -97,7 +97,7 @@ const math = std.math;
 const mem = std.mem;
 const std = @import("std");
 const trace = @import("../../tracy.zig").trace;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");

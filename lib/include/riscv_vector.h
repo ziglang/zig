@@ -49,7 +49,6 @@ enum __RISCV_FRM {
 #define __riscv_vsetvl_e32m4(avl) __builtin_rvv_vsetvli((size_t)(avl), 2, 2)
 #define __riscv_vsetvl_e32m8(avl) __builtin_rvv_vsetvli((size_t)(avl), 2, 3)
 
-#if __riscv_v_elen >= 64
 #define __riscv_vsetvl_e8mf8(avl) __builtin_rvv_vsetvli((size_t)(avl), 0, 5)
 #define __riscv_vsetvl_e16mf4(avl) __builtin_rvv_vsetvli((size_t)(avl), 1, 6)
 #define __riscv_vsetvl_e32mf2(avl) __builtin_rvv_vsetvli((size_t)(avl), 2, 7)
@@ -58,7 +57,6 @@ enum __RISCV_FRM {
 #define __riscv_vsetvl_e64m2(avl) __builtin_rvv_vsetvli((size_t)(avl), 3, 1)
 #define __riscv_vsetvl_e64m4(avl) __builtin_rvv_vsetvli((size_t)(avl), 3, 2)
 #define __riscv_vsetvl_e64m8(avl) __builtin_rvv_vsetvli((size_t)(avl), 3, 3)
-#endif
 
 #define __riscv_vsetvlmax_e8mf4() __builtin_rvv_vsetvlimax(0, 6)
 #define __riscv_vsetvlmax_e8mf2() __builtin_rvv_vsetvlimax(0, 7)
@@ -78,7 +76,6 @@ enum __RISCV_FRM {
 #define __riscv_vsetvlmax_e32m4() __builtin_rvv_vsetvlimax(2, 2)
 #define __riscv_vsetvlmax_e32m8() __builtin_rvv_vsetvlimax(2, 3)
 
-#if __riscv_v_elen >= 64
 #define __riscv_vsetvlmax_e8mf8() __builtin_rvv_vsetvlimax(0, 5)
 #define __riscv_vsetvlmax_e16mf4() __builtin_rvv_vsetvlimax(1, 6)
 #define __riscv_vsetvlmax_e32mf2() __builtin_rvv_vsetvlimax(2, 7)
@@ -87,7 +84,6 @@ enum __RISCV_FRM {
 #define __riscv_vsetvlmax_e64m2() __builtin_rvv_vsetvlimax(3, 1)
 #define __riscv_vsetvlmax_e64m4() __builtin_rvv_vsetvlimax(3, 2)
 #define __riscv_vsetvlmax_e64m8() __builtin_rvv_vsetvlimax(3, 3)
-#endif
 
 
 enum __RISCV_VXRM {

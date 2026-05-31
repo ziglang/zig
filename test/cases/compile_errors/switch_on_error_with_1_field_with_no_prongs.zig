@@ -11,8 +11,6 @@ export fn entry2() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:24: error: switch must handle all possibilities
 // :5:24: note: unhandled error value: 'error.M'

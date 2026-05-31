@@ -18,8 +18,6 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :13:25: error: store to comptime variable depends on runtime condition
 // :11:16: note: runtime condition here

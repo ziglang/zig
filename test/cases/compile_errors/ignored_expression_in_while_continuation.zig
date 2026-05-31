@@ -23,8 +23,6 @@ fn bad2() anyerror {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:24: error: error union is ignored
 // :2:24: note: consider using 'try', 'catch', or 'if'

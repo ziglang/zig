@@ -105,6 +105,14 @@ pub const Options = struct {
         /// Verify that the server certificate is authorized by a given ca bundle.
         bundle: Certificate.Bundle,
     },
+    write_buffer: []u8,
+    read_buffer: []u8,
+    /// Cryptographically secure random bytes. The pointer is not captured; data is only
+    /// read during `init`.
+    entropy: *const [176]u8,
+    /// Current time according to the wall clock / calendar, in seconds.
+    realtime_now_seconds: i64,
+
     /// If non-null, ssl secrets are logged to this stream. Creating such a log file allows
     /// other programs with access to that file to decrypt all traffic over this connection.
     ///
@@ -120,8 +128,6 @@ pub const Options = struct {
     /// application layer itself verifies that the amount of data received equals
     /// the amount of data expected, such as HTTP with the Content-Length header.
     allow_truncation_attacks: bool = false,
-    write_buffer: []u8,
-    read_buffer: []u8,
     /// Populated when `error.TlsAlert` is returned from `init`.
     alert: ?*tls.Alert = null,
 };
@@ -189,14 +195,12 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
     };
     const host_len: u16 = @intCast(host.len);
 
-    var random_buffer: [176]u8 = undefined;
-    crypto.random.bytes(&random_buffer);
-    const client_hello_rand = random_buffer[0..32].*;
+    const client_hello_rand = options.entropy[0..32].*;
     var key_seq: u64 = 0;
     var server_hello_rand: [32]u8 = undefined;
-    const legacy_session_id = random_buffer[32..64].*;
+    const legacy_session_id = options.entropy[32..64].*;
 
-    var key_share = KeyShare.init(random_buffer[64..176].*) catch |err| switch (err) {
+    var key_share = KeyShare.init(options.entropy[64..176].*) catch |err| switch (err) {
         // Only possible to happen if the seed is all zeroes.
         error.IdentityElement => return error.InsufficientEntropy,
     };
@@ -320,7 +324,8 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
     var handshake_state: HandshakeState = .hello;
     var handshake_cipher: tls.HandshakeCipher = undefined;
     var main_cert_pub_key: CertificatePublicKey = undefined;
-    const now_sec = std.time.timestamp();
+    var tls12_negotiated_group: ?tls.NamedGroup = null;
+    const now_sec = options.realtime_now_seconds;
 
     var cleartext_fragment_start: usize = 0;
     var cleartext_fragment_end: usize = 0;
@@ -679,6 +684,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                         const curve_type = hsd.decode(u8);
                         if (curve_type != 0x03) return error.TlsIllegalParameter; // named_curve
                         const named_group = hsd.decode(tls.NamedGroup);
+                        tls12_negotiated_group = named_group;
                         const key_size = hsd.decode(u8);
                         try hsd.ensure(key_size);
                         const server_pub_key = hsd.slice(key_size);
@@ -691,10 +697,19 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                         if (cipher_state != .cleartext) return error.TlsUnexpectedMessage;
                         if (handshake_state != .server_hello_done) return error.TlsUnexpectedMessage;
 
-                        const client_key_exchange_msg = .{@intFromEnum(tls.ContentType.handshake)} ++
+                        const public_key_bytes: []const u8 = switch (tls12_negotiated_group orelse .secp256r1) {
+                            .secp256r1 => &key_share.secp256r1_kp.public_key.toUncompressedSec1(),
+                            .secp384r1 => &key_share.secp384r1_kp.public_key.toUncompressedSec1(),
+                            .x25519 => &key_share.x25519_kp.public_key,
+                            else => return error.TlsIllegalParameter,
+                        };
+
+                        const client_key_exchange_prefix = .{@intFromEnum(tls.ContentType.handshake)} ++
                             int(u16, @intFromEnum(tls.ProtocolVersion.tls_1_2)) ++
-                            array(u16, u8, .{@intFromEnum(tls.HandshakeType.client_key_exchange)} ++
-                                array(u24, u8, array(u8, u8, key_share.secp256r1_kp.public_key.toUncompressedSec1())));
+                            int(u16, @intCast(public_key_bytes.len + 5)) ++ // record length
+                            .{@intFromEnum(tls.HandshakeType.client_key_exchange)} ++
+                            int(u24, @intCast(public_key_bytes.len + 1)) ++ // handshake message length
+                            .{@as(u8, @intCast(public_key_bytes.len))}; // public key length
                         const client_change_cipher_spec_msg = .{@intFromEnum(tls.ContentType.change_cipher_spec)} ++
                             int(u16, @intFromEnum(tls.ProtocolVersion.tls_1_2)) ++
                             array(u16, tls.ChangeCipherSpecType, .{.change_cipher_spec});
@@ -703,7 +718,8 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                             inline else => |*p| {
                                 const P = @TypeOf(p.*).A;
                                 p.transcript_hash.update(wrapped_handshake);
-                                p.transcript_hash.update(client_key_exchange_msg[tls.record_header_len..]);
+                                p.transcript_hash.update(client_key_exchange_prefix[tls.record_header_len..]);
+                                p.transcript_hash.update(public_key_bytes);
                                 const master_secret = hmacExpandLabel(P.Hmac, pre_master_secret, &.{
                                     "master secret",
                                     &client_hello_rand,
@@ -757,8 +773,9 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                                     nonce,
                                     pv.app_cipher.client_write_key,
                                 );
-                                var all_msgs_vec: [3][]const u8 = .{
-                                    &client_key_exchange_msg,
+                                var all_msgs_vec: [4][]const u8 = .{
+                                    &client_key_exchange_prefix,
+                                    public_key_bytes,
                                     &client_change_cipher_spec_msg,
                                     &client_verify_msg,
                                 };
@@ -929,7 +946,6 @@ fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize 
             if (prepared.cleartext_len < buf.len) break :done;
         }
         for (data[0 .. data.len - 1]) |buf| {
-            if (buf.len < min_buffer_len) break :done;
             const prepared = prepareCiphertextRecord(c, ciphertext_buf[ciphertext_end..], buf, .application_data);
             total_clear += prepared.cleartext_len;
             ciphertext_end += prepared.ciphertext_end;
@@ -937,7 +953,6 @@ fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize 
         }
         const buf = data[data.len - 1];
         for (0..splat) |_| {
-            if (buf.len < min_buffer_len) break :done;
             const prepared = prepareCiphertextRecord(c, ciphertext_buf[ciphertext_end..], buf, .application_data);
             total_clear += prepared.cleartext_len;
             ciphertext_end += prepared.ciphertext_end;

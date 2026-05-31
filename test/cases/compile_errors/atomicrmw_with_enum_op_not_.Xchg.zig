@@ -10,7 +10,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :9:28: error: @atomicRmw with enum only allowed with .Xchg

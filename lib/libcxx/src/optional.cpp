@@ -23,7 +23,7 @@ const char* bad_optional_access::what() const noexcept { return "bad_optional_ac
 //  Even though it no longer exists in a header file
 _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL
 
-class _LIBCPP_EXPORTED_FROM_ABI _LIBCPP_AVAILABILITY_BAD_OPTIONAL_ACCESS bad_optional_access : public std::logic_error {
+class _LIBCPP_EXPORTED_FROM_ABI bad_optional_access : public std::logic_error {
 public:
   bad_optional_access() : std::logic_error("Bad optional Access") {}
 

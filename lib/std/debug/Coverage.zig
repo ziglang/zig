@@ -21,7 +21,7 @@ directories: std.ArrayHashMapUnmanaged(String, void, String.MapContext, false),
 ///
 /// Protected by `mutex`.
 files: std.ArrayHashMapUnmanaged(File, void, File.MapContext, false),
-string_bytes: std.ArrayListUnmanaged(u8),
+string_bytes: std.ArrayList(u8),
 /// Protects the other fields.
 mutex: std.Thread.Mutex,
 
@@ -145,6 +145,7 @@ pub const ResolveAddressesDwarfError = Dwarf.ScanError;
 pub fn resolveAddressesDwarf(
     cov: *Coverage,
     gpa: Allocator,
+    endian: std.builtin.Endian,
     /// Asserts the addresses are in ascending order.
     sorted_pc_addrs: []const u64,
     /// Asserts its length equals length of `sorted_pc_addrs`.
@@ -184,7 +185,7 @@ pub fn resolveAddressesDwarf(
             if (cu.src_loc_cache == null) {
                 cov.mutex.unlock();
                 defer cov.mutex.lock();
-                d.populateSrcLocCache(gpa, cu) catch |err| switch (err) {
+                d.populateSrcLocCache(gpa, endian, cu) catch |err| switch (err) {
                     error.MissingDebugInfo, error.InvalidDebugInfo => {
                         out.* = SourceLocation.invalid;
                         continue :next_pc;

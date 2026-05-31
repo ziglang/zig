@@ -15,8 +15,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:12: error: function type cannot have a name
 // :5:21: error: function type cannot have an alignment

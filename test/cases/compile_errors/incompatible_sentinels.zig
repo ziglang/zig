@@ -16,8 +16,6 @@ export fn entry4() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:12: error: expected type '[*:0]u8', found '[*:255]u8'
 // :4:12: note: pointer sentinel '255' cannot cast into pointer sentinel '0'

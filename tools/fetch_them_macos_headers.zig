@@ -1,6 +1,6 @@
 const std = @import("std");
+const Io = std.Io;
 const fs = std.fs;
-const io = std.io;
 const mem = std.mem;
 const process = std.process;
 const assert = std.debug.assert;
@@ -28,6 +28,7 @@ const OsVer = enum(u32) {
     ventura = 13,
     sonoma = 14,
     sequoia = 15,
+    tahoe = 26,
 };
 
 const Target = struct {
@@ -85,15 +86,19 @@ pub fn main() anyerror!void {
         } else try argv.append(arg);
     }
 
+    var threaded: Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
+
     const sysroot_path = sysroot orelse blk: {
-        const target = try std.zig.system.resolveTargetQuery(.{});
+        const target = try std.zig.system.resolveTargetQuery(io, .{});
         break :blk std.zig.system.darwin.getSdk(allocator, &target) orelse
             fatal("no SDK found; you can provide one explicitly with '--sysroot' flag", .{});
     };
 
     var sdk_dir = try std.fs.cwd().openDir(sysroot_path, .{});
     defer sdk_dir.close();
-    const sdk_info = try sdk_dir.readFileAlloc(allocator, "SDKSettings.json", std.math.maxInt(u32));
+    const sdk_info = try sdk_dir.readFileAlloc("SDKSettings.json", allocator, .limited(std.math.maxInt(u32)));
 
     const parsed_json = try std.json.parseFromSlice(struct {
         DefaultProperties: struct { MACOSX_DEPLOYMENT_TARGET: []const u8 },
@@ -103,16 +108,8 @@ pub fn main() anyerror!void {
         fatal("don't know how to parse SDK version: {s}", .{
             parsed_json.value.DefaultProperties.MACOSX_DEPLOYMENT_TARGET,
         });
-    const os_ver: OsVer = switch (version.major) {
-        10 => .catalina,
-        11 => .big_sur,
-        12 => .monterey,
-        13 => .ventura,
-        14 => .sonoma,
-        15 => .sequoia,
-        else => unreachable,
-    };
-    info("found SDK deployment target macOS {f} aka '{s}'", .{ version, @tagName(os_ver) });
+    const os_ver: OsVer = @enumFromInt(version.major);
+    info("found SDK deployment target macOS {f} aka '{t}'", .{ version, os_ver });
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -122,12 +119,13 @@ pub fn main() anyerror!void {
             .arch = arch,
             .os_ver = os_ver,
         };
-        try fetchTarget(allocator, argv.items, sysroot_path, target, version, tmp);
+        try fetchTarget(allocator, io, argv.items, sysroot_path, target, version, tmp);
     }
 }
 
 fn fetchTarget(
     arena: Allocator,
+    io: Io,
     args: []const []const u8,
     sysroot: []const u8,
     target: Target,
@@ -198,7 +196,8 @@ fn fetchTarget(
     var dirs = std.StringHashMap(fs.Dir).init(arena);
     try dirs.putNoClobber(".", dest_dir);
 
-    const headers_list_str = try headers_list_file.deprecatedReader().readAllAlloc(arena, std.math.maxInt(usize));
+    var headers_list_file_reader = headers_list_file.reader(io, &.{});
+    const headers_list_str = try headers_list_file_reader.interface.allocRemaining(arena, .unlimited);
     const prefix = "/usr/include";
 
     var it = mem.splitScalar(u8, headers_list_str, '\n');
@@ -270,8 +269,8 @@ const Version = struct {
 
     pub fn format(
         v: Version,
-        writer: *std.Io.Writer,
-    ) std.Io.Writer.Error!void {
+        writer: *Io.Writer,
+    ) Io.Writer.Error!void {
         try writer.print("{d}.{d}.{d}", .{ v.major, v.minor, v.patch });
     }
 };

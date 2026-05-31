@@ -43,7 +43,7 @@ template<class E> const E* end(initializer_list<E> il) noexcept; // constexpr in
 */
 
 #if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
-#  include <__cxx03/initializer_list>
+#  include <__cxx03/__config>
 #else
 #  include <__config>
 #  include <__cstddef/size_t.h>
@@ -59,7 +59,7 @@ namespace std // purposefully not versioned
 #  ifndef _LIBCPP_CXX03_LANG
 
 template <class _Ep>
-class _LIBCPP_TEMPLATE_VIS initializer_list {
+class _LIBCPP_NO_SPECIALIZATIONS initializer_list {
   const _Ep* __begin_;
   size_t __size_;
 

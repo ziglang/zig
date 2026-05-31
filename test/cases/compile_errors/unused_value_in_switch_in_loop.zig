@@ -8,8 +8,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:18: error: incompatible types: 'comptime_int' and 'void'
 // :4:14: note: type 'comptime_int' here

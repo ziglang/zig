@@ -16,5 +16,5 @@ fn foo() anyerror!i32 {
     return error.Bar;
 }
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux

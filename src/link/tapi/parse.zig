@@ -57,7 +57,7 @@ pub const Node = struct {
         }
     }
 
-    pub fn format(self: *const Node, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(self: *const Node, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self.tag) {
             inline else => |tag| return @as(*tag.Type(), @fieldParentPtr("base", self)).format(writer),
         }
@@ -81,7 +81,7 @@ pub const Node = struct {
             }
         }
 
-        pub fn format(self: *const Doc, writer: *std.io.Writer) std.io.Writer.Error!void {
+        pub fn format(self: *const Doc, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             if (self.directive) |id| {
                 try writer.print("{{ ", .{});
                 const directive = self.base.tree.getRaw(id, id);
@@ -103,7 +103,7 @@ pub const Node = struct {
             .start = undefined,
             .end = undefined,
         },
-        values: std.ArrayListUnmanaged(Entry) = .empty,
+        values: std.ArrayList(Entry) = .empty,
 
         pub const base_tag: Node.Tag = .map;
 
@@ -121,7 +121,7 @@ pub const Node = struct {
             self.values.deinit(allocator);
         }
 
-        pub fn format(self: *const Map, writer: *std.io.Writer) std.io.Writer.Error!void {
+        pub fn format(self: *const Map, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             try std.fmt.format(writer, "{{ ", .{});
             for (self.values.items) |entry| {
                 const key = self.base.tree.getRaw(entry.key, entry.key);
@@ -142,7 +142,7 @@ pub const Node = struct {
             .start = undefined,
             .end = undefined,
         },
-        values: std.ArrayListUnmanaged(*Node) = .empty,
+        values: std.ArrayList(*Node) = .empty,
 
         pub const base_tag: Node.Tag = .list;
 
@@ -153,7 +153,7 @@ pub const Node = struct {
             self.values.deinit(allocator);
         }
 
-        pub fn format(self: *const List, writer: *std.io.Writer) std.io.Writer.Error!void {
+        pub fn format(self: *const List, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             try std.fmt.format(writer, "[ ", .{});
             for (self.values.items) |node| {
                 try std.fmt.format(writer, "{}, ", .{node});
@@ -169,7 +169,7 @@ pub const Node = struct {
             .start = undefined,
             .end = undefined,
         },
-        string_value: std.ArrayListUnmanaged(u8) = .empty,
+        string_value: std.ArrayList(u8) = .empty,
 
         pub const base_tag: Node.Tag = .value;
 
@@ -177,7 +177,7 @@ pub const Node = struct {
             self.string_value.deinit(allocator);
         }
 
-        pub fn format(self: *const Value, writer: *std.io.Writer) std.io.Writer.Error!void {
+        pub fn format(self: *const Value, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             const raw = self.base.tree.getRaw(self.base.start, self.base.end);
             return std.fmt.format(writer, "{s}", .{raw});
         }
@@ -194,7 +194,7 @@ pub const Tree = struct {
     source: []const u8,
     tokens: []Token,
     line_cols: std.AutoHashMap(TokenIndex, LineCol),
-    docs: std.ArrayListUnmanaged(*Node) = .empty,
+    docs: std.ArrayList(*Node) = .empty,
 
     pub fn init(allocator: Allocator) Tree {
         return .{

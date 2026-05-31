@@ -7,8 +7,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:12: error: expected type '[:0]u8', found '[]u8'
 // :3:12: note: destination pointer requires '0' sentinel

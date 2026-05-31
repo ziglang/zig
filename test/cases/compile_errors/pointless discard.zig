@@ -13,8 +13,6 @@ export fn bar() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:9: error: pointless discard of local variable
 // :3:5: note: used here

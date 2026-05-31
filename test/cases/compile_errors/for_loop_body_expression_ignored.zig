@@ -18,8 +18,6 @@ export fn f4() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:30: error: value of type 'usize' ignored
 // :5:30: note: all non-void values must be used

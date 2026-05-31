@@ -119,7 +119,7 @@ public:
   // that the pointer is going to be aligned properly at runtime because that is a (checked) precondition
   // of atomic_ref's constructor.
   static constexpr bool is_always_lock_free =
-      __atomic_always_lock_free(sizeof(_Tp), &__get_aligner_instance<required_alignment>::__instance);
+      __atomic_always_lock_free(sizeof(_Tp), std::addressof(__get_aligner_instance<required_alignment>::__instance));
 
   _LIBCPP_HIDE_FROM_ABI bool is_lock_free() const noexcept { return __atomic_is_lock_free(sizeof(_Tp), __ptr_); }
 

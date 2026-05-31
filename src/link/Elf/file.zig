@@ -10,11 +10,11 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn fmtPath(file: File) std.fmt.Formatter(File, formatPath) {
+    pub fn fmtPath(file: File) std.fmt.Alt(File, formatPath) {
         return .{ .data = file };
     }
 
-    fn formatPath(file: File, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn formatPath(file: File, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (file) {
             .zig_object => |zo| try writer.writeAll(zo.basename),
             .linker_defined => try writer.writeAll("(linker defined)"),

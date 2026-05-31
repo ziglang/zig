@@ -4,7 +4,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:15: error: bit shifting operation expected integer type, found '*const u8'

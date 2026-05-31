@@ -124,7 +124,7 @@ opterr:
 .type optind, %object;
 .size optind, 4
 optind:
-.data.rel.ro
+.section .data.rel.ro,"aw"
 .globl stderr
 .type stderr, %object;
 .size stderr, PTR_SIZE_BYTES

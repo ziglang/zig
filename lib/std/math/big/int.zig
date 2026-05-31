@@ -786,11 +786,10 @@ pub const Mutable = struct {
         assert(rma.limbs.ptr != b.limbs.ptr); // illegal aliasing
 
         if (a.limbs.len == 1 and b.limbs.len == 1) {
-            const ov = @mulWithOverflow(a.limbs[0], b.limbs[0]);
-            rma.limbs[0] = ov[0];
-            if (ov[1] == 0) {
+            rma.limbs[0], const overflow_bit = @mulWithOverflow(a.limbs[0], b.limbs[0]);
+            if (overflow_bit == 0) {
                 rma.len = 1;
-                rma.positive = (a.positive == b.positive);
+                rma.positive = (a.positive == b.positive) or rma.limbs[0] == 0;
                 return;
             }
         }
@@ -2029,11 +2028,15 @@ pub const Mutable = struct {
         r.len = llnormalize(r.limbs[0..length]);
     }
 
-    pub fn format(self: Mutable, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(self: Mutable, w: *std.Io.Writer) std.Io.Writer.Error!void {
         return formatNumber(self, w, .{});
     }
 
-    pub fn formatNumber(self: Const, w: *std.io.Writer, n: std.fmt.Number) std.io.Writer.Error!void {
+    /// If the absolute value of integer is greater than or equal to `pow(2, 64 * @sizeOf(usize) * 8)`,
+    /// this function will fail to print the string, printing "(BigInt)" instead of a number.
+    /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
+    /// See `Const.toString` and `Const.toStringAlloc` for a way to print big integers without failure.
+    pub fn formatNumber(self: Mutable, w: *std.Io.Writer, n: std.fmt.Number) std.Io.Writer.Error!void {
         return self.toConst().formatNumber(w, n);
     }
 };
@@ -2322,11 +2325,15 @@ pub const Const = struct {
         return .{ normalized_res.reconstruct(if (self.positive) .positive else .negative), exactness };
     }
 
+    pub fn format(self: Const, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        return self.formatNumber(w, .{});
+    }
+
     /// If the absolute value of integer is greater than or equal to `pow(2, 64 * @sizeOf(usize) * 8)`,
     /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
-    pub fn formatNumber(self: Const, w: *std.io.Writer, number: std.fmt.Number) std.io.Writer.Error!void {
+    pub fn formatNumber(self: Const, w: *std.Io.Writer, number: std.fmt.Number) std.Io.Writer.Error!void {
         const available_len = 64;
         if (self.limbs.len > available_len)
             return w.writeAll("(BigInt)");
@@ -2907,7 +2914,7 @@ pub const Managed = struct {
     }
 
     /// To allow `std.fmt.format` to work with `Managed`.
-    pub fn format(self: Managed, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(self: Managed, w: *std.Io.Writer) std.Io.Writer.Error!void {
         return formatNumber(self, w, .{});
     }
 
@@ -2915,7 +2922,7 @@ pub const Managed = struct {
     /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
-    pub fn formatNumber(self: Managed, w: *std.io.Writer, n: std.fmt.Number) std.io.Writer.Error!void {
+    pub fn formatNumber(self: Managed, w: *std.Io.Writer, n: std.fmt.Number) std.Io.Writer.Error!void {
         return self.toConst().formatNumber(w, n);
     }
 
@@ -4625,4 +4632,30 @@ fn testOneShiftCaseAliasing(func: fn ([]Limb, []const Limb, usize) usize, case: 
         try std.testing.expectEqual(expected.len, len);
         try std.testing.expectEqualSlices(Limb, expected, r[base .. base + len]);
     }
+}
+
+test "format" {
+    var a: Managed = try .init(std.testing.allocator);
+    defer a.deinit();
+
+    try a.set(123);
+    try testFormat(a, "123");
+
+    try a.set(-123);
+    try testFormat(a, "-123");
+
+    try a.set(20000000000000000000); // > maxInt(u64)
+    try testFormat(a, "20000000000000000000");
+
+    try a.set(1 << 64 * @sizeOf(usize) * 8);
+    try testFormat(a, "(BigInt)");
+
+    try a.set(-(1 << 64 * @sizeOf(usize) * 8));
+    try testFormat(a, "(BigInt)");
+}
+
+fn testFormat(a: Managed, expected: []const u8) !void {
+    try std.testing.expectFmt(expected, "{f}", .{a});
+    try std.testing.expectFmt(expected, "{f}", .{a.toMutable()});
+    try std.testing.expectFmt(expected, "{f}", .{a.toConst()});
 }

@@ -64,6 +64,8 @@ static const char *get_host_os(void) {
     return "linux";
 #elif defined(__FreeBSD__)
     return "freebsd";
+#elif defined(__DragonFly__)
+    return "dragonfly";
 #elif defined(__HAIKU__)
     return "haiku";
 #else

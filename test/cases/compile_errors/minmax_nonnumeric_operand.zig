@@ -19,8 +19,6 @@ const Enum = enum { foo };
 const Union = union { foo: void };
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:24: error: expected number, found 'type'
 // :3:24: error: expected number, found 'void'
@@ -38,4 +36,4 @@ const Union = union { foo: void };
 // :13:29: error: expected number, found 'tmp.Union'
 // :19:15: note: union declared here
 // :14:61: error: expected number, found 'fn () u8'
-// :15:25: error: expected number, found '@Type(.enum_literal)'
+// :15:25: error: expected number, found '@EnumLiteral()'

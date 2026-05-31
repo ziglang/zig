@@ -108,7 +108,6 @@ template<> class numeric_limits<cv long double>;
 #  include <__config>
 #  include <__type_traits/is_arithmetic.h>
 #  include <__type_traits/is_signed.h>
-#  include <__type_traits/remove_cv.h>
 
 #  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #    pragma GCC system_header
@@ -178,16 +177,6 @@ protected:
   static _LIBCPP_CONSTEXPR const float_round_style round_style = round_toward_zero;
 };
 
-template <class _Tp, int __digits, bool _IsSigned>
-struct __libcpp_compute_min {
-  static _LIBCPP_CONSTEXPR const _Tp value = _Tp(_Tp(1) << __digits);
-};
-
-template <class _Tp, int __digits>
-struct __libcpp_compute_min<_Tp, __digits, false> {
-  static _LIBCPP_CONSTEXPR const _Tp value = _Tp(0);
-};
-
 template <class _Tp>
 class __libcpp_numeric_limits<_Tp, true> {
 protected:
@@ -199,7 +188,7 @@ protected:
   static _LIBCPP_CONSTEXPR const int digits       = static_cast<int>(sizeof(type) * __CHAR_BIT__ - is_signed);
   static _LIBCPP_CONSTEXPR const int digits10     = digits * 3 / 10;
   static _LIBCPP_CONSTEXPR const int max_digits10 = 0;
-  static _LIBCPP_CONSTEXPR const type __min       = __libcpp_compute_min<type, digits, is_signed>::value;
+  static _LIBCPP_CONSTEXPR const type __min       = is_signed ? _Tp(_Tp(1) << digits) : 0;
   static _LIBCPP_CONSTEXPR const type __max       = is_signed ? type(type(~0) ^ __min) : type(~0);
   [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR type min() _NOEXCEPT { return __min; }
   [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR type max() _NOEXCEPT { return __max; }
@@ -250,10 +239,8 @@ protected:
   static _LIBCPP_CONSTEXPR const int digits       = 1;
   static _LIBCPP_CONSTEXPR const int digits10     = 0;
   static _LIBCPP_CONSTEXPR const int max_digits10 = 0;
-  static _LIBCPP_CONSTEXPR const type __min       = false;
-  static _LIBCPP_CONSTEXPR const type __max       = true;
-  [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR type min() _NOEXCEPT { return __min; }
-  [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR type max() _NOEXCEPT { return __max; }
+  [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR type min() _NOEXCEPT { return false; }
+  [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR type max() _NOEXCEPT { return true; }
   [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR type lowest() _NOEXCEPT { return min(); }
 
   static _LIBCPP_CONSTEXPR const bool is_integer = true;
@@ -462,7 +449,7 @@ protected:
 };
 
 template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS numeric_limits : private __libcpp_numeric_limits<_Tp> {
+class numeric_limits : private __libcpp_numeric_limits<_Tp> {
   typedef __libcpp_numeric_limits<_Tp> __base;
   typedef typename __base::type type;
 
@@ -521,13 +508,13 @@ public:
 };
 
 template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS numeric_limits<const _Tp> : public numeric_limits<_Tp> {};
+class numeric_limits<const _Tp> : public numeric_limits<_Tp> {};
 
 template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS numeric_limits<volatile _Tp> : public numeric_limits<_Tp> {};
+class numeric_limits<volatile _Tp> : public numeric_limits<_Tp> {};
 
 template <class _Tp>
-class _LIBCPP_TEMPLATE_VIS numeric_limits<const volatile _Tp> : public numeric_limits<_Tp> {};
+class numeric_limits<const volatile _Tp> : public numeric_limits<_Tp> {};
 
 _LIBCPP_END_NAMESPACE_STD
 

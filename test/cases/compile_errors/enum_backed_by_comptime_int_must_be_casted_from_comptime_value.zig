@@ -7,8 +7,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:31: error: unable to resolve comptime value
 // :6:31: note: value casted to enum with 'comptime_int' tag type must be comptime-known

@@ -6,14 +6,14 @@ file_handle: File.HandleIndex,
 tag: enum { dylib, tbd },
 
 exports: std.MultiArrayList(Export) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .empty,
+strtab: std.ArrayList(u8) = .empty,
 id: ?Id = null,
 ordinal: u16 = 0,
 
-symbols: std.ArrayListUnmanaged(Symbol) = .empty,
-symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
-globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .empty,
-dependents: std.ArrayListUnmanaged(Id) = .empty,
+symbols: std.ArrayList(Symbol) = .empty,
+symbols_extra: std.ArrayList(u32) = .empty,
+globals: std.ArrayList(MachO.SymbolResolver.Index) = .empty,
+dependents: std.ArrayList(Id) = .empty,
 rpaths: std.StringArrayHashMapUnmanaged(void) = .empty,
 umbrella: File.Index,
 platform: ?MachO.Platform = null,
@@ -90,11 +90,8 @@ fn parseBinary(self: *Dylib, macho_file: *MachO) !void {
         if (amt != lc_buffer.len) return error.InputOutput;
     }
 
-    var it = LoadCommandIterator{
-        .ncmds = header.ncmds,
-        .buffer = lc_buffer,
-    };
-    while (it.next()) |cmd| switch (cmd.cmd()) {
+    var it = LoadCommandIterator.init(&header, lc_buffer) catch |err| std.debug.panic("bad dylib: {t}", .{err});
+    while (it.next() catch |err| std.debug.panic("bad dylib: {t}", .{err})) |cmd| switch (cmd.hdr.cmd) {
         .ID_DYLIB => {
             self.id = try Id.fromLoadCommand(gpa, cmd.cast(macho.dylib_command).?, cmd.getDylibPathName());
         },
@@ -159,42 +156,18 @@ fn parseBinary(self: *Dylib, macho_file: *MachO) !void {
 }
 
 const TrieIterator = struct {
-    data: []const u8,
-    pos: usize = 0,
-
-    fn getStream(it: *TrieIterator) std.io.FixedBufferStream([]const u8) {
-        return std.io.fixedBufferStream(it.data[it.pos..]);
-    }
+    stream: std.Io.Reader,
 
     fn readUleb128(it: *TrieIterator) !u64 {
-        var stream = it.getStream();
-        var creader = std.io.countingReader(stream.reader());
-        const reader = creader.reader();
-        const value = try std.leb.readUleb128(u64, reader);
-        it.pos += math.cast(usize, creader.bytes_read) orelse return error.Overflow;
-        return value;
+        return it.stream.takeLeb128(u64);
     }
 
     fn readString(it: *TrieIterator) ![:0]const u8 {
-        var stream = it.getStream();
-        const reader = stream.reader();
-
-        var count: usize = 0;
-        while (true) : (count += 1) {
-            const byte = try reader.readByte();
-            if (byte == 0) break;
-        }
-
-        const str = @as([*:0]const u8, @ptrCast(it.data.ptr + it.pos))[0..count :0];
-        it.pos += count + 1;
-        return str;
+        return it.stream.takeSentinel(0);
     }
 
     fn readByte(it: *TrieIterator) !u8 {
-        var stream = it.getStream();
-        const value = try stream.reader().readByte();
-        it.pos += 1;
-        return value;
+        return it.stream.takeByte();
     }
 };
 
@@ -243,10 +216,10 @@ fn parseTrieNode(
         const label = try it.readString();
         const off = try it.readUleb128();
         const prefix_label = try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, label });
-        const curr = it.pos;
-        it.pos = math.cast(usize, off) orelse return error.Overflow;
+        const curr = it.stream.seek;
+        it.stream.seek = math.cast(usize, off) orelse return error.Overflow;
         try self.parseTrieNode(it, allocator, arena, prefix_label);
-        it.pos = curr;
+        it.stream.seek = curr;
     }
 }
 
@@ -257,7 +230,7 @@ fn parseTrie(self: *Dylib, data: []const u8, macho_file: *MachO) !void {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
 
-    var it: TrieIterator = .{ .data = data };
+    var it: TrieIterator = .{ .stream = .fixed(data) };
     try self.parseTrieNode(&it, gpa, arena.allocator(), "");
 }
 
@@ -691,7 +664,7 @@ pub fn setSymbolExtra(self: *Dylib, index: u32, extra: Symbol.Extra) void {
     }
 }
 
-pub fn fmtSymtab(self: *Dylib, macho_file: *MachO) std.fmt.Formatter(Format, Format.symtab) {
+pub fn fmtSymtab(self: *Dylib, macho_file: *MachO) std.fmt.Alt(Format, Format.symtab) {
     return .{ .data = .{
         .dylib = self,
         .macho_file = macho_file,
@@ -722,7 +695,7 @@ pub const TargetMatcher = struct {
     allocator: Allocator,
     cpu_arch: std.Target.Cpu.Arch,
     platform: macho.PLATFORM,
-    target_strings: std.ArrayListUnmanaged([]const u8) = .empty,
+    target_strings: std.ArrayList([]const u8) = .empty,
 
     pub fn init(allocator: Allocator, cpu_arch: std.Target.Cpu.Arch, platform: macho.PLATFORM) !TargetMatcher {
         var self = TargetMatcher{
@@ -739,6 +712,11 @@ pub const TargetMatcher = struct {
                 // hosts dylibs too.
                 const host_target = try targetToAppleString(allocator, cpu_arch, .MACOS);
                 try self.target_strings.append(allocator, host_target);
+            },
+            .MACCATALYST => {
+                // Mac Catalyst is allowed to link macOS libraries in a TBD because Apple were apparently too lazy
+                // to add the proper target strings despite doing so in other places in the format???
+                try self.target_strings.append(allocator, try targetToAppleString(allocator, cpu_arch, .MACOS));
             },
             .MACOS => {
                 // Turns out that around 10.13/10.14 macOS release version, Apple changed the target tags in
@@ -938,7 +916,7 @@ const math = std.math;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const Path = std.Build.Cache.Path;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const Dylib = @This();
 const File = @import("file.zig").File;

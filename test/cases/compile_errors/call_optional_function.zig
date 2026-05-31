@@ -8,8 +8,6 @@ pub export fn entry2() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:9: error: cannot call optional type '?fn () void'
 // :3:9: note: consider using '.?', 'orelse' or 'if'

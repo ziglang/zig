@@ -15,6 +15,8 @@ src/Package/Fetch/testdata/** binary
 src/Package/Fetch/git/testdata/** binary
 
 lib/compiler/aro/** linguist-vendored
+lib/compiler/resinator/** linguist-vendored
+lib/compiler/translate-c/** linguist-vendored
 lib/include/** linguist-vendored
 lib/libc/** linguist-vendored
 lib/libcxx/** linguist-vendored

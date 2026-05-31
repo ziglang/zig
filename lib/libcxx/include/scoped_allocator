@@ -110,7 +110,7 @@ template <class OuterA1, class OuterA2, class... InnerAllocs>
 */
 
 #if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
-#  include <__cxx03/scoped_allocator>
+#  include <__cxx03/__config>
 #else
 #  include <__config>
 #  include <__memory/allocator_traits.h>
@@ -334,7 +334,7 @@ struct __outermost<_Alloc, true> {
 };
 
 template <class _OuterAlloc, class... _InnerAllocs>
-class _LIBCPP_TEMPLATE_VIS scoped_allocator_adaptor<_OuterAlloc, _InnerAllocs...>
+class scoped_allocator_adaptor<_OuterAlloc, _InnerAllocs...>
     : public __scoped_allocator_storage<_OuterAlloc, _InnerAllocs...> {
   typedef __scoped_allocator_storage<_OuterAlloc, _InnerAllocs...> _Base;
   typedef allocator_traits<_OuterAlloc> _OuterTraits;

@@ -13,8 +13,6 @@ export fn bar() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:25: error: expected 2 elements for destructure, found 3
 // :2:22: note: result destructured here

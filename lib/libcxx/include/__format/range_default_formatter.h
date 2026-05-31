@@ -52,7 +52,7 @@ _LIBCPP_DIAGNOSTIC_POP
 // There is no definition of this struct, it's purely intended to be used to
 // generate diagnostics.
 template <class _Rp>
-struct _LIBCPP_TEMPLATE_VIS __instantiated_the_primary_template_of_format_kind;
+struct __instantiated_the_primary_template_of_format_kind;
 
 template <class _Rp>
 constexpr range_format format_kind = [] {
@@ -88,12 +88,12 @@ inline constexpr range_format format_kind<_Rp> = [] {
 }();
 
 template <range_format _Kp, ranges::input_range _Rp, class _CharT>
-struct _LIBCPP_TEMPLATE_VIS __range_default_formatter;
+struct __range_default_formatter;
 
 // Required specializations
 
 template <ranges::input_range _Rp, class _CharT>
-struct _LIBCPP_TEMPLATE_VIS __range_default_formatter<range_format::sequence, _Rp, _CharT> {
+struct __range_default_formatter<range_format::sequence, _Rp, _CharT> {
 private:
   using __maybe_const_r _LIBCPP_NODEBUG = __fmt_maybe_const<_Rp, _CharT>;
   range_formatter<remove_cvref_t<ranges::range_reference_t<__maybe_const_r>>, _CharT> __underlying_;
@@ -120,7 +120,7 @@ public:
 };
 
 template <ranges::input_range _Rp, class _CharT>
-struct _LIBCPP_TEMPLATE_VIS __range_default_formatter<range_format::map, _Rp, _CharT> {
+struct __range_default_formatter<range_format::map, _Rp, _CharT> {
 private:
   using __maybe_const_map _LIBCPP_NODEBUG = __fmt_maybe_const<_Rp, _CharT>;
   using __element_type _LIBCPP_NODEBUG    = remove_cvref_t<ranges::range_reference_t<__maybe_const_map>>;
@@ -148,7 +148,7 @@ public:
 };
 
 template <ranges::input_range _Rp, class _CharT>
-struct _LIBCPP_TEMPLATE_VIS __range_default_formatter<range_format::set, _Rp, _CharT> {
+struct __range_default_formatter<range_format::set, _Rp, _CharT> {
 private:
   using __maybe_const_set _LIBCPP_NODEBUG = __fmt_maybe_const<_Rp, _CharT>;
   using __element_type _LIBCPP_NODEBUG    = remove_cvref_t<ranges::range_reference_t<__maybe_const_set>>;
@@ -173,7 +173,7 @@ public:
 
 template <range_format _Kp, ranges::input_range _Rp, class _CharT>
   requires(_Kp == range_format::string || _Kp == range_format::debug_string)
-struct _LIBCPP_TEMPLATE_VIS __range_default_formatter<_Kp, _Rp, _CharT> {
+struct __range_default_formatter<_Kp, _Rp, _CharT> {
 private:
   // This deviates from the Standard, there the exposition only type is
   //   formatter<basic_string<charT>, charT> underlying_;
@@ -205,7 +205,7 @@ public:
 
 template <ranges::input_range _Rp, class _CharT>
   requires(format_kind<_Rp> != range_format::disabled && formattable<ranges::range_reference_t<_Rp>, _CharT>)
-struct _LIBCPP_TEMPLATE_VIS formatter<_Rp, _CharT> : __range_default_formatter<format_kind<_Rp>, _Rp, _CharT> {};
+struct formatter<_Rp, _CharT> : __range_default_formatter<format_kind<_Rp>, _Rp, _CharT> {};
 
 #endif // _LIBCPP_STD_VER >= 23
 

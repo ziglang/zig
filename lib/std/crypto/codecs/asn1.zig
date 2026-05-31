@@ -69,15 +69,15 @@ pub const Tag = struct {
         return .{ .number = number, .constructed = constructed, .class = .universal };
     }
 
-    pub fn decode(reader: anytype) !Tag {
-        const tag1: FirstTag = @bitCast(try reader.readByte());
+    pub fn decode(reader: *std.Io.Reader) !Tag {
+        const tag1: FirstTag = @bitCast(try reader.takeByte());
         var number: u14 = tag1.number;
 
         if (tag1.number == 15) {
-            const tag2: NextTag = @bitCast(try reader.readByte());
+            const tag2: NextTag = @bitCast(try reader.takeByte());
             number = tag2.number;
             if (tag2.continues) {
-                const tag3: NextTag = @bitCast(try reader.readByte());
+                const tag3: NextTag = @bitCast(try reader.takeByte());
                 number = (number << 7) + tag3.number;
                 if (tag3.continues) return error.InvalidLength;
             }
@@ -90,7 +90,7 @@ pub const Tag = struct {
         };
     }
 
-    pub fn encode(self: Tag, writer: anytype) @TypeOf(writer).Error!void {
+    pub fn encode(self: Tag, writer: *std.Io.Writer) @TypeOf(writer).Error!void {
         var tag1 = FirstTag{
             .number = undefined,
             .constructed = self.constructed,
@@ -98,8 +98,7 @@ pub const Tag = struct {
         };
 
         var buffer: [3]u8 = undefined;
-        var stream = std.io.fixedBufferStream(&buffer);
-        var writer2 = stream.writer();
+        var writer2: std.Io.Writer = .init(&buffer);
 
         switch (@intFromEnum(self.number)) {
             0...std.math.maxInt(u5) => |n| {
@@ -122,7 +121,7 @@ pub const Tag = struct {
             },
         }
 
-        _ = try writer.write(stream.getWritten());
+        _ = try writer.write(writer2.buffered());
     }
 
     const FirstTag = packed struct(u8) { number: u5, constructed: bool, class: Tag.Class };
@@ -161,8 +160,8 @@ pub const Tag = struct {
 
 test Tag {
     const buf = [_]u8{0xa3};
-    var stream = std.io.fixedBufferStream(&buf);
-    const t = Tag.decode(stream.reader());
+    var reader: std.Io.Reader = .fixed(&buf);
+    const t = Tag.decode(&reader);
     try std.testing.expectEqual(Tag.init(@enumFromInt(3), true, .context_specific), t);
 }
 
@@ -191,11 +190,10 @@ pub const Element = struct {
     /// - Ensures length is within `bytes`
     /// - Ensures length is less than `std.math.maxInt(Index)`
     pub fn decode(bytes: []const u8, index: Index) DecodeError!Element {
-        var stream = std.io.fixedBufferStream(bytes[index..]);
-        var reader = stream.reader();
+        var reader: std.Io.Reader = .fixed(bytes[index..]);
 
-        const tag = try Tag.decode(reader);
-        const size_or_len_size = try reader.readByte();
+        const tag = try Tag.decode(&reader);
+        const size_or_len_size = try reader.takeByte();
 
         var start = index + 2;
         var end = start + size_or_len_size;
@@ -208,7 +206,7 @@ pub const Element = struct {
             start += len_size;
             if (len_size > @sizeOf(Index)) return error.InvalidLength;
 
-            const len = try reader.readVarInt(Index, .big, len_size);
+            const len = try reader.takeVarInt(Index, .big, len_size);
             if (len < 128) return error.InvalidLength; // should have used short form
 
             end = std.math.add(Index, start, len) catch return error.InvalidLength;

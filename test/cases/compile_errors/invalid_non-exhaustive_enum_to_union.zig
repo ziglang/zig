@@ -19,8 +19,6 @@ export fn bar() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :12:16: error: runtime coercion to union 'tmp.U' from non-exhaustive enum
 // :1:11: note: enum declared here

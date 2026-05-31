@@ -11,8 +11,6 @@ export fn c() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:18: error: redundant @ptrCast
 // :6:44: error: redundant @alignCast

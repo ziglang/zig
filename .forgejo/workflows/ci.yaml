@@ -1,0 +1,196 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  aarch64-linux-debug:
+    runs-on: [self-hosted, aarch64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/aarch64-linux-debug.sh
+        timeout-minutes: 180
+  aarch64-linux-release:
+    runs-on: [self-hosted, aarch64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/aarch64-linux-release.sh
+        timeout-minutes: 120
+
+  aarch64-macos-debug:
+    runs-on: [self-hosted, aarch64-macos]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/aarch64-macos-debug.sh
+        timeout-minutes: 180
+  aarch64-macos-release:
+    runs-on: [self-hosted, aarch64-macos]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/aarch64-macos-release.sh
+        timeout-minutes: 120
+
+  loongarch64-linux-debug:
+    runs-on: [self-hosted, loongarch64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/loongarch64-linux-debug.sh
+        timeout-minutes: 240
+  loongarch64-linux-release:
+    runs-on: [self-hosted, loongarch64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/loongarch64-linux-release.sh
+        timeout-minutes: 180
+
+  riscv64-linux-debug:
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, riscv64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/riscv64-linux-debug.sh
+        timeout-minutes: 600
+  riscv64-linux-release:
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, riscv64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/riscv64-linux-release.sh
+        timeout-minutes: 480
+
+  s390x-linux-debug:
+    runs-on: [self-hosted, s390x-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/s390x-linux-debug.sh
+        timeout-minutes: 300
+  s390x-linux-release:
+    runs-on: [self-hosted, s390x-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/s390x-linux-release.sh
+        timeout-minutes: 240
+
+  x86_64-freebsd-debug:
+    runs-on: [self-hosted, x86_64-freebsd]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/x86_64-freebsd-debug.sh
+        timeout-minutes: 120
+  x86_64-freebsd-release:
+    runs-on: [self-hosted, x86_64-freebsd]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/x86_64-freebsd-release.sh
+        timeout-minutes: 120
+
+  x86_64-linux-debug:
+    runs-on: [self-hosted, x86_64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/x86_64-linux-debug.sh
+        timeout-minutes: 240
+  x86_64-linux-debug-llvm:
+    runs-on: [self-hosted, x86_64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/x86_64-linux-debug-llvm.sh
+        timeout-minutes: 480
+  x86_64-linux-release:
+    runs-on: [self-hosted, x86_64-linux]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: sh ci/x86_64-linux-release.sh
+        timeout-minutes: 480
+
+  x86_64-windows-debug:
+    runs-on: [self-hosted, x86_64-windows]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: ci/x86_64-windows-debug.ps1
+        timeout-minutes: 180
+  x86_64-windows-release:
+    runs-on: [self-hosted, x86_64-windows]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build and Test
+        run: ci/x86_64-windows-release.ps1
+        timeout-minutes: 180

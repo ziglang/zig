@@ -3,7 +3,5 @@ export fn f() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:6: error: expected expression, found 'const'

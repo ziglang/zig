@@ -11,8 +11,6 @@ export fn entry4() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:6: error: invalid left-hand side to assignment
 // :7:7: error: invalid left-hand side to assignment

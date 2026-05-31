@@ -8,8 +8,6 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:12: error: variable of type 'tmp.U' must be const or comptime
 // :2:8: note: union requires comptime because of this field

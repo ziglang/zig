@@ -23,8 +23,6 @@ export fn h() void {
     _ = c;
 }
 // error
-// backend=stage2
-// target=native
 //
 // :9:16: error: missing struct field: x
 // :1:11: note: struct declared here

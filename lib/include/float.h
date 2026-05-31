@@ -18,20 +18,11 @@
  * additional definitions provided for Windows.
  * For more details see http://msdn.microsoft.com/en-us/library/y0ybw9fy.aspx
  *
- * Also fall back on Darwin and AIX to allow additional definitions and
+ * Also fall back on AIX to allow additional definitions and
  * implementation-defined values.
  */
-#if (defined(__APPLE__) || defined(__MINGW32__) || defined(_MSC_VER) ||        \
-     defined(_AIX)) &&                                                         \
+#if (defined(__MINGW32__) || defined(_MSC_VER) || defined(_AIX)) &&            \
     __STDC_HOSTED__ && __has_include_next(<float.h>)
-
-/* Prior to Apple's 10.7 SDK, float.h SDK header used to apply an extra level
- * of #include_next<float.h> to keep Metrowerks compilers happy. Avoid this
- * extra indirection.
- */
-#ifdef __APPLE__
-#define _FLOAT_H_
-#endif
 
 #  include_next <float.h>
 

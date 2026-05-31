@@ -547,6 +547,8 @@ void __sanitizer_startup_hook(int argc, char **argv, char **envp,
   __sanitizer::StoredEnviron = envp;
   __sanitizer::MainThreadStackBase = reinterpret_cast<uintptr_t>(stack_base);
   __sanitizer::MainThreadStackSize = stack_size;
+
+  EarlySanitizerInit();
 }
 
 void __sanitizer_set_report_path(const char *path) {

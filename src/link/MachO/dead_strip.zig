@@ -212,7 +212,7 @@ const mem = std.mem;
 const trace = @import("../../tracy.zig").trace;
 const track_live_log = std.log.scoped(.dead_strip_track_live);
 const std = @import("std");
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");

@@ -19,8 +19,6 @@ export fn f() void {
 fn bar(_: anytype) void {}
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:9: error: @ptrFromInt must have a known result type
 // :2:8: note: result type is unknown due to anytype parameter

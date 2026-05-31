@@ -49,10 +49,10 @@ struct __locale_guard {
 #define _LIBCPP_ALL_MASK LC_ALL_MASK
 #define _LIBCPP_LC_ALL LC_ALL
 
-using __locale_t = locale_t;
+using __locale_t _LIBCPP_NODEBUG = locale_t;
 
 #if defined(_LIBCPP_BUILDING_LIBRARY)
-using __lconv_t = std::lconv;
+using __lconv_t _LIBCPP_NODEBUG = std::lconv;
 
 inline _LIBCPP_HIDE_FROM_ABI __locale_t __newlocale(int __category_mask, const char* __name, __locale_t __loc) {
   return ::newlocale(__category_mask, __name, __loc);

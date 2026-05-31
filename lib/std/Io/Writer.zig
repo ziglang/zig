@@ -5,9 +5,10 @@ const Writer = @This();
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const Limit = std.Io.Limit;
-const File = std.fs.File;
+const File = std.Io.File;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 
 vtable: *const VTable,
 /// If this has length zero, the writer is unbuffered, and `flush` is a no-op.
@@ -269,16 +270,17 @@ fn writeSplatHeaderLimitFinish(
             remaining -= copy_len;
             if (remaining == 0) break :v;
         }
-        for (data[0 .. data.len - 1]) |buf| if (buf.len != 0) {
-            const copy_len = @min(header.len, remaining);
-            vecs[i] = buf;
+        for (data[0 .. data.len - 1]) |buf| {
+            if (buf.len == 0) continue;
+            const copy_len = @min(buf.len, remaining);
+            vecs[i] = buf[0..copy_len];
             i += 1;
             remaining -= copy_len;
             if (remaining == 0) break :v;
             if (vecs.len - i == 0) break :v;
-        };
+        }
         const pattern = data[data.len - 1];
-        if (splat == 1) {
+        if (splat == 1 or remaining < pattern.len) {
             vecs[i] = pattern[0..@min(remaining, pattern.len)];
             i += 1;
             break :v;
@@ -603,7 +605,7 @@ pub fn print(w: *Writer, comptime fmt: []const u8, args: anytype) Error!void {
         @compileError("32 arguments max are supported per format call");
     }
 
-    @setEvalBranchQuota(fmt.len * 1000);
+    @setEvalBranchQuota(@as(comptime_int, fmt.len) * 1000); // NOTE: We're upcasting as 16-bit usize overflows.
     comptime var arg_state: std.fmt.ArgState = .{ .args_len = fields_info.len };
     comptime var i = 0;
     comptime var literal: []const u8 = "";
@@ -864,6 +866,11 @@ pub inline fn writeSliceEndian(
     slice: []const Elem,
     endian: std.builtin.Endian,
 ) Error!void {
+    switch (@typeInfo(Elem)) {
+        .@"struct" => |info| comptime assert(info.layout != .auto),
+        .int, .@"enum" => {},
+        else => @compileError("ill-defined memory layout"),
+    }
     if (native_endian == endian) {
         return writeAll(w, @ptrCast(slice));
     } else {
@@ -909,7 +916,16 @@ pub fn sendFileHeader(
     if (new_end <= w.buffer.len) {
         @memcpy(w.buffer[w.end..][0..header.len], header);
         w.end = new_end;
-        return header.len + try w.vtable.sendFile(w, file_reader, limit);
+        const file_bytes = w.vtable.sendFile(w, file_reader, limit) catch |err| switch (err) {
+            error.ReadFailed, error.WriteFailed => |e| return e,
+            error.EndOfStream, error.Unimplemented => |e| {
+                // These errors are non-fatal, so if we wrote any header bytes, we will report that
+                // and suppress this error. Only if there was no header may we return the error.
+                if (header.len != 0) return header.len;
+                return e;
+            },
+        };
+        return header.len + file_bytes;
     }
     const buffered_contents = limit.slice(file_reader.interface.buffered());
     const n = try w.vtable.drain(w, &.{ header, buffered_contents }, 1);
@@ -917,10 +933,12 @@ pub fn sendFileHeader(
     return n;
 }
 
-/// Asserts nonzero buffer capacity.
+/// Asserts nonzero buffer capacity and nonzero `limit`.
 pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) FileReadingError!usize {
+    assert(limit != .nothing);
     const dest = limit.slice(try w.writableSliceGreedy(1));
-    const n = try file_reader.read(dest);
+    const n = try file_reader.interface.readSliceShort(dest);
+    if (n == 0) return error.EndOfStream;
     w.advance(n);
     return n;
 }
@@ -1153,7 +1171,7 @@ pub fn printValue(
             },
             't' => switch (@typeInfo(T)) {
                 .error_set => return w.alignBufferOptions(@errorName(value), options),
-                .@"enum", .@"union" => return w.alignBufferOptions(@tagName(value), options),
+                .@"enum", .enum_literal, .@"union" => return w.alignBufferOptions(@tagName(value), options),
                 else => invalidFmtError(fmt, value),
             },
             else => {},
@@ -1364,19 +1382,12 @@ pub fn printValue(
         },
         .array => {
             if (!is_any) @compileError("cannot format array without a specifier (i.e. {s} or {any})");
-            if (max_depth == 0) return w.writeAll("{ ... }");
-            try w.writeAll("{ ");
-            for (value, 0..) |elem, i| {
-                try w.printValue(fmt, options, elem, max_depth - 1);
-                if (i < value.len - 1) {
-                    try w.writeAll(", ");
-                }
-            }
-            try w.writeAll(" }");
+            return printArray(w, fmt, options, &value, max_depth);
         },
-        .vector => {
+        .vector => |vector| {
             if (!is_any and fmt.len != 0) invalidFmtError(fmt, value);
-            return printVector(w, fmt, options, value, max_depth);
+            const array: [vector.len]vector.child = value;
+            return printArray(w, fmt, options, &array, max_depth);
         },
         .@"fn" => @compileError("unable to format function body type, use '*const " ++ @typeName(T) ++ "' for a function pointer type"),
         .type => {
@@ -1430,12 +1441,25 @@ pub fn printVector(
     value: anytype,
     max_depth: usize,
 ) Error!void {
-    const len = @typeInfo(@TypeOf(value)).vector.len;
+    const vector = @typeInfo(@TypeOf(value)).vector;
+    const array: [vector.len]vector.child = value;
+    return printArray(w, fmt, options, &array, max_depth);
+}
+
+pub fn printArray(
+    w: *Writer,
+    comptime fmt: []const u8,
+    options: std.fmt.Options,
+    ptr_to_array: anytype,
+    max_depth: usize,
+) Error!void {
     if (max_depth == 0) return w.writeAll("{ ... }");
     try w.writeAll("{ ");
-    inline for (0..len) |i| {
-        try w.printValue(fmt, options, value[i], max_depth - 1);
-        if (i < len - 1) try w.writeAll(", ");
+    for (ptr_to_array, 0..) |elem, i| {
+        try w.printValue(fmt, options, elem, max_depth - 1);
+        if (i < ptr_to_array.len - 1) {
+            try w.writeAll(", ");
+        }
     }
     try w.writeAll(" }");
 }
@@ -1866,7 +1890,7 @@ pub fn writeUleb128(w: *Writer, value: anytype) Error!void {
     try w.writeLeb128(switch (@typeInfo(@TypeOf(value))) {
         .comptime_int => @as(std.math.IntFittingRange(0, @abs(value)), value),
         .int => |value_info| switch (value_info.signedness) {
-            .signed => @as(@Type(.{ .int = .{ .signedness = .unsigned, .bits = value_info.bits -| 1 } }), @intCast(value)),
+            .signed => @as(@Int(.unsigned, value_info.bits -| 1), @intCast(value)),
             .unsigned => value,
         },
         else => comptime unreachable,
@@ -1879,7 +1903,7 @@ pub fn writeSleb128(w: *Writer, value: anytype) Error!void {
         .comptime_int => @as(std.math.IntFittingRange(@min(value, -1), @max(0, value)), value),
         .int => |value_info| switch (value_info.signedness) {
             .signed => value,
-            .unsigned => @as(@Type(.{ .int = .{ .signedness = .signed, .bits = value_info.bits + 1 } }), value),
+            .unsigned => @as(@Int(.signed, value_info.bits + 1), value),
         },
         else => comptime unreachable,
     });
@@ -1888,10 +1912,10 @@ pub fn writeSleb128(w: *Writer, value: anytype) Error!void {
 /// Write a single integer as LEB128 to the given writer.
 pub fn writeLeb128(w: *Writer, value: anytype) Error!void {
     const value_info = @typeInfo(@TypeOf(value)).int;
-    try w.writeMultipleOf7Leb128(@as(@Type(.{ .int = .{
-        .signedness = value_info.signedness,
-        .bits = @max(std.mem.alignForwardAnyAlign(u16, value_info.bits, 7), 7),
-    } }), value));
+    try w.writeMultipleOf7Leb128(@as(@Int(
+        value_info.signedness,
+        @max(std.mem.alignForwardAnyAlign(u16, value_info.bits, 7), 7),
+    ), value));
 }
 
 fn writeMultipleOf7Leb128(w: *Writer, value: anytype) Error!void {
@@ -1905,10 +1929,10 @@ fn writeMultipleOf7Leb128(w: *Writer, value: anytype) Error!void {
             .unsigned => remaining > std.math.maxInt(u7),
         };
         byte.* = .{
-            .bits = @bitCast(@as(@Type(.{ .int = .{
-                .signedness = value_info.signedness,
-                .bits = 7,
-            } }), @truncate(remaining))),
+            .bits = @bitCast(@as(
+                @Int(value_info.signedness, 7),
+                @truncate(remaining),
+            )),
             .more = more,
         };
         if (value_info.bits > 7) remaining >>= 7;
@@ -2268,10 +2292,6 @@ pub const Discarding = struct {
 
     pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
         if (File.Handle == void) return error.Unimplemented;
-        switch (builtin.zig_backend) {
-            else => {},
-            .stage2_aarch64 => return error.Unimplemented,
-        }
         const d: *Discarding = @alignCast(@fieldParentPtr("writer", w));
         d.count += w.end;
         w.end = 0;
@@ -2372,6 +2392,29 @@ pub fn unreachableRebase(w: *Writer, preserve: usize, capacity: usize) Error!voi
     _ = preserve;
     _ = capacity;
     unreachable;
+}
+
+pub fn fromArrayList(array_list: *ArrayList(u8)) Writer {
+    defer array_list.* = .empty;
+    return .{
+        .vtable = &.{
+            .drain = fixedDrain,
+            .flush = noopFlush,
+            .rebase = failingRebase,
+        },
+        .buffer = array_list.allocatedSlice(),
+        .end = array_list.items.len,
+    };
+}
+
+pub fn toArrayList(w: *Writer) ArrayList(u8) {
+    const result: ArrayList(u8) = .{
+        .items = w.buffer[0..w.end],
+        .capacity = w.buffer.len,
+    };
+    w.buffer = &.{};
+    w.end = 0;
+    return result;
 }
 
 /// Provides a `Writer` implementation based on calling `Hasher.update`, sending
@@ -2507,21 +2550,27 @@ pub fn Hashing(comptime Hasher: type) type {
 /// Maintains `Writer` state such that it writes to the unused capacity of an
 /// array list, filling it up completely before making a call through the
 /// vtable, causing a resize. Consequently, the same, optimized, non-generic
-/// machine code that uses `std.Io.Reader`, such as formatted printing, takes
+/// machine code that uses `Writer`, such as formatted printing, takes
 /// the hot paths when using this API.
 ///
 /// When using this API, it is not necessary to call `flush`.
 pub const Allocating = struct {
     allocator: Allocator,
     writer: Writer,
+    alignment: std.mem.Alignment,
 
     pub fn init(allocator: Allocator) Allocating {
+        return .initAligned(allocator, .of(u8));
+    }
+
+    pub fn initAligned(allocator: Allocator, alignment: std.mem.Alignment) Allocating {
         return .{
             .allocator = allocator,
             .writer = .{
                 .buffer = &.{},
                 .vtable = &vtable,
             },
+            .alignment = alignment,
         };
     }
 
@@ -2529,24 +2578,47 @@ pub const Allocating = struct {
         return .{
             .allocator = allocator,
             .writer = .{
-                .buffer = try allocator.alloc(u8, capacity),
+                .buffer = if (capacity == 0)
+                    &.{}
+                else
+                    (allocator.rawAlloc(capacity, .of(u8), @returnAddress()) orelse
+                        return error.OutOfMemory)[0..capacity],
                 .vtable = &vtable,
             },
+            .alignment = .of(u8),
         };
     }
 
     pub fn initOwnedSlice(allocator: Allocator, slice: []u8) Allocating {
+        return initOwnedSliceAligned(allocator, .of(u8), slice);
+    }
+
+    pub fn initOwnedSliceAligned(
+        allocator: Allocator,
+        comptime alignment: std.mem.Alignment,
+        slice: []align(alignment.toByteUnits()) u8,
+    ) Allocating {
         return .{
             .allocator = allocator,
             .writer = .{
                 .buffer = slice,
                 .vtable = &vtable,
             },
+            .alignment = alignment,
         };
     }
 
     /// Replaces `array_list` with empty, taking ownership of the memory.
-    pub fn fromArrayList(allocator: Allocator, array_list: *std.ArrayListUnmanaged(u8)) Allocating {
+    pub fn fromArrayList(allocator: Allocator, array_list: *ArrayList(u8)) Allocating {
+        return fromArrayListAligned(allocator, .of(u8), array_list);
+    }
+
+    /// Replaces `array_list` with empty, taking ownership of the memory.
+    pub fn fromArrayListAligned(
+        allocator: Allocator,
+        comptime alignment: std.mem.Alignment,
+        array_list: *std.array_list.Aligned(u8, alignment),
+    ) Allocating {
         defer array_list.* = .empty;
         return .{
             .allocator = allocator,
@@ -2555,6 +2627,7 @@ pub const Allocating = struct {
                 .buffer = array_list.allocatedSlice(),
                 .end = array_list.items.len,
             },
+            .alignment = alignment,
         };
     }
 
@@ -2566,16 +2639,27 @@ pub const Allocating = struct {
     };
 
     pub fn deinit(a: *Allocating) void {
-        a.allocator.free(a.writer.buffer);
+        if (a.writer.buffer.len == 0) return;
+        a.allocator.rawFree(a.writer.buffer, a.alignment, @returnAddress());
         a.* = undefined;
     }
 
     /// Returns an array list that takes ownership of the allocated memory.
     /// Resets the `Allocating` to an empty state.
-    pub fn toArrayList(a: *Allocating) std.ArrayListUnmanaged(u8) {
+    pub fn toArrayList(a: *Allocating) ArrayList(u8) {
+        return toArrayListAligned(a, .of(u8));
+    }
+
+    /// Returns an array list that takes ownership of the allocated memory.
+    /// Resets the `Allocating` to an empty state.
+    pub fn toArrayListAligned(
+        a: *Allocating,
+        comptime alignment: std.mem.Alignment,
+    ) std.array_list.Aligned(u8, alignment) {
+        assert(a.alignment == alignment); // Required for Allocator correctness.
         const w = &a.writer;
-        const result: std.ArrayListUnmanaged(u8) = .{
-            .items = w.buffer[0..w.end],
+        const result: std.array_list.Aligned(u8, alignment) = .{
+            .items = @alignCast(w.buffer[0..w.end]),
             .capacity = w.buffer.len,
         };
         w.buffer = &.{};
@@ -2584,28 +2668,74 @@ pub const Allocating = struct {
     }
 
     pub fn ensureUnusedCapacity(a: *Allocating, additional_count: usize) Allocator.Error!void {
-        var list = a.toArrayList();
-        defer a.setArrayList(list);
-        return list.ensureUnusedCapacity(a.allocator, additional_count);
+        const new_capacity = std.math.add(usize, a.writer.end, additional_count) catch return error.OutOfMemory;
+        return ensureTotalCapacity(a, new_capacity);
     }
 
     pub fn ensureTotalCapacity(a: *Allocating, new_capacity: usize) Allocator.Error!void {
-        var list = a.toArrayList();
-        defer a.setArrayList(list);
-        return list.ensureTotalCapacity(a.allocator, new_capacity);
+        // Protects growing unnecessarily since better_capacity will be larger.
+        if (a.writer.buffer.len >= new_capacity) return;
+        const better_capacity = ArrayList(u8).growCapacity(new_capacity);
+        return ensureTotalCapacityPrecise(a, better_capacity);
     }
 
-    pub fn toOwnedSlice(a: *Allocating) error{OutOfMemory}![]u8 {
-        var list = a.toArrayList();
-        defer a.setArrayList(list);
-        return list.toOwnedSlice(a.allocator);
+    pub fn ensureTotalCapacityPrecise(a: *Allocating, new_capacity: usize) Allocator.Error!void {
+        const old_memory = a.writer.buffer;
+        if (old_memory.len >= new_capacity) return;
+        assert(new_capacity != 0);
+        const alignment = a.alignment;
+        if (old_memory.len > 0) {
+            if (a.allocator.rawRemap(old_memory, alignment, new_capacity, @returnAddress())) |new| {
+                a.writer.buffer = new[0..new_capacity];
+                return;
+            }
+        }
+        const new_memory = (a.allocator.rawAlloc(new_capacity, alignment, @returnAddress()) orelse
+            return error.OutOfMemory)[0..new_capacity];
+        const saved = old_memory[0..a.writer.end];
+        @memcpy(new_memory[0..saved.len], saved);
+        if (old_memory.len != 0) a.allocator.rawFree(old_memory, alignment, @returnAddress());
+        a.writer.buffer = new_memory;
     }
 
-    pub fn toOwnedSliceSentinel(a: *Allocating, comptime sentinel: u8) error{OutOfMemory}![:sentinel]u8 {
-        const gpa = a.allocator;
-        var list = toArrayList(a);
-        defer a.setArrayList(list);
-        return list.toOwnedSliceSentinel(gpa, sentinel);
+    pub fn toOwnedSlice(a: *Allocating) Allocator.Error![]u8 {
+        const old_memory = a.writer.buffer;
+        const alignment = a.alignment;
+        const buffered_len = a.writer.end;
+
+        if (old_memory.len > 0) {
+            if (buffered_len == 0) {
+                a.allocator.rawFree(old_memory, alignment, @returnAddress());
+                a.writer.buffer = &.{};
+                a.writer.end = 0;
+                return old_memory[0..0];
+            } else if (a.allocator.rawRemap(old_memory, alignment, buffered_len, @returnAddress())) |new| {
+                a.writer.buffer = &.{};
+                a.writer.end = 0;
+                return new[0..buffered_len];
+            }
+        }
+
+        if (buffered_len == 0)
+            return a.writer.buffer[0..0];
+
+        const new_memory = (a.allocator.rawAlloc(buffered_len, alignment, @returnAddress()) orelse
+            return error.OutOfMemory)[0..buffered_len];
+        @memcpy(new_memory, old_memory[0..buffered_len]);
+        if (old_memory.len != 0) a.allocator.rawFree(old_memory, alignment, @returnAddress());
+        a.writer.buffer = &.{};
+        a.writer.end = 0;
+        return new_memory;
+    }
+
+    pub fn toOwnedSliceSentinel(a: *Allocating, comptime sentinel: u8) Allocator.Error![:sentinel]u8 {
+        // This addition can never overflow because `a.writer.buffer` can never occupy the whole address space.
+        try ensureTotalCapacityPrecise(a, a.writer.end + 1);
+        a.writer.buffer[a.writer.end] = sentinel;
+        a.writer.end += 1;
+        errdefer a.writer.end -= 1;
+        const result = try toOwnedSlice(a);
+        return result[0 .. result.len - 1 :sentinel];
     }
 
     pub fn written(a: *Allocating) []u8 {
@@ -2622,73 +2752,89 @@ pub const Allocating = struct {
 
     fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
         const a: *Allocating = @fieldParentPtr("writer", w);
-        const gpa = a.allocator;
         const pattern = data[data.len - 1];
         const splat_len = pattern.len * splat;
-        var list = a.toArrayList();
-        defer setArrayList(a, list);
-        const start_len = list.items.len;
+        const start_len = a.writer.end;
         assert(data.len != 0);
         for (data) |bytes| {
-            list.ensureUnusedCapacity(gpa, bytes.len + splat_len + 1) catch return error.WriteFailed;
-            list.appendSliceAssumeCapacity(bytes);
+            a.ensureUnusedCapacity(bytes.len + splat_len + 1) catch return error.WriteFailed;
+            @memcpy(a.writer.buffer[a.writer.end..][0..bytes.len], bytes);
+            a.writer.end += bytes.len;
         }
         if (splat == 0) {
-            list.items.len -= pattern.len;
+            a.writer.end -= pattern.len;
         } else switch (pattern.len) {
             0 => {},
-            1 => list.appendNTimesAssumeCapacity(pattern[0], splat - 1),
-            else => for (0..splat - 1) |_| list.appendSliceAssumeCapacity(pattern),
+            1 => {
+                @memset(a.writer.buffer[a.writer.end..][0 .. splat - 1], pattern[0]);
+                a.writer.end += splat - 1;
+            },
+            else => for (0..splat - 1) |_| {
+                @memcpy(a.writer.buffer[a.writer.end..][0..pattern.len], pattern);
+                a.writer.end += pattern.len;
+            },
         }
-        return list.items.len - start_len;
+        return a.writer.end - start_len;
     }
 
     fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
         if (File.Handle == void) return error.Unimplemented;
         if (limit == .nothing) return 0;
         const a: *Allocating = @fieldParentPtr("writer", w);
-        const gpa = a.allocator;
-        var list = a.toArrayList();
-        defer setArrayList(a, list);
         const pos = file_reader.logicalPos();
         const additional = if (file_reader.getSize()) |size| size - pos else |_| std.atomic.cache_line;
         if (additional == 0) return error.EndOfStream;
-        list.ensureUnusedCapacity(gpa, limit.minInt64(additional)) catch return error.WriteFailed;
-        const dest = limit.slice(list.unusedCapacitySlice());
-        const n = try file_reader.read(dest);
-        list.items.len += n;
+        a.ensureUnusedCapacity(limit.minInt64(additional)) catch return error.WriteFailed;
+        const dest = limit.slice(a.writer.buffer[a.writer.end..]);
+        const n = try file_reader.interface.readSliceShort(dest);
+        if (n == 0) return error.EndOfStream;
+        a.writer.end += n;
         return n;
     }
 
     fn growingRebase(w: *Writer, preserve: usize, minimum_len: usize) Error!void {
         const a: *Allocating = @fieldParentPtr("writer", w);
-        const gpa = a.allocator;
-        var list = a.toArrayList();
-        defer setArrayList(a, list);
         const total = std.math.add(usize, preserve, minimum_len) catch return error.WriteFailed;
-        list.ensureTotalCapacity(gpa, total) catch return error.WriteFailed;
-        list.ensureUnusedCapacity(gpa, minimum_len) catch return error.WriteFailed;
+        a.ensureTotalCapacity(total) catch return error.WriteFailed;
+        a.ensureUnusedCapacity(minimum_len) catch return error.WriteFailed;
     }
 
-    fn setArrayList(a: *Allocating, list: std.ArrayListUnmanaged(u8)) void {
-        a.writer.buffer = list.allocatedSlice();
-        a.writer.end = list.items.len;
-    }
-
-    test Allocating {
-        var a: Allocating = .init(testing.allocator);
+    fn testAllocating(comptime alignment: std.mem.Alignment) !void {
+        var a: Allocating = .initAligned(testing.allocator, alignment);
         defer a.deinit();
         const w = &a.writer;
 
         const x: i32 = 42;
         const y: i32 = 1234;
         try w.print("x: {}\ny: {}\n", .{ x, y });
+        const expected = "x: 42\ny: 1234\n";
+        try testing.expectEqualSlices(u8, expected, a.written());
 
-        try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", a.written());
+        // exercise *Aligned methods
+        var l = a.toArrayListAligned(alignment);
+        defer l.deinit(testing.allocator);
+        try testing.expectEqualSlices(u8, expected, l.items);
+        a = .fromArrayListAligned(testing.allocator, alignment, &l);
+        try testing.expectEqualSlices(u8, expected, a.written());
+        const slice: []align(alignment.toByteUnits()) u8 = @alignCast(try a.toOwnedSlice());
+        try testing.expectEqualSlices(u8, expected, slice);
+        a = .initOwnedSliceAligned(testing.allocator, alignment, slice);
+        try testing.expectEqualSlices(u8, expected, a.writer.buffer);
+    }
+
+    test Allocating {
+        try testAllocating(.fromByteUnits(1));
+        try testAllocating(.fromByteUnits(4));
+        try testAllocating(.fromByteUnits(8));
+        try testAllocating(.fromByteUnits(16));
+        try testAllocating(.fromByteUnits(32));
+        try testAllocating(.fromByteUnits(64));
     }
 };
 
 test "discarding sendFile" {
+    const io = testing.io;
+
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
@@ -2699,7 +2845,7 @@ test "discarding sendFile" {
     try file_writer.interface.writeByte('h');
     try file_writer.interface.flush();
 
-    var file_reader = file_writer.moveToReader();
+    var file_reader = file_writer.moveToReader(io);
     try file_reader.seekTo(0);
 
     var w_buffer: [256]u8 = undefined;
@@ -2709,23 +2855,49 @@ test "discarding sendFile" {
 }
 
 test "allocating sendFile" {
+    const io = testing.io;
+
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
     const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
     defer file.close();
-    var r_buffer: [256]u8 = undefined;
+    var r_buffer: [2]u8 = undefined;
     var file_writer: std.fs.File.Writer = .init(file, &r_buffer);
-    try file_writer.interface.writeByte('h');
+    try file_writer.interface.writeAll("abcd");
     try file_writer.interface.flush();
 
-    var file_reader = file_writer.moveToReader();
+    var file_reader = file_writer.moveToReader(io);
     try file_reader.seekTo(0);
+    try file_reader.interface.fill(2);
 
     var allocating: Writer.Allocating = .init(testing.allocator);
     defer allocating.deinit();
+    try allocating.ensureUnusedCapacity(1);
+    try testing.expectEqual(4, allocating.writer.sendFileAll(&file_reader, .unlimited));
+    try testing.expectEqualStrings("abcd", allocating.writer.buffered());
+}
 
-    _ = try file_reader.interface.streamRemaining(&allocating.writer);
+test sendFileReading {
+    const io = testing.io;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    var r_buffer: [2]u8 = undefined;
+    var file_writer: std.fs.File.Writer = .init(file, &r_buffer);
+    try file_writer.interface.writeAll("abcd");
+    try file_writer.interface.flush();
+
+    var file_reader = file_writer.moveToReader(io);
+    try file_reader.seekTo(0);
+    try file_reader.interface.fill(2);
+
+    var w_buffer: [1]u8 = undefined;
+    var discarding: Writer.Discarding = .init(&w_buffer);
+    try testing.expectEqual(4, discarding.writer.sendFileReadingAll(&file_reader, .unlimited));
 }
 
 test writeStruct {

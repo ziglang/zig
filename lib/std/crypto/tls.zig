@@ -606,7 +606,7 @@ pub fn array(
     const elem_size = @divExact(@bitSizeOf(Elem), 8);
     var arr: [len_size + elem_size * elems.len]u8 = undefined;
     std.mem.writeInt(Len, arr[0..len_size], @intCast(elem_size * elems.len), .big);
-    const ElemInt = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(Elem) } });
+    const ElemInt = @Int(.unsigned, @bitSizeOf(Elem));
     for (0.., @as([elems.len]Elem, elems)) |index, elem| {
         std.mem.writeInt(
             ElemInt,
@@ -655,7 +655,7 @@ pub const Decoder = struct {
     }
 
     /// Use this function to increase `their_end`.
-    pub fn readAtLeast(d: *Decoder, stream: *std.io.Reader, their_amt: usize) !void {
+    pub fn readAtLeast(d: *Decoder, stream: *std.Io.Reader, their_amt: usize) !void {
         assert(!d.disable_reads);
         const existing_amt = d.cap - d.idx;
         d.their_end = d.idx + their_amt;
@@ -672,7 +672,7 @@ pub const Decoder = struct {
 
     /// Same as `readAtLeast` but also increases `our_end` by exactly `our_amt`.
     /// Use when `our_amt` is calculated by us, not by them.
-    pub fn readAtLeastOurAmt(d: *Decoder, stream: *std.io.Reader, our_amt: usize) !void {
+    pub fn readAtLeastOurAmt(d: *Decoder, stream: *std.Io.Reader, our_amt: usize) !void {
         assert(!d.disable_reads);
         try readAtLeast(d, stream, our_amt);
         d.our_end = d.idx + our_amt;

@@ -3,7 +3,5 @@ export fn entry(x: i32) usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:24: error: expected pointer, found 'i32'

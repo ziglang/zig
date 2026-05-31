@@ -18,8 +18,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:8: error: library name cannot be empty
 // :2:8: error: library name cannot be empty

@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std.zig");
 const debug = std.debug;
 const mem = std.mem;
@@ -170,58 +171,34 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
     switch (@typeInfo(T)) {
         .pointer => |info| switch (info.size) {
             .one => switch (@typeInfo(info.child)) {
-                .array => |array_info| return @Type(.{
-                    .pointer = .{
-                        .size = info.size,
-                        .is_const = info.is_const,
-                        .is_volatile = info.is_volatile,
-                        .alignment = info.alignment,
-                        .address_space = info.address_space,
-                        .child = @Type(.{
-                            .array = .{
-                                .len = array_info.len,
-                                .child = array_info.child,
-                                .sentinel_ptr = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
-                            },
-                        }),
-                        .is_allowzero = info.is_allowzero,
-                        .sentinel_ptr = info.sentinel_ptr,
-                    },
-                }),
+                .array => |array_info| return @Pointer(.one, .{
+                    .@"const" = info.is_const,
+                    .@"volatile" = info.is_volatile,
+                    .@"allowzero" = info.is_allowzero,
+                    .@"align" = info.alignment,
+                    .@"addrspace" = info.address_space,
+                }, [array_info.len:sentinel_val]array_info.child, null),
                 else => {},
             },
-            .many, .slice => return @Type(.{
-                .pointer = .{
-                    .size = info.size,
-                    .is_const = info.is_const,
-                    .is_volatile = info.is_volatile,
-                    .alignment = info.alignment,
-                    .address_space = info.address_space,
-                    .child = info.child,
-                    .is_allowzero = info.is_allowzero,
-                    .sentinel_ptr = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
-                },
-            }),
+            .many, .slice => |size| return @Pointer(size, .{
+                .@"const" = info.is_const,
+                .@"volatile" = info.is_volatile,
+                .@"allowzero" = info.is_allowzero,
+                .@"align" = info.alignment,
+                .@"addrspace" = info.address_space,
+            }, info.child, sentinel_val),
             else => {},
         },
         .optional => |info| switch (@typeInfo(info.child)) {
             .pointer => |ptr_info| switch (ptr_info.size) {
-                .many => return @Type(.{
-                    .optional = .{
-                        .child = @Type(.{
-                            .pointer = .{
-                                .size = ptr_info.size,
-                                .is_const = ptr_info.is_const,
-                                .is_volatile = ptr_info.is_volatile,
-                                .alignment = ptr_info.alignment,
-                                .address_space = ptr_info.address_space,
-                                .child = ptr_info.child,
-                                .is_allowzero = ptr_info.is_allowzero,
-                                .sentinel_ptr = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
-                            },
-                        }),
-                    },
-                }),
+                .many => return ?@Pointer(.many, .{
+                    .@"const" = ptr_info.is_const,
+                    .@"volatile" = ptr_info.is_volatile,
+                    .@"allowzero" = ptr_info.is_allowzero,
+                    .@"align" = ptr_info.alignment,
+                    .@"addrspace" = ptr_info.address_space,
+                    .child = ptr_info.child,
+                }, ptr_info.child, sentinel_val),
                 else => {},
             },
             else => {},
@@ -486,46 +463,22 @@ test tags {
 
 /// Returns an enum with a variant named after each field of `T`.
 pub fn FieldEnum(comptime T: type) type {
-    const field_infos = fields(T);
+    const field_names = fieldNames(T);
 
-    if (field_infos.len == 0) {
-        return @Type(.{
-            .@"enum" = .{
-                .tag_type = u0,
-                .fields = &.{},
-                .decls = &.{},
-                .is_exhaustive = true,
-            },
-        });
-    }
-
-    if (@typeInfo(T) == .@"union") {
-        if (@typeInfo(T).@"union".tag_type) |tag_type| {
-            for (std.enums.values(tag_type), 0..) |v, i| {
+    switch (@typeInfo(T)) {
+        .@"union" => |@"union"| if (@"union".tag_type) |EnumTag| {
+            for (std.enums.values(EnumTag), 0..) |v, i| {
                 if (@intFromEnum(v) != i) break; // enum values not consecutive
-                if (!std.mem.eql(u8, @tagName(v), field_infos[i].name)) break; // fields out of order
+                if (!std.mem.eql(u8, @tagName(v), field_names[i])) break; // fields out of order
             } else {
-                return tag_type;
+                return EnumTag;
             }
-        }
+        },
+        else => {},
     }
 
-    var enumFields: [field_infos.len]std.builtin.Type.EnumField = undefined;
-    var decls = [_]std.builtin.Type.Declaration{};
-    inline for (field_infos, 0..) |field, i| {
-        enumFields[i] = .{
-            .name = field.name,
-            .value = i,
-        };
-    }
-    return @Type(.{
-        .@"enum" = .{
-            .tag_type = std.math.IntFittingRange(0, field_infos.len - 1),
-            .fields = &enumFields,
-            .decls = &decls,
-            .is_exhaustive = true,
-        },
-    });
+    const IntTag = std.math.IntFittingRange(0, field_names.len -| 1);
+    return @Enum(IntTag, .exhaustive, field_names, &std.simd.iota(IntTag, field_names.len));
 }
 
 fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) !void {
@@ -582,20 +535,11 @@ test FieldEnum {
 }
 
 pub fn DeclEnum(comptime T: type) type {
-    const fieldInfos = std.meta.declarations(T);
-    var enumDecls: [fieldInfos.len]std.builtin.Type.EnumField = undefined;
-    var decls = [_]std.builtin.Type.Declaration{};
-    inline for (fieldInfos, 0..) |field, i| {
-        enumDecls[i] = .{ .name = field.name, .value = i };
-    }
-    return @Type(.{
-        .@"enum" = .{
-            .tag_type = std.math.IntFittingRange(0, if (fieldInfos.len == 0) 0 else fieldInfos.len - 1),
-            .fields = &enumDecls,
-            .decls = &decls,
-            .is_exhaustive = true,
-        },
-    });
+    const decls = declarations(T);
+    var names: [decls.len][]const u8 = undefined;
+    for (&names, decls) |*name, decl| name.* = decl.name;
+    const IntTag = std.math.IntFittingRange(0, decls.len -| 1);
+    return @Enum(IntTag, .exhaustive, &names, &std.simd.iota(IntTag, decls.len));
 }
 
 test DeclEnum {
@@ -742,13 +686,7 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
                 if (!eql(e, b[i])) return false;
             return true;
         },
-        .vector => |info| {
-            var i: usize = 0;
-            while (i < info.len) : (i += 1) {
-                if (!eql(a[i], b[i])) return false;
-            }
-            return true;
-        },
+        .vector => return @reduce(.And, a == b),
         .pointer => |info| {
             return switch (info.size) {
                 .one, .many, .c => a == b,
@@ -816,14 +754,6 @@ test eql {
     try testing.expect(eql(EU.tst(false), EU.tst(false)));
     try testing.expect(!eql(EU.tst(false), EU.tst(true)));
 
-    const V = @Vector(4, u32);
-    const v1: V = @splat(1);
-    const v2: V = @splat(1);
-    const v3: V = @splat(2);
-
-    try testing.expect(eql(v1, v2));
-    try testing.expect(!eql(v1, v3));
-
     const CU = union(enum) {
         a: void,
         b: void,
@@ -832,6 +762,16 @@ test eql {
 
     try testing.expect(eql(CU{ .a = {} }, .a));
     try testing.expect(!eql(CU{ .a = {} }, .b));
+
+    if (builtin.cpu.arch == .hexagon) return error.SkipZigTest;
+
+    const V = @Vector(4, u32);
+    const v1: V = @splat(1);
+    const v2: V = @splat(1);
+    const v3: V = @splat(2);
+
+    try testing.expect(eql(v1, v2));
+    try testing.expect(!eql(v1, v3));
 }
 
 /// Deprecated: use `std.enums.fromInt` instead and handle null.
@@ -871,25 +811,26 @@ pub fn declList(comptime Namespace: type, comptime Decl: type) []const *const De
     }
 }
 
+/// Deprecated: use @Int
 pub fn Int(comptime signedness: std.builtin.Signedness, comptime bit_count: u16) type {
-    return @Type(.{
-        .int = .{
-            .signedness = signedness,
-            .bits = bit_count,
-        },
-    });
+    return @Int(signedness, bit_count);
 }
 
 pub fn Float(comptime bit_count: u8) type {
-    return @Type(.{
-        .float = .{ .bits = bit_count },
-    });
+    return switch (bit_count) {
+        16 => f16,
+        32 => f32,
+        64 => f64,
+        80 => f80,
+        128 => f128,
+        else => @compileError("invalid float bit count"),
+    };
 }
-
 test Float {
     try testing.expectEqual(f16, Float(16));
     try testing.expectEqual(f32, Float(32));
     try testing.expectEqual(f64, Float(64));
+    try testing.expectEqual(f80, Float(80));
     try testing.expectEqual(f128, Float(128));
 }
 
@@ -915,42 +856,14 @@ pub fn ArgsTuple(comptime Function: type) type {
         argument_field_list[i] = T;
     }
 
-    return CreateUniqueTuple(argument_field_list.len, argument_field_list);
+    return Tuple(&argument_field_list);
 }
 
-/// For a given anonymous list of types, returns a new tuple type
-/// with those types as fields.
+/// Deprecated; use `@Tuple` instead.
 ///
-/// Examples:
-/// - `Tuple(&[_]type {})` ⇒ `tuple { }`
-/// - `Tuple(&[_]type {f32})` ⇒ `tuple { f32 }`
-/// - `Tuple(&[_]type {f32,u32})` ⇒ `tuple { f32, u32 }`
+/// To be removed after Zig 0.16.0 releases.
 pub fn Tuple(comptime types: []const type) type {
-    return CreateUniqueTuple(types.len, types[0..types.len].*);
-}
-
-fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
-    var tuple_fields: [types.len]std.builtin.Type.StructField = undefined;
-    inline for (types, 0..) |T, i| {
-        @setEvalBranchQuota(10_000);
-        var num_buf: [128]u8 = undefined;
-        tuple_fields[i] = .{
-            .name = std.fmt.bufPrintZ(&num_buf, "{d}", .{i}) catch unreachable,
-            .type = T,
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = @alignOf(T),
-        };
-    }
-
-    return @Type(.{
-        .@"struct" = .{
-            .is_tuple = true,
-            .layout = .auto,
-            .decls = &.{},
-            .fields = &tuple_fields,
-        },
-    });
+    return @Tuple(types);
 }
 
 const TupleTester = struct {
@@ -1192,13 +1105,6 @@ test hasUniqueRepresentation {
     };
 
     try testing.expect(hasUniqueRepresentation(TestStruct6));
-
-    const TestUnion1 = packed union {
-        a: u32,
-        b: u16,
-    };
-
-    try testing.expect(!hasUniqueRepresentation(TestUnion1));
 
     const TestUnion2 = extern union {
         a: u32,

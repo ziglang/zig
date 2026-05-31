@@ -4,7 +4,5 @@ export fn foo() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:10: error: boolean not operation on type '@Vector(2, u1)'

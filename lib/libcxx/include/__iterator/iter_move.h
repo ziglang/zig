@@ -14,6 +14,7 @@
 #include <__config>
 #include <__iterator/iterator_traits.h>
 #include <__type_traits/is_reference.h>
+#include <__type_traits/is_referenceable.h>
 #include <__type_traits/remove_cvref.h>
 #include <__utility/declval.h>
 #include <__utility/forward.h>
@@ -90,7 +91,7 @@ inline constexpr auto iter_move = __iter_move::__fn{};
 
 template <__dereferenceable _Tp>
   requires requires(_Tp& __t) {
-    { ranges::iter_move(__t) } -> __can_reference;
+    { ranges::iter_move(__t) } -> __referenceable;
   }
 using iter_rvalue_reference_t = decltype(ranges::iter_move(std::declval<_Tp&>()));
 

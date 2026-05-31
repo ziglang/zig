@@ -6,8 +6,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:9: error: incompatible types: 'f32' and 'u32'
 // :4:17: note: type 'f32' here

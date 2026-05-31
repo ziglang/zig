@@ -3,7 +3,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:18: error: expected struct, enum, union, or opaque; found 'i32'

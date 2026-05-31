@@ -26,7 +26,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _RealType = double>
-class _LIBCPP_TEMPLATE_VIS normal_distribution {
+class normal_distribution {
   static_assert(__libcpp_random_is_valid_realtype<_RealType>::value,
                 "RealType must be a supported floating-point type");
 
@@ -34,7 +34,7 @@ public:
   // types
   typedef _RealType result_type;
 
-  class _LIBCPP_TEMPLATE_VIS param_type {
+  class param_type {
     result_type __mean_;
     result_type __stddev_;
 

@@ -8,7 +8,7 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    if (arch == .x86 and common.want_windows_msvc_or_itanium_abi and !builtin.link_libc) {
+    if (common.want_windows_x86_msvc_abi) {
         // Don't let LLVM apply the stdcall name mangling on those MSVC builtins
         @export(&_alldiv, .{ .name = "\x01__alldiv", .linkage = common.linkage, .visibility = common.visibility });
         @export(&_aulldiv, .{ .name = "\x01__aulldiv", .linkage = common.linkage, .visibility = common.visibility });

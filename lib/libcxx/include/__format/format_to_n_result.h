@@ -22,7 +22,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 20
 
 template <class _OutIt>
-struct _LIBCPP_TEMPLATE_VIS format_to_n_result {
+struct format_to_n_result {
   _OutIt out;
   iter_difference_t<_OutIt> size;
 };

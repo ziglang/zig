@@ -38,6 +38,7 @@
 #include <__type_traits/is_nothrow_constructible.h>
 #include <__type_traits/is_object.h>
 #include <__type_traits/is_reference.h>
+#include <__type_traits/is_referenceable.h>
 #include <__type_traits/maybe_const.h>
 #include <__type_traits/remove_cvref.h>
 #include <__utility/forward.h>
@@ -63,7 +64,7 @@ concept __regular_invocable_with_range_ref = regular_invocable<_Fn, range_refere
 template <class _View, class _Fn>
 concept __transform_view_constraints =
     view<_View> && is_object_v<_Fn> && regular_invocable<_Fn&, range_reference_t<_View>> &&
-    __can_reference<invoke_result_t<_Fn&, range_reference_t<_View>>>;
+    __is_referenceable_v<invoke_result_t<_Fn&, range_reference_t<_View>>>;
 
 #  if _LIBCPP_STD_VER >= 23
 template <input_range _View, move_constructible _Fn>
@@ -136,22 +137,22 @@ transform_view(_Range&&, _Fn) -> transform_view<views::all_t<_Range>, _Fn>;
 
 template <class _View>
 struct __transform_view_iterator_concept {
-  using type = input_iterator_tag;
+  using type _LIBCPP_NODEBUG = input_iterator_tag;
 };
 
 template <random_access_range _View>
 struct __transform_view_iterator_concept<_View> {
-  using type = random_access_iterator_tag;
+  using type _LIBCPP_NODEBUG = random_access_iterator_tag;
 };
 
 template <bidirectional_range _View>
 struct __transform_view_iterator_concept<_View> {
-  using type = bidirectional_iterator_tag;
+  using type _LIBCPP_NODEBUG = bidirectional_iterator_tag;
 };
 
 template <forward_range _View>
 struct __transform_view_iterator_concept<_View> {
-  using type = forward_iterator_tag;
+  using type _LIBCPP_NODEBUG = forward_iterator_tag;
 };
 
 template <class, class>

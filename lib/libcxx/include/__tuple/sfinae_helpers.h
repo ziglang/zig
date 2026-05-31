@@ -58,7 +58,7 @@ struct __tuple_constructible<_Tp, _Up, true, true>
                                                    typename __make_tuple_types<_Up>::type > {};
 
 template <size_t _Ip, class... _Tp>
-struct _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, tuple<_Tp...> > {
+struct tuple_element<_Ip, tuple<_Tp...> > {
   using type _LIBCPP_NODEBUG = typename tuple_element<_Ip, __tuple_types<_Tp...> >::type;
 };
 

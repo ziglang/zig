@@ -26,7 +26,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template <class _Tp, class _CharT>
 // Since is-vector-bool-reference is only used once it's inlined here.
   requires same_as<typename _Tp::__container, vector<bool, typename _Tp::__container::allocator_type>>
-struct _LIBCPP_TEMPLATE_VIS formatter<_Tp, _CharT> {
+struct formatter<_Tp, _CharT> {
 private:
   formatter<bool, _CharT> __underlying_;
 

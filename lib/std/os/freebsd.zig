@@ -3,6 +3,7 @@ const fd_t = std.c.fd_t;
 const off_t = std.c.off_t;
 const unexpectedErrno = std.posix.unexpectedErrno;
 const errno = std.posix.errno;
+const builtin = @import("builtin");
 
 pub const CopyFileRangeError = std.posix.UnexpectedError || error{
     /// If infd is not open for reading or outfd is not open for writing, or

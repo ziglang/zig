@@ -7,8 +7,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:22: error: expected type '*[1]i32', found '*const i32'
 // :4:22: note: cast discards const qualifier

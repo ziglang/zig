@@ -10,8 +10,9 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
-const Source = @import("Source.zig");
+
 const Compilation = @import("Compilation.zig");
+const Source = @import("Source.zig");
 const Tokenizer = @import("Tokenizer.zig");
 
 pub const Hideset = @This();
@@ -21,11 +22,12 @@ const Identifier = struct {
     byte_offset: u32 = 0,
 
     fn slice(self: Identifier, comp: *const Compilation) []const u8 {
-        var tmp_tokenizer = Tokenizer{
+        var tmp_tokenizer: Tokenizer = .{
             .buf = comp.getSource(self.id).buf,
             .langopts = comp.langopts,
             .index = self.byte_offset,
             .source = .generated,
+            .splice_locs = &.{},
         };
         const res = tmp_tokenizer.next();
         return tmp_tokenizer.buf[res.start..res.end];
@@ -51,10 +53,10 @@ pub const Index = enum(u32) {
     _,
 };
 
-map: std.AutoHashMapUnmanaged(Identifier, Index) = .empty,
+map: std.AutoHashMapUnmanaged(Identifier, Index) = .{},
 /// Used for computing union/intersection of two lists; stored here so that allocations can be retained
 /// until hideset is deinit'ed
-tmp_map: std.AutoHashMapUnmanaged(Identifier, void) = .empty,
+tmp_map: std.AutoHashMapUnmanaged(Identifier, void) = .{},
 linked_list: Item.List = .{},
 comp: *const Compilation,
 

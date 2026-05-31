@@ -16,8 +16,6 @@ const T = struct {
 };
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:5: error: enum field missing name
 // :5:5: error: union field missing name

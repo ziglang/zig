@@ -36,8 +36,6 @@ noinline fn dummy() u32 {
 noinline fn dummy2() void {}
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:23: error: expected a tuple, found 'void'
 // :5:21: error: unable to perform 'never_inline' call at compile-time

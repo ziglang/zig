@@ -2198,8 +2198,9 @@ _mm_storer_ps(float *__p, __m128 __a)
 #define _MM_HINT_NTA 0
 
 #ifndef _MSC_VER
-/* FIXME: We have to #define this because "sel" must be a constant integer, and
-   Sema doesn't do any form of constant propagation yet. */
+// If _MSC_VER is defined, we use the builtin variant of _mm_prefetch.
+// Otherwise, we provide this macro, which includes a cast, allowing the user
+// to pass a pointer of any time. The _mm_prefetch accepts char to match MSVC.
 
 /// Loads one cache line of data from the specified address to a location
 ///    closer to the processor.

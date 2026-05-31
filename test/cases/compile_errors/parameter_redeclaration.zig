@@ -4,8 +4,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:14: error: redeclaration of function parameter 'a'
 // :1:6: note: previous declaration here

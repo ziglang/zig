@@ -3,6 +3,7 @@
 //!
 //! https://git.musl-libc.org/cgit/musl/tree/src/math/floorf.c
 //! https://git.musl-libc.org/cgit/musl/tree/src/math/floor.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/math/floorl.c
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -31,32 +32,17 @@ pub fn __floorh(x: f16) callconv(.c) f16 {
     const e = @as(i16, @intCast((u >> 10) & 31)) - 15;
     var m: u16 = undefined;
 
-    // TODO: Shouldn't need this explicit check.
-    if (x == 0.0) {
-        return x;
-    }
-
-    if (e >= 10) {
-        return x;
-    }
+    if (e >= 10) return x;
 
     if (e >= 0) {
-        m = @as(u16, 1023) >> @intCast(e);
-        if (u & m == 0) {
-            return x;
-        }
+        m = @as(u16, 0x03FF) >> @intCast(e);
+        if (u & m == 0) return x;
         if (common.want_float_exceptions) mem.doNotOptimizeAway(x + 0x1.0p120);
-        if (u >> 15 != 0) {
-            u += m;
-        }
+        if (u >> 15 != 0) u += m;
         return @bitCast(u & ~m);
     } else {
         if (common.want_float_exceptions) mem.doNotOptimizeAway(x + 0x1.0p120);
-        if (u >> 15 == 0) {
-            return 0.0;
-        } else {
-            return -1.0;
-        }
+        return if (u >> 15 == 0) 0.0 else if (u << 1 != 0) -1.0 else x;
     }
 }
 
@@ -65,32 +51,17 @@ pub fn floorf(x: f32) callconv(.c) f32 {
     const e = @as(i32, @intCast((u >> 23) & 0xFF)) - 0x7F;
     var m: u32 = undefined;
 
-    // TODO: Shouldn't need this explicit check.
-    if (x == 0.0) {
-        return x;
-    }
-
-    if (e >= 23) {
-        return x;
-    }
+    if (e >= 23) return x;
 
     if (e >= 0) {
         m = @as(u32, 0x007FFFFF) >> @intCast(e);
-        if (u & m == 0) {
-            return x;
-        }
+        if (u & m == 0) return x;
         if (common.want_float_exceptions) mem.doNotOptimizeAway(x + 0x1.0p120);
-        if (u >> 31 != 0) {
-            u += m;
-        }
+        if (u >> 31 != 0) u += m;
         return @bitCast(u & ~m);
     } else {
         if (common.want_float_exceptions) mem.doNotOptimizeAway(x + 0x1.0p120);
-        if (u >> 31 == 0) {
-            return 0.0;
-        } else {
-            return -1.0;
-        }
+        return if (u >> 31 == 0) 0.0 else if (u << 1 != 0) -1.0 else x;
     }
 }
 
@@ -126,8 +97,34 @@ pub fn floor(x: f64) callconv(.c) f64 {
 }
 
 pub fn __floorx(x: f80) callconv(.c) f80 {
-    // TODO: more efficient implementation
-    return @floatCast(floorq(x));
+    const f80_toint = 1.0 / math.floatEps(f80);
+
+    const u: u80 = @bitCast(x);
+    const e = (u >> 64) & 0x7FFF;
+    var y: f80 = undefined;
+
+    if (e >= 0x3FFF + 64 or x == 0) {
+        return x;
+    }
+
+    if (u >> 79 != 0) {
+        y = x - f80_toint + f80_toint - x;
+    } else {
+        y = x + f80_toint - f80_toint - x;
+    }
+
+    if (e <= 0x3FFF - 1) {
+        if (common.want_float_exceptions) mem.doNotOptimizeAway(y);
+        if (u >> 79 != 0) {
+            return -1.0;
+        } else {
+            return 0.0;
+        }
+    } else if (y > 0) {
+        return x + y - 1;
+    } else {
+        return x + y;
+    }
 }
 
 pub fn floorq(x: f128) callconv(.c) f128 {
@@ -188,6 +185,12 @@ test "floor64" {
     try expect(floor(0.2) == 0.0);
 }
 
+test "floor80" {
+    try expect(__floorx(1.3) == 1.0);
+    try expect(__floorx(-1.3) == -2.0);
+    try expect(__floorx(0.2) == 0.0);
+}
+
 test "floor128" {
     try expect(floorq(1.3) == 1.0);
     try expect(floorq(-1.3) == -2.0);
@@ -216,6 +219,14 @@ test "floor64.special" {
     try expect(math.isPositiveInf(floor(math.inf(f64))));
     try expect(math.isNegativeInf(floor(-math.inf(f64))));
     try expect(math.isNan(floor(math.nan(f64))));
+}
+
+test "floor80.special" {
+    try expect(__floorx(0.0) == 0.0);
+    try expect(__floorx(-0.0) == -0.0);
+    try expect(math.isPositiveInf(__floorx(math.inf(f80))));
+    try expect(math.isNegativeInf(__floorx(-math.inf(f80))));
+    try expect(math.isNan(__floorx(math.nan(f80))));
 }
 
 test "floor128.special" {

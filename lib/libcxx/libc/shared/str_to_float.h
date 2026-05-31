@@ -9,6 +9,7 @@
 #ifndef LLVM_LIBC_SHARED_STR_TO_FLOAT_H
 #define LLVM_LIBC_SHARED_STR_TO_FLOAT_H
 
+#include "libc_common.h"
 #include "src/__support/str_to_float.h"
 
 namespace LIBC_NAMESPACE_DECL {

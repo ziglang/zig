@@ -961,11 +961,13 @@ fn objectLessThan(context: void, a: *json.ObjectMap, b: *json.ObjectMap) bool {
 }
 
 fn printUsageAndExit(arg0: []const u8) noreturn {
-    printUsage(std.debug.lockStderrWriter(&.{}), arg0) catch std.process.exit(2);
+    const w, _ = std.debug.lockStderrWriter(&.{});
+    defer std.debug.unlockStderrWriter();
+    printUsage(w, arg0) catch std.process.exit(2);
     std.process.exit(1);
 }
 
-fn printUsage(w: *std.io.Writer, arg0: []const u8) std.io.Writer.Error!void {
+fn printUsage(w: *std.Io.Writer, arg0: []const u8) std.Io.Writer.Error!void {
     try w.print(
         \\Usage: {s} /path/to/llvm-tblgen /path/to/git/llvm/llvm-project
         \\Alternative Usage: zig run /path/to/git/zig/tools/update_clang_options.zig -- /path/to/llvm-tblgen /path/to/git/llvm/llvm-project

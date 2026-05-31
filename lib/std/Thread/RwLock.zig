@@ -301,81 +301,86 @@ test "concurrent access" {
 
     const num_writers: usize = 2;
     const num_readers: usize = 4;
-    const num_writes: usize = 10000;
-    const num_reads: usize = num_writes * 2;
+    const num_writes: usize = 1000;
+    const num_reads: usize = 2000;
 
     const Runner = struct {
-        const Self = @This();
+        const Runner = @This();
 
-        rwl: RwLock = .{},
-        writes: usize = 0,
-        reads: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+        rwl: RwLock,
+        writes: usize,
+        reads: std.atomic.Value(usize),
 
-        term1: usize = 0,
-        term2: usize = 0,
-        term_sum: usize = 0,
+        val_a: usize,
+        val_b: usize,
 
-        fn reader(self: *Self) !void {
-            while (true) {
-                self.rwl.lockShared();
-                defer self.rwl.unlockShared();
-
-                if (self.writes >= num_writes or self.reads.load(.unordered) >= num_reads)
-                    break;
-
-                try self.check();
-
-                _ = self.reads.fetchAdd(1, .monotonic);
-            }
-        }
-
-        fn writer(self: *Self, thread_idx: usize) !void {
+        fn reader(run: *Runner, thread_idx: usize) !void {
             var prng = std.Random.DefaultPrng.init(thread_idx);
-            var rnd = prng.random();
-
+            const rnd = prng.random();
             while (true) {
-                self.rwl.lock();
-                defer self.rwl.unlock();
+                run.rwl.lockShared();
+                defer run.rwl.unlockShared();
 
-                if (self.writes >= num_writes)
-                    break;
+                try testing.expect(run.writes <= num_writes);
+                if (run.reads.fetchAdd(1, .monotonic) >= num_reads) break;
 
-                try self.check();
+                // We use `volatile` accesses so that we can make sure the memory is accessed either
+                // side of a yield, maximising chances of a race.
+                const a_ptr: *const volatile usize = &run.val_a;
+                const b_ptr: *const volatile usize = &run.val_b;
 
-                const term1 = rnd.int(usize);
-                self.term1 = term1;
-                try std.Thread.yield();
-
-                const term2 = rnd.int(usize);
-                self.term2 = term2;
-                try std.Thread.yield();
-
-                self.term_sum = term1 +% term2;
-                self.writes += 1;
+                const old_a = a_ptr.*;
+                if (rnd.boolean()) try std.Thread.yield();
+                const old_b = b_ptr.*;
+                try testing.expect(old_a == old_b);
             }
         }
 
-        fn check(self: *const Self) !void {
-            const term_sum = self.term_sum;
-            try std.Thread.yield();
+        fn writer(run: *Runner, thread_idx: usize) !void {
+            var prng = std.Random.DefaultPrng.init(thread_idx);
+            const rnd = prng.random();
+            while (true) {
+                run.rwl.lock();
+                defer run.rwl.unlock();
 
-            const term2 = self.term2;
-            try std.Thread.yield();
+                try testing.expect(run.writes <= num_writes);
+                if (run.writes == num_writes) break;
 
-            const term1 = self.term1;
-            try testing.expectEqual(term_sum, term1 +% term2);
+                // We use `volatile` accesses so that we can make sure the memory is accessed either
+                // side of a yield, maximising chances of a race.
+                const a_ptr: *volatile usize = &run.val_a;
+                const b_ptr: *volatile usize = &run.val_b;
+
+                const new_val = rnd.int(usize);
+
+                const old_a = a_ptr.*;
+                a_ptr.* = new_val;
+                if (rnd.boolean()) try std.Thread.yield();
+                const old_b = b_ptr.*;
+                b_ptr.* = new_val;
+                try testing.expect(old_a == old_b);
+
+                run.writes += 1;
+            }
         }
     };
 
-    var runner = Runner{};
-    var threads: [num_writers + num_readers]std.Thread = undefined;
+    var run: Runner = .{
+        .rwl = .{},
+        .writes = 0,
+        .reads = .init(0),
+        .val_a = 0,
+        .val_b = 0,
+    };
+    var write_threads: [num_writers]std.Thread = undefined;
+    var read_threads: [num_readers]std.Thread = undefined;
 
-    for (threads[0..num_writers], 0..) |*t, i| t.* = try std.Thread.spawn(.{}, Runner.writer, .{ &runner, i });
-    for (threads[num_writers..]) |*t| t.* = try std.Thread.spawn(.{}, Runner.reader, .{&runner});
+    for (&write_threads, 0..) |*t, i| t.* = try .spawn(.{}, Runner.writer, .{ &run, i });
+    for (&read_threads, num_writers..) |*t, i| t.* = try .spawn(.{}, Runner.reader, .{ &run, i });
 
-    for (threads) |t| t.join();
+    for (write_threads) |t| t.join();
+    for (read_threads) |t| t.join();
 
-    try testing.expectEqual(num_writes, runner.writes);
-
-    //std.debug.print("reads={}\n", .{ runner.reads.load(.unordered)});
+    try testing.expect(run.writes == num_writes);
+    try testing.expect(run.reads.raw >= num_reads);
 }

@@ -78,7 +78,7 @@ exposition-only to document what members a char_traits specialization should pro
 // char_traits<char>
 
 template <>
-struct _LIBCPP_TEMPLATE_VIS char_traits<char> {
+struct char_traits<char> {
   using char_type  = char;
   using int_type   = int;
   using off_type   = streamoff;
@@ -132,8 +132,6 @@ struct _LIBCPP_TEMPLATE_VIS char_traits<char> {
 
   static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 const char_type*
   find(const char_type* __s, size_t __n, const char_type& __a) _NOEXCEPT {
-    if (__n == 0)
-      return nullptr;
     return std::__constexpr_memchr(__s, __a, __n);
   }
 
@@ -236,7 +234,7 @@ struct __char_traits_base {
 
 #if _LIBCPP_HAS_WIDE_CHARACTERS
 template <>
-struct _LIBCPP_TEMPLATE_VIS char_traits<wchar_t> : __char_traits_base<wchar_t, wint_t, static_cast<wint_t>(WEOF)> {
+struct char_traits<wchar_t> : __char_traits_base<wchar_t, wint_t, static_cast<wint_t>(WEOF)> {
   static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 int
   compare(const char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT {
     if (__n == 0)
@@ -250,8 +248,6 @@ struct _LIBCPP_TEMPLATE_VIS char_traits<wchar_t> : __char_traits_base<wchar_t, w
 
   static _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 const char_type*
   find(const char_type* __s, size_t __n, const char_type& __a) _NOEXCEPT {
-    if (__n == 0)
-      return nullptr;
     return std::__constexpr_wmemchr(__s, __a, __n);
   }
 };
@@ -260,8 +256,7 @@ struct _LIBCPP_TEMPLATE_VIS char_traits<wchar_t> : __char_traits_base<wchar_t, w
 #if _LIBCPP_HAS_CHAR8_T
 
 template <>
-struct _LIBCPP_TEMPLATE_VIS char_traits<char8_t>
-    : __char_traits_base<char8_t, unsigned int, static_cast<unsigned int>(EOF)> {
+struct char_traits<char8_t> : __char_traits_base<char8_t, unsigned int, static_cast<unsigned int>(EOF)> {
   static _LIBCPP_HIDE_FROM_ABI constexpr int
   compare(const char_type* __s1, const char_type* __s2, size_t __n) noexcept {
     return std::__constexpr_memcmp(__s1, __s2, __element_count(__n));
@@ -280,8 +275,7 @@ struct _LIBCPP_TEMPLATE_VIS char_traits<char8_t>
 #endif // _LIBCPP_HAS_CHAR8_T
 
 template <>
-struct _LIBCPP_TEMPLATE_VIS char_traits<char16_t>
-    : __char_traits_base<char16_t, uint_least16_t, static_cast<uint_least16_t>(0xFFFF)> {
+struct char_traits<char16_t> : __char_traits_base<char16_t, uint_least16_t, static_cast<uint_least16_t>(0xFFFF)> {
   _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX17 int
   compare(const char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT;
   _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX17 size_t length(const char_type* __s) _NOEXCEPT;
@@ -315,8 +309,7 @@ inline _LIBCPP_CONSTEXPR_SINCE_CXX17 size_t char_traits<char16_t>::length(const 
 }
 
 template <>
-struct _LIBCPP_TEMPLATE_VIS char_traits<char32_t>
-    : __char_traits_base<char32_t, uint_least32_t, static_cast<uint_least32_t>(0xFFFFFFFF)> {
+struct char_traits<char32_t> : __char_traits_base<char32_t, uint_least32_t, static_cast<uint_least32_t>(0xFFFFFFFF)> {
   _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX17 int
   compare(const char_type* __s1, const char_type* __s2, size_t __n) _NOEXCEPT;
   _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX17 size_t length(const char_type* __s) _NOEXCEPT;
@@ -355,7 +348,7 @@ inline _LIBCPP_CONSTEXPR_SINCE_CXX17 size_t char_traits<char32_t>::length(const 
 template <class _CharT, class _SizeT, class _Traits, _SizeT __npos>
 inline _SizeT _LIBCPP_CONSTEXPR_SINCE_CXX14 _LIBCPP_HIDE_FROM_ABI
 __str_find(const _CharT* __p, _SizeT __sz, _CharT __c, _SizeT __pos) _NOEXCEPT {
-  if (__pos >= __sz)
+  if (__pos > __sz)
     return __npos;
   const _CharT* __r = _Traits::find(__p + __pos, __sz - __pos, __c);
   if (__r == nullptr)
@@ -534,7 +527,7 @@ __str_find_last_not_of(const _CharT* __p, _SizeT __sz, _CharT __c, _SizeT __pos)
 template <class _Ptr>
 inline _LIBCPP_HIDE_FROM_ABI size_t __do_string_hash(_Ptr __p, _Ptr __e) {
   typedef typename iterator_traits<_Ptr>::value_type value_type;
-  return __murmur2_or_cityhash<size_t>()(__p, (__e - __p) * sizeof(value_type));
+  return std::__hash_memory(__p, (__e - __p) * sizeof(value_type));
 }
 
 _LIBCPP_END_NAMESPACE_STD

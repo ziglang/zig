@@ -42,7 +42,7 @@ template <class _UIntType,
           _UIntType __c,
           size_t __l,
           _UIntType __f>
-class _LIBCPP_TEMPLATE_VIS mersenne_twister_engine;
+class mersenne_twister_engine;
 
 template <class _UInt,
           size_t _Wp,
@@ -134,7 +134,7 @@ template <class _UIntType,
           _UIntType __c,
           size_t __l,
           _UIntType __f>
-class _LIBCPP_TEMPLATE_VIS mersenne_twister_engine {
+class mersenne_twister_engine {
 public:
   // types
   typedef _UIntType result_type;

@@ -15,5 +15,5 @@ fn bar(x: u16) anyerror {
     return @errorFromInt(x);
 }
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux,aarch64-linux

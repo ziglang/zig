@@ -220,7 +220,7 @@ struct __lce_ta<__a, __c, __m, (unsigned short)(-1), __mode> {
 };
 
 template <class _UIntType, _UIntType __a, _UIntType __c, _UIntType __m>
-class _LIBCPP_TEMPLATE_VIS linear_congruential_engine;
+class linear_congruential_engine;
 
 template <class _CharT, class _Traits, class _Up, _Up _Ap, _Up _Cp, _Up _Np>
 _LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
@@ -231,7 +231,7 @@ _LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is, linear_congruential_engine<_Up, _Ap, _Cp, _Np>& __x);
 
 template <class _UIntType, _UIntType __a, _UIntType __c, _UIntType __m>
-class _LIBCPP_TEMPLATE_VIS linear_congruential_engine {
+class linear_congruential_engine {
 public:
   // types
   typedef _UIntType result_type;

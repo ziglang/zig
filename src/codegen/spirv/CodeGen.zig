@@ -83,7 +83,7 @@ const ControlFlow = union(enum) {
             selection: struct {
                 /// In order to know which merges we still need to do, we need to keep
                 /// a stack of those.
-                merge_stack: std.ArrayListUnmanaged(SelectionMerge) = .empty,
+                merge_stack: std.ArrayList(SelectionMerge) = .empty,
             },
             /// For a `loop` type block, we can early-exit the block by
             /// jumping to the loop exit node, and we don't need to generate
@@ -91,7 +91,7 @@ const ControlFlow = union(enum) {
             loop: struct {
                 /// The next block to jump to can be determined from any number
                 /// of conditions that jump to the loop exit.
-                merges: std.ArrayListUnmanaged(Incoming) = .empty,
+                merges: std.ArrayList(Incoming) = .empty,
                 /// The label id of the loop's merge block.
                 merge_block: Id,
             },
@@ -105,7 +105,7 @@ const ControlFlow = union(enum) {
             }
         };
         /// This determines how exits from the current block must be handled.
-        block_stack: std.ArrayListUnmanaged(*Structured.Block) = .empty,
+        block_stack: std.ArrayList(*Structured.Block) = .empty,
         block_results: std.AutoHashMapUnmanaged(Air.Inst.Index, Id) = .empty,
     };
 
@@ -117,7 +117,7 @@ const ControlFlow = union(enum) {
 
         const Block = struct {
             label: ?Id = null,
-            incoming_blocks: std.ArrayListUnmanaged(Incoming) = .empty,
+            incoming_blocks: std.ArrayList(Incoming) = .empty,
         };
 
         /// We need to keep track of result ids for block labels, as well as the 'incoming'
@@ -151,9 +151,9 @@ control_flow: ControlFlow,
 base_line: u32,
 block_label: Id = .none,
 next_arg_index: u32 = 0,
-args: std.ArrayListUnmanaged(Id) = .empty,
+args: std.ArrayList(Id) = .empty,
 inst_results: std.AutoHashMapUnmanaged(Air.Inst.Index, Id) = .empty,
-id_scratch: std.ArrayListUnmanaged(Id) = .empty,
+id_scratch: std.ArrayList(Id) = .empty,
 prologue: Section = .{},
 body: Section = .{},
 error_msg: ?*Zcu.ErrorMsg = null,
@@ -1211,9 +1211,9 @@ fn constantNavRef(cg: *CodeGen, ty: Type, nav_index: InternPool.Nav.Index) !Id {
 // Turn a Zig type's name into a cache reference.
 fn resolveTypeName(cg: *CodeGen, ty: Type) ![]const u8 {
     const gpa = cg.module.gpa;
-    var aw: std.io.Writer.Allocating = .init(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
-    ty.print(&aw.writer, cg.pt) catch |err| switch (err) {
+    ty.print(&aw.writer, cg.pt, null) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
     };
     return try aw.toOwnedSlice();
@@ -1520,8 +1520,7 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
                 const field_ty: Type = .fromInterned(struct_type.field_types.get(ip)[field_index]);
                 if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
 
-                const field_name = struct_type.fieldName(ip, field_index).unwrap() orelse
-                    try ip.getOrPutStringFmt(zcu.gpa, pt.tid, "{d}", .{field_index}, .no_embedded_nulls);
+                const field_name = struct_type.fieldName(ip, field_index);
                 try member_types.append(try cg.resolveType(field_ty, .indirect));
                 try member_names.append(field_name.toSlice(ip));
                 try member_offsets.append(@intCast(ty.structFieldOffset(field_index, zcu)));
@@ -2177,6 +2176,14 @@ const UnaryOp = enum {
                 .ceil => .Ceil,
                 .trunc => .Trunc,
                 .round => .Round,
+                .sin => .Sin,
+                .cos => .Cos,
+                .tan => .Tan,
+                .sqrt => .Sqrt,
+                .exp => .Exp,
+                .exp2 => .Exp2,
+                .log => .Log,
+                .log2 => .Log2,
                 else => return null,
             })),
             else => unreachable,
@@ -2725,8 +2732,6 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) Error!void {
             .ptr_elem_ptr   => try cg.airPtrElemPtr(inst),
             .ptr_elem_val   => try cg.airPtrElemVal(inst),
             .array_elem_val => try cg.airArrayElemVal(inst),
-
-            .vector_store_elem  => return cg.airVectorStoreElem(inst),
 
             .set_union_tag => return cg.airSetUnionTag(inst),
             .get_union_tag => try cg.airGetUnionTag(inst),
@@ -4446,29 +4451,6 @@ fn airPtrElemVal(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     return try cg.load(elem_ty, elem_ptr_id, .{ .is_volatile = ptr_ty.isVolatilePtr(zcu) });
 }
 
-fn airVectorStoreElem(cg: *CodeGen, inst: Air.Inst.Index) !void {
-    const zcu = cg.module.zcu;
-    const data = cg.air.instructions.items(.data)[@intFromEnum(inst)].vector_store_elem;
-    const extra = cg.air.extraData(Air.Bin, data.payload).data;
-
-    const vector_ptr_ty = cg.typeOf(data.vector_ptr);
-    const vector_ty = vector_ptr_ty.childType(zcu);
-    const scalar_ty = vector_ty.scalarType(zcu);
-
-    const scalar_ty_id = try cg.resolveType(scalar_ty, .indirect);
-    const storage_class = cg.module.storageClass(vector_ptr_ty.ptrAddressSpace(zcu));
-    const scalar_ptr_ty_id = try cg.module.ptrType(scalar_ty_id, storage_class);
-
-    const vector_ptr = try cg.resolve(data.vector_ptr);
-    const index = try cg.resolve(extra.lhs);
-    const operand = try cg.resolve(extra.rhs);
-
-    const elem_ptr_id = try cg.accessChainId(scalar_ptr_ty_id, vector_ptr, &.{index});
-    try cg.store(scalar_ty, elem_ptr_id, operand, .{
-        .is_volatile = vector_ptr_ty.isVolatilePtr(zcu),
-    });
-}
-
 fn airSetUnionTag(cg: *CodeGen, inst: Air.Inst.Index) !void {
     const zcu = cg.module.zcu;
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
@@ -5801,7 +5783,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index) !void {
         }
     }
 
-    var incoming_structured_blocks: std.ArrayListUnmanaged(ControlFlow.Structured.Block.Incoming) = .empty;
+    var incoming_structured_blocks: std.ArrayList(ControlFlow.Structured.Block.Incoming) = .empty;
     defer incoming_structured_blocks.deinit(gpa);
 
     if (cg.control_flow == .structured) {
@@ -6145,7 +6127,7 @@ fn airWorkGroupSize(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     if (cg.liveness.isUnused(inst)) return null;
     const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const dimension = pl_op.payload;
-    return try cg.builtin3D(.u32, .workgroup_id, dimension, 0);
+    return try cg.builtin3D(.u32, .workgroup_size, dimension, 0);
 }
 
 fn airWorkGroupId(cg: *CodeGen, inst: Air.Inst.Index) !?Id {

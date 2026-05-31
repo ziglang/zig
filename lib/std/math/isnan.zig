@@ -28,12 +28,15 @@ test isNan {
 }
 
 test isSignalNan {
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.object_format == .coff and builtin.abi != .gnu) return error.SkipZigTest;
+
     inline for ([_]type{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
         // TODO: Signalling NaN values get converted to quiet NaN values in
         //       some cases where they shouldn't such that this can fail.
         //       See https://github.com/ziglang/zig/issues/14366
         if (!builtin.cpu.arch.isArm() and
             !builtin.cpu.arch.isAARCH64() and
+            builtin.cpu.arch != .hexagon and
             !builtin.cpu.arch.isMIPS32() and
             !builtin.cpu.arch.isPowerPC() and
             builtin.zig_backend != .stage2_c)

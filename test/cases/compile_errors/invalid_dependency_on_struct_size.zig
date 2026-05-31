@@ -12,7 +12,5 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:21: error: struct layout depends on it having runtime bits

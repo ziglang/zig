@@ -21,16 +21,16 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 17
 
 template <class... _Types>
-class _LIBCPP_TEMPLATE_VIS variant;
+class variant;
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS variant_size;
+struct variant_size;
 
 template <class _Tp>
 inline constexpr size_t variant_size_v = variant_size<_Tp>::value;
 
 template <size_t _Ip, class _Tp>
-struct _LIBCPP_TEMPLATE_VIS variant_alternative;
+struct variant_alternative;
 
 template <size_t _Ip, class _Tp>
 using variant_alternative_t = typename variant_alternative<_Ip, _Tp>::type;
@@ -38,37 +38,28 @@ using variant_alternative_t = typename variant_alternative<_Ip, _Tp>::type;
 inline constexpr size_t variant_npos = static_cast<size_t>(-1);
 
 template <size_t _Ip, class... _Types>
-_LIBCPP_HIDE_FROM_ABI
-_LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS constexpr variant_alternative_t<_Ip, variant<_Types...>>&
-get(variant<_Types...>&);
+_LIBCPP_HIDE_FROM_ABI constexpr variant_alternative_t<_Ip, variant<_Types...>>& get(variant<_Types...>&);
 
 template <size_t _Ip, class... _Types>
-_LIBCPP_HIDE_FROM_ABI
-_LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS constexpr variant_alternative_t<_Ip, variant<_Types...>>&&
-get(variant<_Types...>&&);
+_LIBCPP_HIDE_FROM_ABI constexpr variant_alternative_t<_Ip, variant<_Types...>>&& get(variant<_Types...>&&);
 
 template <size_t _Ip, class... _Types>
-_LIBCPP_HIDE_FROM_ABI
-_LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS constexpr const variant_alternative_t<_Ip, variant<_Types...>>&
-get(const variant<_Types...>&);
+_LIBCPP_HIDE_FROM_ABI constexpr const variant_alternative_t<_Ip, variant<_Types...>>& get(const variant<_Types...>&);
 
 template <size_t _Ip, class... _Types>
-_LIBCPP_HIDE_FROM_ABI
-_LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS constexpr const variant_alternative_t<_Ip, variant<_Types...>>&&
-get(const variant<_Types...>&&);
+_LIBCPP_HIDE_FROM_ABI constexpr const variant_alternative_t<_Ip, variant<_Types...>>&& get(const variant<_Types...>&&);
 
 template <class _Tp, class... _Types>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS constexpr _Tp& get(variant<_Types...>&);
+_LIBCPP_HIDE_FROM_ABI constexpr _Tp& get(variant<_Types...>&);
 
 template <class _Tp, class... _Types>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS constexpr _Tp&& get(variant<_Types...>&&);
+_LIBCPP_HIDE_FROM_ABI constexpr _Tp&& get(variant<_Types...>&&);
 
 template <class _Tp, class... _Types>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS constexpr const _Tp& get(const variant<_Types...>&);
+_LIBCPP_HIDE_FROM_ABI constexpr const _Tp& get(const variant<_Types...>&);
 
 template <class _Tp, class... _Types>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_VARIANT_ACCESS constexpr const _Tp&&
-get(const variant<_Types...>&&);
+_LIBCPP_HIDE_FROM_ABI constexpr const _Tp&& get(const variant<_Types...>&&);
 
 #endif // _LIBCPP_STD_VER >= 17
 

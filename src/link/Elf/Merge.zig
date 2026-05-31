@@ -7,15 +7,15 @@ pub const Section = struct {
     type: u32 = 0,
     flags: u64 = 0,
     output_section_index: u32 = 0,
-    bytes: std.ArrayListUnmanaged(u8) = .empty,
+    bytes: std.ArrayList(u8) = .empty,
     table: std.HashMapUnmanaged(
         String,
         Subsection.Index,
         IndexContext,
         std.hash_map.default_max_load_percentage,
     ) = .{},
-    subsections: std.ArrayListUnmanaged(Subsection) = .empty,
-    finalized_subsections: std.ArrayListUnmanaged(Subsection.Index) = .empty,
+    subsections: std.ArrayList(Subsection) = .empty,
+    finalized_subsections: std.ArrayList(Subsection.Index) = .empty,
 
     pub fn deinit(msec: *Section, allocator: Allocator) void {
         msec.bytes.deinit(allocator);
@@ -157,7 +157,7 @@ pub const Section = struct {
         }
     };
 
-    pub fn fmt(msec: Section, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+    pub fn fmt(msec: Section, elf_file: *Elf) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{
             .msec = msec,
             .elf_file = elf_file,
@@ -168,7 +168,7 @@ pub const Section = struct {
         msec: Section,
         elf_file: *Elf,
 
-        pub fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        pub fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             const msec = f.msec;
             const elf_file = f.elf_file;
             try writer.print("{s} : @{x} : size({x}) : align({x}) : entsize({x}) : type({x}) : flags({x})\n", .{
@@ -211,7 +211,7 @@ pub const Subsection = struct {
         return msec.bytes.items[msub.string_index..][0..msub.size];
     }
 
-    pub fn fmt(msub: Subsection, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+    pub fn fmt(msub: Subsection, elf_file: *Elf) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{
             .msub = msub,
             .elf_file = elf_file,
@@ -222,7 +222,7 @@ pub const Subsection = struct {
         msub: Subsection,
         elf_file: *Elf,
 
-        pub fn default(ctx: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        pub fn default(ctx: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             const msub = ctx.msub;
             const elf_file = ctx.elf_file;
             try writer.print("@{x} : align({x}) : size({x})", .{
@@ -240,10 +240,10 @@ pub const Subsection = struct {
 pub const InputSection = struct {
     merge_section_index: Section.Index = 0,
     atom_index: Atom.Index = 0,
-    offsets: std.ArrayListUnmanaged(u32) = .empty,
-    subsections: std.ArrayListUnmanaged(Subsection.Index) = .empty,
-    bytes: std.ArrayListUnmanaged(u8) = .empty,
-    strings: std.ArrayListUnmanaged(String) = .empty,
+    offsets: std.ArrayList(u32) = .empty,
+    subsections: std.ArrayList(Subsection.Index) = .empty,
+    bytes: std.ArrayList(u8) = .empty,
+    strings: std.ArrayList(String) = .empty,
 
     pub fn deinit(imsec: *InputSection, allocator: Allocator) void {
         imsec.offsets.deinit(allocator);

@@ -39,35 +39,44 @@ fn benchmarkCodepointCount(buf: []const u8) !ResultCount {
 }
 
 pub fn main() !void {
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    // Size of buffer is about size of printed message.
+    var stdout_buffer: [0x100]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
     try stdout.print("short ASCII strings\n", .{});
+    try stdout.flush();
     {
         const result = try benchmarkCodepointCount("abc");
         try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
     }
 
     try stdout.print("short Unicode strings\n", .{});
+    try stdout.flush();
     {
         const result = try benchmarkCodepointCount("ŌŌŌ");
         try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
     }
 
     try stdout.print("pure ASCII strings\n", .{});
+    try stdout.flush();
     {
         const result = try benchmarkCodepointCount("hello" ** 16);
         try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
     }
 
     try stdout.print("pure Unicode strings\n", .{});
+    try stdout.flush();
     {
         const result = try benchmarkCodepointCount("こんにちは" ** 16);
         try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
     }
 
     try stdout.print("mixed ASCII/Unicode strings\n", .{});
+    try stdout.flush();
     {
         const result = try benchmarkCodepointCount("Hyvää huomenta" ** 16);
         try stdout.print("  count: {:5} MiB/s [{d}]\n", .{ result.throughput / (1 * MiB), result.count });
     }
+    try stdout.flush();
 }

@@ -133,9 +133,9 @@ else()
     set(ZIG_SYSTEM_LIBCXX "stdc++" CACHE STRING "system libcxx name for build.zig")
 endif()
 
-find_package(llvm 20)
-find_package(clang 20)
-find_package(lld 20)
+find_package(llvm 21)
+find_package(clang 21)
+find_package(lld 21)
 
 if(ZIG_STATIC_ZLIB)
     if (MSVC)
@@ -197,7 +197,6 @@ set(ZIG_CPP_SOURCES
     # These are planned to stay even when we are self-hosted.
     src/zig_llvm.cpp
     src/zig_llvm-ar.cpp
-    src/zig_clang.cpp
     src/zig_clang_driver.cpp
     src/zig_clang_cc1_main.cpp
     src/zig_clang_cc1as_main.cpp
@@ -212,10 +211,10 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/absvti2.zig
     lib/compiler_rt/adddf3.zig
     lib/compiler_rt/addf3.zig
-    lib/compiler_rt/addo.zig
     lib/compiler_rt/addsf3.zig
     lib/compiler_rt/addtf3.zig
     lib/compiler_rt/addvsi3.zig
+    lib/compiler_rt/addvdi3.zig
     lib/compiler_rt/addxf3.zig
     lib/compiler_rt/arm.zig
     lib/compiler_rt/atomics.zig
@@ -355,7 +354,6 @@ set(ZIG_STAGE2_SOURCES
     lib/compiler_rt/sqrt.zig
     lib/compiler_rt/stack_probe.zig
     lib/compiler_rt/subdf3.zig
-    lib/compiler_rt/subo.zig
     lib/compiler_rt/subsf3.zig
     lib/compiler_rt/subtf3.zig
     lib/compiler_rt/subvdi3.zig
@@ -414,7 +412,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Thread/Futex.zig
     lib/std/Thread/Mutex.zig
     lib/std/Thread/Pool.zig
-    lib/std/Thread/ResetEvent.zig
     lib/std/Thread/WaitGroup.zig
     lib/std/array_hash_map.zig
     lib/std/array_list.zig
@@ -502,7 +499,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/zig/Server.zig
     lib/std/zig/WindowsSdk.zig
     lib/std/zig/Zir.zig
-    lib/std/zig/c_builtins.zig
     lib/std/zig/string_literal.zig
     lib/std/zig/system.zig
     lib/std/zig/system/NativePaths.zig
@@ -537,7 +533,6 @@ set(ZIG_STAGE2_SOURCES
     src/Value.zig
     src/Zcu.zig
     src/Zcu/PerThread.zig
-    src/clang.zig
     src/clang_options.zig
     src/clang_options_data.zig
     src/codegen.zig
@@ -583,7 +578,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/Elf/relocatable.zig
     src/link/Elf/relocation.zig
     src/link/Elf/synthetic_sections.zig
-    src/link/Goff.zig
+    src/link/Elf2.zig
     src/link/LdScript.zig
     src/link/Lld.zig
     src/link/MachO.zig
@@ -612,13 +607,13 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/synthetic.zig
     src/link/MachO/Thunk.zig
     src/link/MachO/uuid.zig
+    src/link/MappedFile.zig
     src/link/Queue.zig
     src/link/StringTable.zig
     src/link/Wasm.zig
     src/link/Wasm/Archive.zig
     src/link/Wasm/Flush.zig
     src/link/Wasm/Object.zig
-    src/link/Xcoff.zig
     src/link/aarch64.zig
     src/link/riscv.zig
     src/link/table_section.zig
@@ -639,7 +634,6 @@ set(ZIG_STAGE2_SOURCES
     src/register_manager.zig
     src/target.zig
     src/tracy.zig
-    src/translate_c.zig
     src/libs/wasi_libc.zig
 )
 
@@ -737,20 +731,22 @@ endforeach()
 include(CheckSymbolExists)
 
 string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}" ZIG_HOST_TARGET_OS)
-if(ZIG_HOST_TARGET_OS STREQUAL "darwin")
+if(ZIG_HOST_TARGET_OS STREQUAL "android")
+  set(ZIG_HOST_TARGET_OS "linux")
+  set(ZIG_HOST_TARGET_IS_ANDROID TRUE)
+elseif(ZIG_HOST_TARGET_OS STREQUAL "darwin")
   set(ZIG_HOST_TARGET_OS "macos")
+elseif(ZIG_HOST_TARGET_OS STREQUAL "gnu")
+  set(ZIG_HOST_TARGET_OS "hurd")
+elseif(ZIG_HOST_TARGET_OS STREQUAL "serenityos")
+  set(ZIG_HOST_TARGET_OS "serenity")
 elseif(ZIG_HOST_TARGET_OS STREQUAL "sunos")
-  check_symbol_exists(__illumos__ "" ZIG_HOST_TARGET_HAS_ILLUMOS_MACRO)
-  if (ZIG_HOST_TARGET_HAS_ILLUMOS_MACRO)
-    set(ZIG_HOST_TARGET_OS "illumos")
-  else()
-    set(ZIG_HOST_TARGET_OS "solaris")
-  endif()
+  set(ZIG_HOST_TARGET_OS "illumos")
 endif()
 
 string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" ZIG_HOST_TARGET_ARCH)
 if(ZIG_HOST_TARGET_ARCH MATCHES "^i[3-9]86$")
-  if (ZIG_HOST_TARGET_OS MATCHES "(solaris|illumos)")
+  if (ZIG_HOST_TARGET_OS STREQUAL "illumos")
     set(ZIG_HOST_TARGET_ARCH "x86_64")
   else()
     set(ZIG_HOST_TARGET_ARCH "x86")
@@ -772,15 +768,17 @@ if(ZIG_HOST_TARGET_ARCH MATCHES "^arm(eb)?$")
 endif()
 string(REGEX REPLACE "^ppc((64)?(le)?)$" "powerpc\\1" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
 
+set(ZIG_HOST_TARGET_ABI "")
 if(MSVC)
   set(ZIG_HOST_TARGET_ABI "-msvc")
 elseif(MINGW)
   set(ZIG_HOST_TARGET_ABI "-gnu")
-elseif(ZIG_HOST_TARGET_ARCH MATCHES "^(arm|thumb)hf?(eb)?$")
-  string(REGEX REPLACE "^(arm|thumb)hf?((eb)?)$" "\\1\\2" ZIG_HOST_TARGET_ARCH "${ZIG_HOST_TARGET_ARCH}")
-  set(ZIG_HOST_TARGET_ABI "-eabihf")
-else()
-  set(ZIG_HOST_TARGET_ABI "")
+elseif(ZIG_HOST_TARGET_IS_ANDROID)
+  if(ZIG_HOST_TARGET_ARCH STREQUAL "arm")
+    set(ZIG_HOST_TARGET_ABI "-androideabi")
+  else()
+    set(ZIG_HOST_TARGET_ABI "-android")
+  endif()
 endif()
 
 set(ZIG_HOST_TARGET_TRIPLE "${ZIG_HOST_TARGET_ARCH}-${ZIG_HOST_TARGET_OS}${ZIG_HOST_TARGET_ABI}" CACHE STRING "Host zig target triple.")

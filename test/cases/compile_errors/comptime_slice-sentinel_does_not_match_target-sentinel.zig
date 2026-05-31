@@ -70,8 +70,6 @@ export fn typeName_slice() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:29: error: value in memory does not match slice sentinel
 // :4:29: note: expected '255', found '0'

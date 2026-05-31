@@ -804,7 +804,7 @@ fn testDecode(bytes: []const u8) !u21 {
 /// Ill-formed UTF-8 byte sequences are replaced by the replacement character (U+FFFD)
 /// according to "U+FFFD Substitution of Maximal Subparts" from Chapter 3 of
 /// the Unicode standard, and as specified by https://encoding.spec.whatwg.org/#utf-8-decoder
-fn formatUtf8(utf8: []const u8, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatUtf8(utf8: []const u8, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     var buf: [300]u8 = undefined; // just an arbitrary size
     var u8len: usize = 0;
 
@@ -893,7 +893,7 @@ fn formatUtf8(utf8: []const u8, writer: *std.io.Writer) std.io.Writer.Error!void
 /// Ill-formed UTF-8 byte sequences are replaced by the replacement character (U+FFFD)
 /// according to "U+FFFD Substitution of Maximal Subparts" from Chapter 3 of
 /// the Unicode standard, and as specified by https://encoding.spec.whatwg.org/#utf-8-decoder
-pub fn fmtUtf8(utf8: []const u8) std.fmt.Formatter([]const u8, formatUtf8) {
+pub fn fmtUtf8(utf8: []const u8) std.fmt.Alt([]const u8, formatUtf8) {
     return .{ .data = utf8 };
 }
 
@@ -1464,7 +1464,7 @@ test calcWtf16LeLen {
 
 /// Print the given `utf16le` string, encoded as UTF-8 bytes.
 /// Unpaired surrogates are replaced by the replacement character (U+FFFD).
-fn formatUtf16Le(utf16le: []const u16, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatUtf16Le(utf16le: []const u16, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     var buf: [300]u8 = undefined; // just an arbitrary size
     var it = Utf16LeIterator.init(utf16le);
     var u8len: usize = 0;
@@ -1483,7 +1483,7 @@ fn formatUtf16Le(utf16le: []const u16, writer: *std.io.Writer) std.io.Writer.Err
 /// Return a Formatter for a (potentially ill-formed) UTF-16 LE string,
 /// which will be converted to UTF-8 during formatting.
 /// Unpaired surrogates are replaced by the replacement character (U+FFFD).
-pub fn fmtUtf16Le(utf16le: []const u16) std.fmt.Formatter([]const u16, formatUtf16Le) {
+pub fn fmtUtf16Le(utf16le: []const u16) std.fmt.Alt([]const u16, formatUtf16Le) {
     return .{ .data = utf16le };
 }
 
@@ -1809,30 +1809,6 @@ pub fn wtf8ToWtf16Le(wtf16le: []u16, wtf8: []const u8) error{InvalidWtf8}!usize 
     return utf8ToUtf16LeImpl(wtf16le, wtf8, .can_encode_surrogate_half);
 }
 
-fn checkUtf8ToUtf16LeOverflowImpl(utf8: []const u8, utf16le: []const u16, comptime surrogates: Surrogates) !bool {
-    // Each u8 in UTF-8/WTF-8 correlates to at most one u16 in UTF-16LE/WTF-16LE.
-    if (utf16le.len >= utf8.len) return false;
-    const utf16_len = calcUtf16LeLenImpl(utf8, surrogates) catch {
-        return switch (surrogates) {
-            .cannot_encode_surrogate_half => error.InvalidUtf8,
-            .can_encode_surrogate_half => error.InvalidWtf8,
-        };
-    };
-    return utf16_len > utf16le.len;
-}
-
-/// Checks if calling `utf8ToUtf16Le` would overflow. Might fail if utf8 is not
-/// valid UTF-8.
-pub fn checkUtf8ToUtf16LeOverflow(utf8: []const u8, utf16le: []const u16) error{InvalidUtf8}!bool {
-    return checkUtf8ToUtf16LeOverflowImpl(utf8, utf16le, .cannot_encode_surrogate_half);
-}
-
-/// Checks if calling `utf8ToUtf16Le` would overflow. Might fail if wtf8 is not
-/// valid WTF-8.
-pub fn checkWtf8ToWtf16LeOverflow(wtf8: []const u8, wtf16le: []const u16) error{InvalidWtf8}!bool {
-    return checkUtf8ToUtf16LeOverflowImpl(wtf8, wtf16le, .can_encode_surrogate_half);
-}
-
 /// Surrogate codepoints (U+D800 to U+DFFF) are replaced by the Unicode replacement
 /// character (U+FFFD).
 /// All surrogate codepoints and the replacement character are encoded as three
@@ -2039,7 +2015,6 @@ fn testRoundtripWtf8(wtf8: []const u8) !void {
         var wtf16_buf: [32]u16 = undefined;
         const wtf16_len = try wtf8ToWtf16Le(&wtf16_buf, wtf8);
         try testing.expectEqual(wtf16_len, calcWtf16LeLen(wtf8));
-        try testing.expectEqual(false, checkWtf8ToWtf16LeOverflow(wtf8, &wtf16_buf));
         const wtf16 = wtf16_buf[0..wtf16_len];
 
         var roundtripped_buf: [32]u8 = undefined;

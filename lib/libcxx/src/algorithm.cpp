@@ -13,6 +13,9 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class Comp, class RandomAccessIterator>
 void __sort(RandomAccessIterator first, RandomAccessIterator last, Comp comp) {
+  if (first == last) // log(0) is undefined, so don't try computing the depth
+    return;
+
   auto depth_limit = 2 * std::__bit_log2(static_cast<size_t>(last - first));
 
   // Only use bitset partitioning for arithmetic types.  We should also check

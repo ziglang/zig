@@ -22,17 +22,17 @@ prelink_wait_count: u32,
 
 /// Prelink tasks which have been enqueued and are not yet owned by the worker thread.
 /// Allocated into `gpa`, guarded by `mutex`.
-queued_prelink: std.ArrayListUnmanaged(PrelinkTask),
+queued_prelink: std.ArrayList(PrelinkTask),
 /// The worker thread moves items from `queued_prelink` into this array in order to process them.
 /// Allocated into `gpa`, accessed only by the worker thread.
-wip_prelink: std.ArrayListUnmanaged(PrelinkTask),
+wip_prelink: std.ArrayList(PrelinkTask),
 
 /// Like `queued_prelink`, but for ZCU tasks.
 /// Allocated into `gpa`, guarded by `mutex`.
-queued_zcu: std.ArrayListUnmanaged(ZcuTask),
+queued_zcu: std.ArrayList(ZcuTask),
 /// Like `wip_prelink`, but for ZCU tasks.
 /// Allocated into `gpa`, accessed only by the worker thread.
-wip_zcu: std.ArrayListUnmanaged(ZcuTask),
+wip_zcu: std.ArrayList(ZcuTask),
 
 /// When processing ZCU link tasks, we might have to block due to unpopulated MIR. When this
 /// happens, some tasks in `wip_zcu` have been run, and some are still pending. This is the
@@ -213,32 +213,41 @@ pub fn enqueueZcu(q: *Queue, comp: *Compilation, task: ZcuTask) Allocator.Error!
 
 fn flushTaskQueue(tid: usize, q: *Queue, comp: *Compilation) void {
     q.flush_safety.lock(); // every `return` site should unlock this before unlocking `q.mutex`
-
     if (std.debug.runtime_safety) {
         q.mutex.lock();
         defer q.mutex.unlock();
         assert(q.state == .running);
     }
+
+    var have_idle_tasks = true;
     prelink: while (true) {
         assert(q.wip_prelink.items.len == 0);
-        {
-            q.mutex.lock();
-            defer q.mutex.unlock();
-            std.mem.swap(std.ArrayListUnmanaged(PrelinkTask), &q.queued_prelink, &q.wip_prelink);
-            if (q.wip_prelink.items.len == 0) {
-                if (q.prelink_wait_count == 0) {
-                    break :prelink; // prelink is done
-                } else {
+        swap_queues: while (true) {
+            {
+                q.mutex.lock();
+                defer q.mutex.unlock();
+                std.mem.swap(std.ArrayList(PrelinkTask), &q.queued_prelink, &q.wip_prelink);
+                if (q.wip_prelink.items.len > 0) break :swap_queues;
+                if (q.prelink_wait_count == 0) break :prelink; // prelink is done
+                if (!have_idle_tasks) {
                     // We're expecting more prelink tasks so can't move on to ZCU tasks.
                     q.state = .finished;
                     q.flush_safety.unlock();
                     return;
                 }
             }
+            have_idle_tasks = link.doIdleTask(comp, tid) catch |err| switch (err) {
+                error.OutOfMemory => have_idle_tasks: {
+                    comp.link_diags.setAllocFailure();
+                    break :have_idle_tasks false;
+                },
+                error.LinkFailure => false,
+            };
         }
         for (q.wip_prelink.items) |task| {
             link.doPrelinkTask(comp, task);
         }
+        have_idle_tasks = true;
         q.wip_prelink.clearRetainingCapacity();
     }
 
@@ -256,17 +265,29 @@ fn flushTaskQueue(tid: usize, q: *Queue, comp: *Compilation) void {
 
     // Now we can run ZCU tasks.
     while (true) {
-        if (q.wip_zcu.items.len == q.wip_zcu_idx) {
+        if (q.wip_zcu.items.len == q.wip_zcu_idx) swap_queues: {
             q.wip_zcu.clearRetainingCapacity();
             q.wip_zcu_idx = 0;
-            q.mutex.lock();
-            defer q.mutex.unlock();
-            std.mem.swap(std.ArrayListUnmanaged(ZcuTask), &q.queued_zcu, &q.wip_zcu);
-            if (q.wip_zcu.items.len == 0) {
-                // We've exhausted all available tasks.
-                q.state = .finished;
-                q.flush_safety.unlock();
-                return;
+            while (true) {
+                {
+                    q.mutex.lock();
+                    defer q.mutex.unlock();
+                    std.mem.swap(std.ArrayList(ZcuTask), &q.queued_zcu, &q.wip_zcu);
+                    if (q.wip_zcu.items.len > 0) break :swap_queues;
+                    if (!have_idle_tasks) {
+                        // We've exhausted all available tasks.
+                        q.state = .finished;
+                        q.flush_safety.unlock();
+                        return;
+                    }
+                }
+                have_idle_tasks = link.doIdleTask(comp, tid) catch |err| switch (err) {
+                    error.OutOfMemory => have_idle_tasks: {
+                        comp.link_diags.setAllocFailure();
+                        break :have_idle_tasks false;
+                    },
+                    error.LinkFailure => false,
+                };
             }
         }
         const task = q.wip_zcu.items[q.wip_zcu_idx];
@@ -274,8 +295,18 @@ fn flushTaskQueue(tid: usize, q: *Queue, comp: *Compilation) void {
         pending: {
             if (task != .link_func) break :pending;
             const status_ptr = &task.link_func.mir.status;
-            // First check without the mutex to optimize for the common case where MIR is ready.
-            if (status_ptr.load(.acquire) != .pending) break :pending;
+            while (true) {
+                // First check without the mutex to optimize for the common case where MIR is ready.
+                if (status_ptr.load(.acquire) != .pending) break :pending;
+                if (have_idle_tasks) have_idle_tasks = link.doIdleTask(comp, tid) catch |err| switch (err) {
+                    error.OutOfMemory => have_idle_tasks: {
+                        comp.link_diags.setAllocFailure();
+                        break :have_idle_tasks false;
+                    },
+                    error.LinkFailure => false,
+                };
+                if (!have_idle_tasks) break;
+            }
             q.mutex.lock();
             defer q.mutex.unlock();
             if (status_ptr.load(.acquire) != .pending) break :pending;
@@ -298,6 +329,7 @@ fn flushTaskQueue(tid: usize, q: *Queue, comp: *Compilation) void {
             }
         }
         q.wip_zcu_idx += 1;
+        have_idle_tasks = true;
     }
 }
 

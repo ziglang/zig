@@ -10,8 +10,6 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :8:12: error: variable of type 'tmp.S1' must be const or comptime
 // :2:8: note: struct requires comptime because of this field

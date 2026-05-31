@@ -70,8 +70,6 @@ pub export fn entry8() void {
 }
 
 // error
-// target=native
-// backend=stage2
 //
 // :6:9: error: value stored in comptime field does not match the default value of the field
 // :14:9: error: value stored in comptime field does not match the default value of the field

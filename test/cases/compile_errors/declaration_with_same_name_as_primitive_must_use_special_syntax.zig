@@ -5,8 +5,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:7: error: name shadows primitive 'u8'
 // :1:7: note: consider using @"u8" to disambiguate

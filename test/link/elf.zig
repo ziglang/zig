@@ -2,6 +2,12 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     _ = build_opts;
     const elf_step = b.step("test-elf", "Run ELF tests");
 
+    // https://github.com/ziglang/zig/issues/25323
+    if (builtin.os.tag == .freebsd) return elf_step;
+
+    // https://github.com/ziglang/zig/issues/25961
+    if (comptime builtin.cpu.arch.endian() == .big) return elf_step;
+
     const default_target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64, // TODO relax this once ELF linker is able to handle other archs
         .os_tag = .linux,
@@ -73,6 +79,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         elf_step.dependOn(testLinkingC(b, .{ .target = musl_target }));
         elf_step.dependOn(testLinkingCpp(b, .{ .target = musl_target }));
         elf_step.dependOn(testLinkingZig(b, .{ .target = musl_target }));
+        elf_step.dependOn(testLinksection(b, .{ .target = musl_target }));
         elf_step.dependOn(testMergeStrings(b, .{ .target = musl_target }));
         elf_step.dependOn(testMergeStrings2(b, .{ .target = musl_target }));
         // https://github.com/ziglang/zig/issues/17451
@@ -165,6 +172,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     elf_step.dependOn(testLinkingObj(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testLinkingStaticLib(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false, .target = default_target }));
+    elf_step.dependOn(testLinksection(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testImportingDataDynamic(b, .{ .use_llvm = false, .target = x86_64_gnu }));
     elf_step.dependOn(testImportingDataStatic(b, .{ .use_llvm = false, .target = x86_64_musl }));
 
@@ -475,7 +483,7 @@ fn testComdatElimination(b: *Build, opts: Options) *Step {
 fn testCommentString(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "comment-string", opts);
 
-    const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
+    const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes =
         \\pub fn main() void {}
     });
 
@@ -490,7 +498,7 @@ fn testCommentString(b: *Build, opts: Options) *Step {
 fn testCommentStringStaticLib(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "comment-string-static-lib", opts);
 
-    const lib = addStaticLibrary(b, opts, .{ .name = "lib", .zig_source_bytes = 
+    const lib = addStaticLibrary(b, opts, .{ .name = "lib", .zig_source_bytes =
         \\export fn foo() void {}
     });
 
@@ -861,7 +869,7 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
 fn testEmitRelocatable(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "emit-relocatable", opts);
 
-    const a_o = addObject(b, opts, .{ .name = "a", .zig_source_bytes = 
+    const a_o = addObject(b, opts, .{ .name = "a", .zig_source_bytes =
         \\const std = @import("std");
         \\extern var bar: i32;
         \\export fn foo() i32 {
@@ -873,7 +881,7 @@ fn testEmitRelocatable(b: *Build, opts: Options) *Step {
     });
     a_o.root_module.link_libc = true;
 
-    const b_o = addObject(b, opts, .{ .name = "b", .c_source_bytes = 
+    const b_o = addObject(b, opts, .{ .name = "b", .c_source_bytes =
         \\#include <stdio.h>
         \\int bar = 42;
         \\void printBar() {
@@ -886,7 +894,7 @@ fn testEmitRelocatable(b: *Build, opts: Options) *Step {
     c_o.root_module.addObject(a_o);
     c_o.root_module.addObject(b_o);
 
-    const exe = addExecutable(b, opts, .{ .name = "test", .zig_source_bytes = 
+    const exe = addExecutable(b, opts, .{ .name = "test", .zig_source_bytes =
         \\const std = @import("std");
         \\extern fn printFoo() void;
         \\extern fn printBar() void;
@@ -1920,7 +1928,7 @@ fn testInitArrayOrder(b: *Build, opts: Options) *Step {
     });
     g_o.root_module.link_libc = true;
 
-    const h_o = addObject(b, opts, .{ .name = "h", .c_source_bytes = 
+    const h_o = addObject(b, opts, .{ .name = "h", .c_source_bytes =
         \\#include <stdio.h>
         \\__attribute__((destructor)) void fini2() { printf("8"); }
     });
@@ -2439,6 +2447,43 @@ fn testLinkingZig(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testLinksection(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "linksection", opts);
+
+    const obj = addObject(b, opts, .{ .name = "main", .zig_source_bytes =
+        \\export var test_global: u32 linksection(".TestGlobal") = undefined;
+        \\export fn testFn() linksection(".TestFn") callconv(.c) void {
+        \\    TestGenericFn("A").f();
+        \\}
+        \\fn TestGenericFn(comptime suffix: []const u8) type {
+        \\    return struct {
+        \\        fn f() linksection(".TestGenFn" ++ suffix) void {}
+        \\    };
+        \\}
+    });
+
+    const check = obj.checkObject();
+    check.checkInSymtab();
+    check.checkContains("SECTION LOCAL DEFAULT .TestGlobal");
+    check.checkInSymtab();
+    check.checkContains("SECTION LOCAL DEFAULT .TestFn");
+    check.checkInSymtab();
+    check.checkContains("SECTION LOCAL DEFAULT .TestGenFnA");
+    check.checkInSymtab();
+    check.checkContains("OBJECT GLOBAL DEFAULT test_global");
+    check.checkInSymtab();
+    check.checkContains("FUNC GLOBAL DEFAULT testFn");
+
+    if (opts.optimize == .Debug) {
+        check.checkInSymtab();
+        check.checkContains("FUNC LOCAL DEFAULT main.TestGenericFn(");
+    }
+
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
 // Adapted from https://github.com/rui314/mold/blob/main/test/elf/mergeable-strings.sh
 fn testMergeStrings(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "merge-strings", opts);
@@ -2498,7 +2543,7 @@ fn testMergeStrings(b: *Build, opts: Options) *Step {
 fn testMergeStrings2(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "merge-strings2", opts);
 
-    const obj1 = addObject(b, opts, .{ .name = "a", .zig_source_bytes = 
+    const obj1 = addObject(b, opts, .{ .name = "a", .zig_source_bytes =
         \\const std = @import("std");
         \\export fn foo() void {
         \\    var arr: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
@@ -2507,7 +2552,7 @@ fn testMergeStrings2(b: *Build, opts: Options) *Step {
         \\}
     });
 
-    const obj2 = addObject(b, opts, .{ .name = "b", .zig_source_bytes = 
+    const obj2 = addObject(b, opts, .{ .name = "b", .zig_source_bytes =
         \\const std = @import("std");
         \\extern fn foo() void;
         \\pub fn main() void {
@@ -2755,7 +2800,7 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
         ,
     });
     obj2.root_module.link_libcpp = true;
-    const obj3 = addObject(b, opts, .{ .name = "obj3", .cpp_source_bytes = 
+    const obj3 = addObject(b, opts, .{ .name = "obj3", .cpp_source_bytes =
         \\#include <iostream>
         \\#include <stdexcept>
         \\extern int try_again();
@@ -2867,7 +2912,7 @@ fn testRelocatableEhFrameComdatHeavy(b: *Build, opts: Options) *Step {
 fn testRelocatableMergeStrings(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "relocatable-merge-strings", opts);
 
-    const obj1 = addObject(b, opts, .{ .name = "a", .asm_source_bytes = 
+    const obj1 = addObject(b, opts, .{ .name = "a", .asm_source_bytes =
         \\.section .rodata.str1.1,"aMS",@progbits,1
         \\val1:
         \\.ascii "Hello \0"
@@ -3033,7 +3078,7 @@ fn testStrip(b: *Build, opts: Options) *Step {
 fn testThunks(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "thunks", opts);
 
-    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes =
         \\void foo();
         \\__attribute__((section(".bar"))) void bar() {
         \\  return foo();
@@ -4246,6 +4291,7 @@ const addStaticLibrary = link.addStaticLibrary;
 const expectLinkErrors = link.expectLinkErrors;
 const link = @import("link.zig");
 const std = @import("std");
+const builtin = @import("builtin");
 
 const Build = std.Build;
 const BuildOptions = link.BuildOptions;

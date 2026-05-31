@@ -3,7 +3,5 @@ export fn entry() bool {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:22: error: type 'i32' does not support '@hasField'

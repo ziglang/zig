@@ -69,7 +69,7 @@ inline namespace fundamentals_v1 {
  */
 
 #if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
-#  include <__cxx03/experimental/type_traits>
+#  include <__cxx03/__config>
 #else
 #  include <__config>
 
@@ -87,16 +87,16 @@ _LIBCPP_BEGIN_NAMESPACE_LFTS
 // 3.3.2, Other type transformations
 /*
 template <class>
-class _LIBCPP_TEMPLATE_VIS raw_invocation_type;
+class raw_invocation_type;
 
 template <class _Fn, class ..._Args>
-class _LIBCPP_TEMPLATE_VIS raw_invocation_type<_Fn(_Args...)>;
+class raw_invocation_type<_Fn(_Args...)>;
 
 template <class>
-class _LIBCPP_TEMPLATE_VIS invokation_type;
+class invokation_type;
 
 template <class _Fn, class ..._Args>
-class _LIBCPP_TEMPLATE_VIS invokation_type<_Fn(_Args...)>;
+class invokation_type<_Fn(_Args...)>;
 
 template <class _Tp>
 using invokation_type_t = typename invokation_type<_Tp>::type;

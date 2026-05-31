@@ -25,7 +25,7 @@
 
 // The LLVM C library uses these named types so we forward declare them.
 typedef void (*__atexithandler_t)(void);
-typedef int (*__bsearchcompare_t)(const void *, const void *);
+typedef int (*__search_compare_t)(const void *, const void *);
 typedef int (*__qsortcompare_t)(const void *, const void *);
 typedef int (*__qsortrcompare_t)(const void *, const void *, void *);
 

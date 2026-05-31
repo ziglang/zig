@@ -10,6 +10,7 @@ pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
 pub const StaticStringMap = static_string_map.StaticStringMap;
 pub const StaticStringMapWithEql = static_string_map.StaticStringMapWithEql;
+pub const Deque = @import("deque.zig").Deque;
 pub const DoublyLinkedList = @import("DoublyLinkedList.zig");
 pub const DynLib = @import("dynamic_library.zig").DynLib;
 pub const DynamicBitSet = bit_set.DynamicBitSet;
@@ -25,7 +26,6 @@ pub const PriorityQueue = @import("priority_queue.zig").PriorityQueue;
 pub const PriorityDequeue = @import("priority_dequeue.zig").PriorityDequeue;
 pub const Progress = @import("Progress.zig");
 pub const Random = @import("Random.zig");
-pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const SemanticVersion = @import("SemanticVersion.zig");
 pub const SinglyLinkedList = @import("SinglyLinkedList.zig");
 pub const StaticBitSet = bit_set.StaticBitSet;
@@ -78,8 +78,6 @@ pub const hash = @import("hash.zig");
 pub const hash_map = @import("hash_map.zig");
 pub const heap = @import("heap.zig");
 pub const http = @import("http.zig");
-/// Deprecated
-pub const io = Io;
 pub const json = @import("json.zig");
 pub const leb = @import("leb128.zig");
 pub const log = @import("log.zig");
@@ -87,7 +85,6 @@ pub const macho = @import("macho.zig");
 pub const math = @import("math.zig");
 pub const mem = @import("mem.zig");
 pub const meta = @import("meta.zig");
-pub const net = @import("net.zig");
 pub const os = @import("os.zig");
 pub const once = @import("once.zig").once;
 pub const pdb = @import("pdb.zig");
@@ -127,7 +124,7 @@ pub const Options = struct {
 
     logFn: fn (
         comptime message_level: log.Level,
-        comptime scope: @TypeOf(.enum_literal),
+        comptime scope: @EnumLiteral(),
         comptime format: []const u8,
         args: anytype,
     ) void = log.defaultLog,
@@ -147,19 +144,6 @@ pub const Options = struct {
 
     crypto_fork_safety: bool = true,
 
-    /// By default Zig disables SIGPIPE by setting a "no-op" handler for it.  Set this option
-    /// to `true` to prevent that.
-    ///
-    /// Note that we use a "no-op" handler instead of SIG_IGN because it will not be inherited by
-    /// any child process.
-    ///
-    /// SIGPIPE is triggered when a process attempts to write to a broken pipe. By default, SIGPIPE
-    /// will terminate the process instead of exiting.  It doesn't trigger the panic handler so in many
-    /// cases it's unclear why the process was terminated.  By capturing SIGPIPE instead, functions that
-    /// write to broken pipes will return the EPIPE error (error.BrokenPipe) and the program can handle
-    /// it like any other error.
-    keep_sigpipe: bool = false,
-
     /// By default, std.http.Client will support HTTPS connections.  Set this option to `true` to
     /// disable TLS support.
     ///
@@ -173,6 +157,22 @@ pub const Options = struct {
     http_enable_ssl_key_log_file: bool = @import("builtin").mode == .Debug,
 
     side_channels_mitigations: crypto.SideChannelsMitigations = crypto.default_side_channels_mitigations,
+
+    /// Whether to allow capturing and writing stack traces. This affects the following functions:
+    /// * `debug.captureCurrentStackTrace`
+    /// * `debug.writeCurrentStackTrace`
+    /// * `debug.dumpCurrentStackTrace`
+    /// * `debug.writeStackTrace`
+    /// * `debug.dumpStackTrace`
+    ///
+    /// Stack traces can generally be collected and printed when debug info is stripped, but are
+    /// often less useful since they usually cannot be mapped to source locations and/or have bad
+    /// source locations. The stack tracing logic can also be quite large, which may be undesirable,
+    /// particularly in ReleaseSmall.
+    ///
+    /// If this is `false`, then captured stack traces will always be empty, and attempts to write
+    /// stack traces will just print an error to the relevant `Io.Writer` and return.
+    allow_stack_tracing: bool = !@import("builtin").strip_debug_info,
 };
 
 // This forces the start.zig file to be imported, and the comptime logic inside that

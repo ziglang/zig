@@ -7,8 +7,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:8: error: extern structs cannot contain fields of type '*const fn () void'
 // :2:8: note: extern function must specify calling convention

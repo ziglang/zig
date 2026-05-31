@@ -4,8 +4,6 @@ export fn bar() FooType {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:17: error: opaque return type 'tmp.FooType' not allowed
 // :1:17: note: opaque declared here

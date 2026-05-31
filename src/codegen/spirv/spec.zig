@@ -18,7 +18,7 @@ pub const Id = enum(Word) {
     none,
     _,
 
-    pub fn format(self: Id, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(self: Id, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self) {
             .none => try writer.writeAll("(none)"),
             else => try writer.print("%{d}", .{@intFromEnum(self)}),

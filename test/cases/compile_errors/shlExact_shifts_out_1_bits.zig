@@ -4,7 +4,5 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:15: error: overflow of integer type 'u8' with value '340'

@@ -20,7 +20,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _CharT, class _Traits = char_traits<_CharT> >
-class _LIBCPP_TEMPLATE_VIS basic_string_view;
+class basic_string_view;
 
 typedef basic_string_view<char> string_view;
 #if _LIBCPP_HAS_CHAR8_T

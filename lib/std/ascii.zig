@@ -420,13 +420,15 @@ test indexOfIgnoreCase {
 
 /// Returns the lexicographical order of two slices. O(n).
 pub fn orderIgnoreCase(lhs: []const u8, rhs: []const u8) std.math.Order {
-    const n = @min(lhs.len, rhs.len);
-    var i: usize = 0;
-    while (i < n) : (i += 1) {
-        switch (std.math.order(toLower(lhs[i]), toLower(rhs[i]))) {
-            .eq => continue,
-            .lt => return .lt,
-            .gt => return .gt,
+    if (lhs.ptr != rhs.ptr) {
+        const n = @min(lhs.len, rhs.len);
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            switch (std.math.order(toLower(lhs[i]), toLower(rhs[i]))) {
+                .eq => continue,
+                .lt => return .lt,
+                .gt => return .gt,
+            }
         }
     }
     return std.math.order(lhs.len, rhs.len);
@@ -444,7 +446,7 @@ pub const HexEscape = struct {
     pub const upper_charset = "0123456789ABCDEF";
     pub const lower_charset = "0123456789abcdef";
 
-    pub fn format(se: HexEscape, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(se: HexEscape, w: *std.Io.Writer) std.Io.Writer.Error!void {
         const charset = se.charset;
 
         var buf: [4]u8 = undefined;
@@ -464,7 +466,7 @@ pub const HexEscape = struct {
 };
 
 /// Replaces non-ASCII bytes with hex escapes.
-pub fn hexEscape(bytes: []const u8, case: std.fmt.Case) std.fmt.Formatter(HexEscape, HexEscape.format) {
+pub fn hexEscape(bytes: []const u8, case: std.fmt.Case) std.fmt.Alt(HexEscape, HexEscape.format) {
     return .{ .data = .{ .bytes = bytes, .charset = switch (case) {
         .lower => HexEscape.lower_charset,
         .upper => HexEscape.upper_charset,

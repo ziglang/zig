@@ -1,36 +1,5 @@
 const std = @import("std");
 
-pub fn windows1252ToUtf8Stream(writer: anytype, reader: anytype) !usize {
-    var bytes_written: usize = 0;
-    var utf8_buf: [3]u8 = undefined;
-    while (true) {
-        const c = reader.readByte() catch |err| switch (err) {
-            error.EndOfStream => return bytes_written,
-            else => |e| return e,
-        };
-        const codepoint = toCodepoint(c);
-        if (codepoint <= 0x7F) {
-            try writer.writeByte(c);
-            bytes_written += 1;
-        } else {
-            const utf8_len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch unreachable;
-            try writer.writeAll(utf8_buf[0..utf8_len]);
-            bytes_written += utf8_len;
-        }
-    }
-}
-
-/// Returns the number of code units written to the writer
-pub fn windows1252ToUtf16AllocZ(allocator: std.mem.Allocator, win1252_str: []const u8) ![:0]u16 {
-    // Guaranteed to need exactly the same number of code units as Windows-1252 bytes
-    var utf16_slice = try allocator.allocSentinel(u16, win1252_str.len, 0);
-    errdefer allocator.free(utf16_slice);
-    for (win1252_str, 0..) |c, i| {
-        utf16_slice[i] = toCodepoint(c);
-    }
-    return utf16_slice;
-}
-
 /// https://www.unicode.org/Public/MAPPINGS/VENDORS/MICSFT/WindowsBestFit/bestfit1252.txt
 pub fn toCodepoint(c: u8) u16 {
     return switch (c) {
@@ -571,18 +540,4 @@ pub fn bestFitFromCodepoint(codepoint: u21) ?u8 {
         0x2036 => '"', // Reversed Double Prime
         else => null,
     };
-}
-
-test "windows-1252 to utf8" {
-    var buf = std.array_list.Managed(u8).init(std.testing.allocator);
-    defer buf.deinit();
-
-    const input_windows1252 = "\x81pqrstuvwxyz{|}~\x80\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8e\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9e\x9f\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xae\xaf\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff";
-    const expected_utf8 = "\xc2\x81pqrstuvwxyz{|}~€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ¡¢£¤¥¦§¨©ª«¬®¯°±²³´µ¶·¸¹º»¼½¾¿ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ";
-
-    var fbs = std.io.fixedBufferStream(input_windows1252);
-    const bytes_written = try windows1252ToUtf8Stream(buf.writer(), fbs.reader());
-
-    try std.testing.expectEqualStrings(expected_utf8, buf.items);
-    try std.testing.expectEqual(expected_utf8.len, bytes_written);
 }

@@ -41,7 +41,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 namespace ranges {
 struct __inplace_merge {
   template <class _Iter, class _Sent, class _Comp, class _Proj>
-  _LIBCPP_HIDE_FROM_ABI static constexpr auto
+  _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX26 auto
   __inplace_merge_impl(_Iter __first, _Iter __middle, _Sent __last, _Comp&& __comp, _Proj&& __proj) {
     auto __last_iter = ranges::next(__middle, __last);
     std::__inplace_merge<_RangeAlgPolicy>(
@@ -51,7 +51,7 @@ struct __inplace_merge {
 
   template <bidirectional_iterator _Iter, sentinel_for<_Iter> _Sent, class _Comp = ranges::less, class _Proj = identity>
     requires sortable<_Iter, _Comp, _Proj>
-  _LIBCPP_HIDE_FROM_ABI _Iter
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 _Iter
   operator()(_Iter __first, _Iter __middle, _Sent __last, _Comp __comp = {}, _Proj __proj = {}) const {
     return __inplace_merge_impl(
         std::move(__first), std::move(__middle), std::move(__last), std::move(__comp), std::move(__proj));
@@ -59,7 +59,7 @@ struct __inplace_merge {
 
   template <bidirectional_range _Range, class _Comp = ranges::less, class _Proj = identity>
     requires sortable<iterator_t<_Range>, _Comp, _Proj>
-  _LIBCPP_HIDE_FROM_ABI borrowed_iterator_t<_Range>
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 borrowed_iterator_t<_Range>
   operator()(_Range&& __range, iterator_t<_Range> __middle, _Comp __comp = {}, _Proj __proj = {}) const {
     return __inplace_merge_impl(
         ranges::begin(__range), std::move(__middle), ranges::end(__range), std::move(__comp), std::move(__proj));

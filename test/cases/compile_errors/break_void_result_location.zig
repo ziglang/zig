@@ -24,8 +24,6 @@ export fn f4() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:22: error: expected type 'usize', found 'void'
 // :7:9: error: expected type 'usize', found 'void'

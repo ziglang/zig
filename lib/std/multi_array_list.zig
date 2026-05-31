@@ -32,12 +32,17 @@ pub fn MultiArrayList(comptime T: type) type {
         const Elem = switch (@typeInfo(T)) {
             .@"struct" => T,
             .@"union" => |u| struct {
-                pub const Bare = @Type(.{ .@"union" = .{
-                    .layout = u.layout,
-                    .tag_type = null,
-                    .fields = u.fields,
-                    .decls = &.{},
-                } });
+                pub const Bare = Bare: {
+                    var field_names: [u.fields.len][]const u8 = undefined;
+                    var field_types: [u.fields.len]type = undefined;
+                    var field_attrs: [u.fields.len]std.builtin.Type.UnionField.Attributes = undefined;
+                    for (u.fields, &field_names, &field_types, &field_attrs) |field, *name, *Type, *attrs| {
+                        name.* = field.name;
+                        Type.* = field.type;
+                        attrs.* = .{ .@"align" = field.alignment };
+                    }
+                    break :Bare @Union(u.layout, null, &field_names, &field_types, &field_attrs);
+                };
                 pub const Tag =
                     u.tag_type orelse @compileError("MultiArrayList does not support untagged unions");
                 tags: Tag,
@@ -457,24 +462,19 @@ pub fn MultiArrayList(comptime T: type) type {
         /// Invalidates element pointers if additional memory is needed.
         pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) Allocator.Error!void {
             if (self.capacity >= new_capacity) return;
-            return self.setCapacity(gpa, growCapacity(self.capacity, new_capacity));
+            return self.setCapacity(gpa, growCapacity(new_capacity));
         }
 
-        const init_capacity = init: {
-            var max = 1;
-            for (fields) |field| max = @as(comptime_int, @max(max, @sizeOf(field.type)));
-            break :init @as(comptime_int, @max(1, std.atomic.cache_line / max));
+        const init_capacity: comptime_int = init: {
+            var max: comptime_int = 1;
+            for (fields) |field| max = @max(max, @sizeOf(field.type));
+            break :init @max(1, std.atomic.cache_line / max);
         };
 
-        /// Called when memory growth is necessary. Returns a capacity larger than
-        /// minimum that grows super-linearly.
-        fn growCapacity(current: usize, minimum: usize) usize {
-            var new = current;
-            while (true) {
-                new +|= new / 2 + init_capacity;
-                if (new >= minimum)
-                    return new;
-            }
+        /// Given a lower bound of required memory capacity, returns a larger value
+        /// with super-linear growth.
+        pub fn growCapacity(minimum: usize) usize {
+            return minimum +| (minimum / 2 + init_capacity);
         }
 
         /// Modify the array so that it can hold at least `additional_count` **more** items.
@@ -614,20 +614,18 @@ pub fn MultiArrayList(comptime T: type) type {
         }
 
         const Entry = entry: {
-            var entry_fields: [fields.len]std.builtin.Type.StructField = undefined;
-            for (&entry_fields, sizes.fields) |*entry_field, i| entry_field.* = .{
-                .name = fields[i].name ++ "_ptr",
-                .type = *fields[i].type,
-                .default_value_ptr = null,
-                .is_comptime = fields[i].is_comptime,
-                .alignment = fields[i].alignment,
-            };
-            break :entry @Type(.{ .@"struct" = .{
-                .layout = .@"extern",
-                .fields = &entry_fields,
-                .decls = &.{},
-                .is_tuple = false,
-            } });
+            var field_names: [fields.len][]const u8 = undefined;
+            var field_types: [fields.len]type = undefined;
+            var field_attrs: [fields.len]std.builtin.Type.StructField.Attributes = undefined;
+            for (sizes.fields, &field_names, &field_types, &field_attrs) |i, *name, *Type, *attrs| {
+                name.* = fields[i].name ++ "_ptr";
+                Type.* = *fields[i].type;
+                attrs.* = .{
+                    .@"comptime" = fields[i].is_comptime,
+                    .@"align" = fields[i].alignment,
+                };
+            }
+            break :entry @Struct(.@"extern", null, &field_names, &field_types, &field_attrs);
         };
         /// This function is used in the debugger pretty formatters in tools/ to fetch the
         /// child field order and entry type to facilitate fancy debug printing for this type.
@@ -1028,23 +1026,9 @@ test "struct with many fields" {
     const ManyFields = struct {
         fn Type(count: comptime_int) type {
             @setEvalBranchQuota(50000);
-            var fields: [count]std.builtin.Type.StructField = undefined;
-            for (0..count) |i| {
-                fields[i] = .{
-                    .name = std.fmt.comptimePrint("a{}", .{i}),
-                    .type = u32,
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = @alignOf(u32),
-                };
-            }
-            const info: std.builtin.Type = .{ .@"struct" = .{
-                .layout = .auto,
-                .fields = &fields,
-                .decls = &.{},
-                .is_tuple = false,
-            } };
-            return @Type(info);
+            var field_names: [count][]const u8 = undefined;
+            for (&field_names, 0..) |*n, i| n.* = std.fmt.comptimePrint("a{d}", .{i});
+            return @Struct(.@"extern", null, &field_names, &@splat(u32), &@splat(.{}));
         }
 
         fn doTest(ally: std.mem.Allocator, count: comptime_int) !void {

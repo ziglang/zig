@@ -26,8 +26,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:9: error: multiple else prongs in switch expression
 // :4:9: note: previous else prong here

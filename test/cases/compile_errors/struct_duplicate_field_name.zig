@@ -9,7 +9,6 @@ export fn entry() void {
 }
 
 // error
-// target=native
 //
 // :2:5: error: duplicate struct member name 'foo'
 // :3:5: note: duplicate name here

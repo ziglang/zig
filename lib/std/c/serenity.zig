@@ -71,3 +71,43 @@ pub extern "c" fn serenity_open(path: [*]const u8, path_length: usize, options: 
 
 pub extern "c" fn getkeymap(name_buffer: [*]u8, name_buffer_size: usize, map: [*]u32, shift_map: [*]u32, alt_map: [*]u32, altgr_map: [*]u32, shift_altgr_map: [*]u32) c_int;
 pub extern "c" fn setkeymap(name: [*]const u8, map: [*]const u32, shift_map: [*]const u32, alt_map: [*]const u32, altgr_map: [*]const u32, shift_altgr_map: [*]const u32) c_int;
+
+// https://github.com/SerenityOS/serenity/blob/5bd8af99be0bc4b2e14f361fd7d7590e6bcfa4d6/Kernel/API/POSIX/netinet/in.h#L29
+pub const IP = struct {
+    pub const TOS = 1;
+    pub const TTL = 2;
+    pub const MULTICAST_LOOP = 3;
+    pub const ADD_MEMBERSHIP = 4;
+    pub const DROP_MEMBERSHIP = 5;
+    pub const MULTICAST_IF = 6;
+    pub const MULTICAST_TTL = 7;
+    pub const BLOCK_SOURCE = 8;
+    pub const ADD_SOURCE_MEMBERSHIP = 7;
+    pub const DROP_SOURCE_MEMBERSHIP = 8;
+    pub const UNBLOCK_SOURCE = 9;
+    pub const OPTIONS = 10;
+};
+
+//  https://github.com/SerenityOS/serenity/blob/5bd8af99be0bc4b2e14f361fd7d7590e6bcfa4d6/Kernel/API/POSIX/netinet/in.h#L81
+pub const IPV6 = struct {
+    pub const UNICAST_HOPS = 1;
+    pub const MULTICAST_HOPS = 2;
+    pub const MULTICAST_LOOP = 3;
+    pub const MULTICAST_IF = 4;
+    pub const ADD_MEMBERSHIP = 5;
+    pub const DROP_MEMBERSHIP = 6;
+    pub const V6ONLY = 9;
+    pub const JOIN_GROUP = 5;
+    pub const LEAVE_GROUP = 6;
+    pub const RECVPKTINFO = 10;
+    pub const PKTINFO = 11;
+    pub const RECVHOPLIMIT = 12;
+    pub const HOPLIMIT = 13;
+};
+
+// https://github.com/SerenityOS/serenity/blob/5bd8af99be0bc4b2e14f361fd7d7590e6bcfa4d6/Kernel/API/POSIX/netinet/in.h#L40
+pub const IPTOS = struct {
+    pub const LOWDELAY = 16;
+    pub const THROUGHPUT = 8;
+    pub const RELIABILITY = 4;
+};

@@ -4,8 +4,6 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:29: error: root source file struct 'builtin' has no member named 'bogus'
 // note: struct declared here

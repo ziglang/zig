@@ -28,12 +28,13 @@ comptime {
     _ = @import("compiler_rt/negv.zig");
 
     _ = @import("compiler_rt/addvsi3.zig");
+    _ = @import("compiler_rt/addvdi3.zig");
+
     _ = @import("compiler_rt/subvsi3.zig");
     _ = @import("compiler_rt/subvdi3.zig");
+
     _ = @import("compiler_rt/mulvsi3.zig");
 
-    _ = @import("compiler_rt/addo.zig");
-    _ = @import("compiler_rt/subo.zig");
     _ = @import("compiler_rt/mulo.zig");
 
     // Float routines
@@ -263,6 +264,8 @@ comptime {
         _ = @import("compiler_rt/memcmp.zig");
         _ = @import("compiler_rt/bcmp.zig");
         _ = @import("compiler_rt/ssp.zig");
+
+        _ = @import("compiler_rt/strlen.zig");
     }
 
     // Temporarily used for uefi until https://github.com/ziglang/zig/issues/21630 is addressed.

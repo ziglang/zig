@@ -1,5 +1,4 @@
 const std = @import("std");
-const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
 const warn = std.log.warn;
@@ -10,13 +9,18 @@ pub fn main() !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
+    var threaded: std.Io.Threaded = .init(arena);
+    defer threaded.deinit();
+    const io = threaded.io();
+
     const args = try std.process.argsAlloc(arena);
 
     const exe = args[0];
     var catted_anything = false;
-    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdout_buffer);
     const stdout = &stdout_writer.interface;
-    var stdin_reader = std.fs.File.stdin().reader(&.{});
+    var stdin_reader = fs.File.stdin().readerStreaming(io, &.{});
 
     const cwd = fs.cwd();
 
@@ -24,6 +28,7 @@ pub fn main() !void {
         if (mem.eql(u8, arg, "-")) {
             catted_anything = true;
             _ = try stdout.sendFileAll(&stdin_reader, .unlimited);
+            try stdout.flush();
         } else if (mem.startsWith(u8, arg, "-")) {
             return usage(exe);
         } else {
@@ -31,12 +36,14 @@ pub fn main() !void {
             defer file.close();
 
             catted_anything = true;
-            var file_reader = file.reader(&.{});
+            var file_reader = file.reader(io, &.{});
             _ = try stdout.sendFileAll(&file_reader, .unlimited);
+            try stdout.flush();
         }
     }
     if (!catted_anything) {
         _ = try stdout.sendFileAll(&stdin_reader, .unlimited);
+        try stdout.flush();
     }
 }
 

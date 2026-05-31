@@ -22,33 +22,6 @@ This will do `zig run` on the code and expect exit code 0.
 // run
 ```
 
-## Translate-c
-
-If you want to test translating C code to Zig use `translate-c`:
-
-```c
-// translate-c
-// c_frontend=aro,clang
-// target=x86_64-linux
-//
-// pub const foo = 1;
-// pub const immediately_after_foo = 2;
-//
-// pub const somewhere_else_in_the_file = 3:
-```
-
-## Run Translated C
-
-If you want to test translating C code to Zig and then executing it use `run-translated-c`:
-
-```c
-// run-translated-c
-// c_frontend=aro,clang
-// target=x86_64-linux
-//
-// Hello world!
-```
-
 ## Incremental Compilation
 
 Make multiple files that have ".", and then an integer, before the ".zig"
@@ -77,12 +50,12 @@ path will be prepended as a prefix on the test case name.
 
 ```zig
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux,x86_64-macos
 ```
 
 Possible backends are:
 
- * `stage1`: equivalent to `-fstage1`.
- * `stage2`: equivalent to passing `-fno-stage1 -fno-LLVM`.
- * `llvm`: equivalent to `-fLLVM -fno-stage1`.
+ * `auto`: the default; compiler picks the backend based on robustness.
+ * `selfhosted`: equivalent to passing `-fno-llvm -fno-lld`.
+ * `llvm`: equivalent to `-fllvm`.

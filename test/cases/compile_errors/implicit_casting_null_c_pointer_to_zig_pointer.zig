@@ -6,7 +6,5 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:26: error: null pointer casted to type '*u8'

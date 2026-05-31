@@ -11,8 +11,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :10:15: error: unable to resolve inferred error set of generic function
 // :1:1: note: generic function declared here

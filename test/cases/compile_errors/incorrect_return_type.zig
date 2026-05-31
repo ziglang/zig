@@ -15,8 +15,6 @@ fn bar() B {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :8:15: error: expected type 'tmp.A', found 'tmp.B'
 // :10:11: note: struct declared here

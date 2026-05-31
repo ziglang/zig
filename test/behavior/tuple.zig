@@ -130,29 +130,7 @@ test "array-like initializer for tuple types" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
-    const T = @Type(.{
-        .@"struct" = .{
-            .is_tuple = true,
-            .layout = .auto,
-            .decls = &.{},
-            .fields = &.{
-                .{
-                    .name = "0",
-                    .type = i32,
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = @alignOf(i32),
-                },
-                .{
-                    .name = "1",
-                    .type = u8,
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = @alignOf(u8),
-                },
-            },
-        },
-    });
+    const T = @Tuple(&.{ i32, u8 });
     const S = struct {
         fn doTheTest() !void {
             var obj: T = .{ -1234, 128 };
@@ -320,20 +298,7 @@ test "zero sized struct in tuple handled correctly" {
         const Self = @This();
         const Inner = struct {};
 
-        data: @Type(.{
-            .@"struct" = .{
-                .is_tuple = true,
-                .layout = .auto,
-                .decls = &.{},
-                .fields = &.{.{
-                    .name = "0",
-                    .type = Inner,
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = @alignOf(Inner),
-                }},
-            },
-        }),
+        data: @Tuple(&.{Inner}),
 
         pub fn do(this: Self) usize {
             return @sizeOf(@TypeOf(this));
@@ -384,7 +349,6 @@ test "tuple initialized with a runtime known value" {
 }
 
 test "tuple of struct concatenation and coercion to array" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
@@ -471,12 +435,7 @@ test "coerce anon tuple to tuple" {
 }
 
 test "empty tuple type" {
-    const S = @Type(.{ .@"struct" = .{
-        .layout = .auto,
-        .fields = &.{},
-        .decls = &.{},
-        .is_tuple = true,
-    } });
+    const S = @Tuple(&.{});
 
     const s: S = .{};
     try expect(s.len == 0);
@@ -487,8 +446,16 @@ test "tuple with comptime fields with non empty initializer" {
     _ = a;
 }
 
+test "anon tuple field referencing comptime var isn't comptime" {
+    comptime var a: u8 = 0;
+    const tuple = .{&a};
+    // field isn't comptime but tuple is still comptime-known
+    comptime assert(@TypeOf(tuple) == struct { *u8 });
+    a = 1;
+    comptime assert(tuple[0].* == 1);
+}
+
 test "tuple with runtime value coerced into a slice with a sentinel" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
@@ -602,4 +569,26 @@ test "field pointer of underaligned tuple" {
     };
     try S.doTheTest();
     try comptime S.doTheTest();
+}
+
+test "OPV tuple fields aren't comptime" {
+    const T = struct { void };
+    const t_info = @typeInfo(T);
+    try expect(!t_info.@"struct".fields[0].is_comptime);
+
+    const T2 = @Tuple(&.{void});
+    const t2_info = @typeInfo(T2);
+    try expect(!t2_info.@"struct".fields[0].is_comptime);
+}
+
+test "array of tuples that end with a zero-bit field followed by padding" {
+    const S = struct {
+        var foo: [2]struct { u32, u8, void } = .{ .{ 1, 2, {} }, .{ 3, 4, {} } };
+    };
+    try expect(S.foo[0][0] == 1);
+    try expect(S.foo[0][1] == 2);
+    try expect(S.foo[0][2] == {});
+    try expect(S.foo[1][0] == 3);
+    try expect(S.foo[1][1] == 4);
+    try expect(S.foo[1][2] == {});
 }

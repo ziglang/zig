@@ -11,8 +11,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:9: error: enum tag value 60 already taken
 // :4:9: note: other occurrence here

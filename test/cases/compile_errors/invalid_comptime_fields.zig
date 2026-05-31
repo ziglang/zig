@@ -12,8 +12,6 @@ const X = extern struct {
 };
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:5: error: union fields cannot be marked comptime
 // :5:5: error: enum fields cannot be marked comptime

@@ -3,8 +3,6 @@ export fn foo() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:10: error: integer literal '-0' is ambiguous
 // :2:10: note: use '0' for an integer zero

@@ -11,8 +11,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :9:22: error: expected type 'u2', found 'tmp.Small'
 // :1:15: note: enum declared here

@@ -530,7 +530,7 @@ public:
     istream_iterator(); // constexpr since C++11
     constexpr istream_iterator(default_sentinel_t); // since C++20
     istream_iterator(istream_type& s);
-    istream_iterator(const istream_iterator& x);
+    constexpr istream_iterator(const istream_iterator& x) noexcept(see below);
     ~istream_iterator();
 
     const T& operator*() const;

@@ -8,7 +8,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:20: error: expected ';' after statement

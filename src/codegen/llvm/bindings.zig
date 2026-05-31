@@ -338,14 +338,6 @@ extern fn ZigLLVMWriteArchive(
 pub const ParseCommandLineOptions = ZigLLVMParseCommandLineOptions;
 extern fn ZigLLVMParseCommandLineOptions(argc: usize, argv: [*]const [*:0]const u8) void;
 
-pub const WriteImportLibrary = ZigLLVMWriteImportLibrary;
-extern fn ZigLLVMWriteImportLibrary(
-    def_path: [*:0]const u8,
-    coff_machine: c_uint,
-    output_lib_path: [*:0]const u8,
-    kill_at: bool,
-) bool;
-
 pub const GetHostCPUName = LLVMGetHostCPUName;
 extern fn LLVMGetHostCPUName() ?[*:0]u8;
 

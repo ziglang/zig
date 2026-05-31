@@ -8,8 +8,6 @@ export fn bar() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:20: error: expected error set type, found 'u8'
 // :6:31: error: expected error set type, found 'u16'

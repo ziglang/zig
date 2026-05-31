@@ -22,8 +22,6 @@ pub export fn entry4() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:27: error: unable to resolve comptime value
 // :4:27: note: value casted to 'comptime_int' must be comptime-known

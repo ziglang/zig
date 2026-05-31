@@ -11,7 +11,5 @@ export fn entry1() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:13: error: enum fields cannot be aligned

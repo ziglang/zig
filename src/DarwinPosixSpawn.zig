@@ -41,17 +41,17 @@ pub const Attr = struct {
         }
     }
 
-    pub fn get(self: Attr) Error!u16 {
-        var flags: c_short = undefined;
+    pub fn get(self: Attr) Error!std.c.POSIX_SPAWN {
+        var flags: std.c.POSIX_SPAWN = undefined;
         switch (errno(std.c.posix_spawnattr_getflags(&self.attr, &flags))) {
-            .SUCCESS => return @as(u16, @bitCast(flags)),
+            .SUCCESS => return flags,
             .INVAL => unreachable,
             else => |err| return unexpectedErrno(err),
         }
     }
 
-    pub fn set(self: *Attr, flags: u16) Error!void {
-        switch (errno(std.c.posix_spawnattr_setflags(&self.attr, @as(c_short, @bitCast(flags))))) {
+    pub fn set(self: *Attr, flags: std.c.POSIX_SPAWN) Error!void {
+        switch (errno(std.c.posix_spawnattr_setflags(&self.attr, flags))) {
             .SUCCESS => return,
             .INVAL => unreachable,
             else => |err| return unexpectedErrno(err),

@@ -49,7 +49,7 @@ using native = __vec_ext<_LIBCPP_NATIVE_SIMD_WIDTH_IN_BYTES / sizeof(_Tp)>;
 // TODO: make this platform dependent
 template <class _Tp, size_t _Np, class... _Abis>
 struct deduce {
-  using type = fixed_size<_Np>;
+  using type _LIBCPP_NODEBUG = fixed_size<_Np>;
 };
 
 // TODO: make this platform dependent

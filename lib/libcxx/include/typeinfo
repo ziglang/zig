@@ -354,7 +354,7 @@ public:
 
 #  if defined(_LIBCPP_ABI_VCRUNTIME) && _HAS_EXCEPTIONS == 0
 
-namespace std {
+_LIBCPP_BEGIN_UNVERSIONED_NAMESPACE_STD
 
 class bad_cast : public exception {
 public:
@@ -372,7 +372,7 @@ private:
   bad_typeid(const char* const __message) _NOEXCEPT : exception(__message) {}
 };
 
-} // namespace std
+_LIBCPP_END_UNVERSIONED_NAMESPACE_STD
 
 #  endif // defined(_LIBCPP_ABI_VCRUNTIME) && _HAS_EXCEPTIONS == 0
 

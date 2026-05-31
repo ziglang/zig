@@ -4,7 +4,5 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:32: error: alignment value '3' is not a power of two

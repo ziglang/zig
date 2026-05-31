@@ -5,8 +5,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:18: error: cannot @bitCast to 'tmp.entry.E'
 // :3:18: note: use @enumFromInt to cast from 'u32'

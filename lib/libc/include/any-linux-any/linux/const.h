@@ -33,7 +33,7 @@
  * Missing __asm__ support
  *
  * __BIT128() would not work in the __asm__ code, as it shifts an
- * 'unsigned __init128' data type as direct representation of
+ * 'unsigned __int128' data type as direct representation of
  * 128 bit constants is not supported in the gcc compiler, as
  * they get silently truncated.
  *

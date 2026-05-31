@@ -522,6 +522,7 @@ erase_if(multiset<Key, Compare, Allocator>& c, Predicate pred);  // C++20
 #  include <__config>
 #  include <__functional/is_transparent.h>
 #  include <__functional/operations.h>
+#  include <__fwd/set.h>
 #  include <__iterator/erase_if_container.h>
 #  include <__iterator/iterator_traits.h>
 #  include <__iterator/ranges_iterator_traits.h>
@@ -570,10 +571,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Key, class _Compare, class _Allocator>
-class multiset;
-
-template <class _Key, class _Compare = less<_Key>, class _Allocator = allocator<_Key> >
-class _LIBCPP_TEMPLATE_VIS set {
+class set {
 public:
   // types:
   typedef _Key key_type;
@@ -611,9 +609,9 @@ public:
 #  endif
 
   template <class _Key2, class _Compare2, class _Alloc2>
-  friend class _LIBCPP_TEMPLATE_VIS set;
+  friend class set;
   template <class _Key2, class _Compare2, class _Alloc2>
-  friend class _LIBCPP_TEMPLATE_VIS multiset;
+  friend class multiset;
 
   _LIBCPP_HIDE_FROM_ABI set() _NOEXCEPT_(
       is_nothrow_default_constructible<allocator_type>::value&& is_nothrow_default_constructible<key_compare>::value&&
@@ -664,14 +662,10 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI set(const set& __s) : __tree_(__s.__tree_) { insert(__s.begin(), __s.end()); }
 
-  _LIBCPP_HIDE_FROM_ABI set& operator=(const set& __s) {
-    __tree_ = __s.__tree_;
-    return *this;
-  }
+  _LIBCPP_HIDE_FROM_ABI set& operator=(const set& __s) = default;
 
 #  ifndef _LIBCPP_CXX03_LANG
-  _LIBCPP_HIDE_FROM_ABI set(set&& __s) noexcept(is_nothrow_move_constructible<__base>::value)
-      : __tree_(std::move(__s.__tree_)) {}
+  _LIBCPP_HIDE_FROM_ABI set(set&& __s) noexcept(is_nothrow_move_constructible<__base>::value) = default;
 #  endif // _LIBCPP_CXX03_LANG
 
   _LIBCPP_HIDE_FROM_ABI explicit set(const allocator_type& __a) : __tree_(__a) {}
@@ -709,7 +703,7 @@ public:
   }
 #  endif // _LIBCPP_CXX03_LANG
 
-  _LIBCPP_HIDE_FROM_ABI ~set() { static_assert(sizeof(__diagnose_non_const_comparator<_Key, _Compare>()), ""); }
+  _LIBCPP_HIDE_FROM_ABI ~set() { static_assert(sizeof(std::__diagnose_non_const_comparator<_Key, _Compare>()), ""); }
 
   _LIBCPP_HIDE_FROM_ABI iterator begin() _NOEXCEPT { return __tree_.begin(); }
   _LIBCPP_HIDE_FROM_ABI const_iterator begin() const _NOEXCEPT { return __tree_.begin(); }
@@ -742,15 +736,15 @@ public:
   }
 #  endif // _LIBCPP_CXX03_LANG
 
-  _LIBCPP_HIDE_FROM_ABI pair<iterator, bool> insert(const value_type& __v) { return __tree_.__insert_unique(__v); }
+  _LIBCPP_HIDE_FROM_ABI pair<iterator, bool> insert(const value_type& __v) { return __tree_.__emplace_unique(__v); }
   _LIBCPP_HIDE_FROM_ABI iterator insert(const_iterator __p, const value_type& __v) {
-    return __tree_.__insert_unique(__p, __v);
+    return __tree_.__emplace_hint_unique(__p, __v);
   }
 
   template <class _InputIterator>
   _LIBCPP_HIDE_FROM_ABI void insert(_InputIterator __f, _InputIterator __l) {
     for (const_iterator __e = cend(); __f != __l; ++__f)
-      __tree_.__insert_unique(__e, *__f);
+      __tree_.__emplace_hint_unique(__e, *__f);
   }
 
 #  if _LIBCPP_STD_VER >= 23
@@ -758,18 +752,18 @@ public:
   _LIBCPP_HIDE_FROM_ABI void insert_range(_Range&& __range) {
     const_iterator __end = cend();
     for (auto&& __element : __range) {
-      __tree_.__insert_unique(__end, std::forward<decltype(__element)>(__element));
+      __tree_.__emplace_hint_unique(__end, std::forward<decltype(__element)>(__element));
     }
   }
 #  endif
 
 #  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI pair<iterator, bool> insert(value_type&& __v) {
-    return __tree_.__insert_unique(std::move(__v));
+    return __tree_.__emplace_unique(std::move(__v));
   }
 
   _LIBCPP_HIDE_FROM_ABI iterator insert(const_iterator __p, value_type&& __v) {
-    return __tree_.__insert_unique(__p, std::move(__v));
+    return __tree_.__emplace_hint_unique(__p, std::move(__v));
   }
 
   _LIBCPP_HIDE_FROM_ABI void insert(initializer_list<value_type> __il) { insert(__il.begin(), __il.end()); }
@@ -1003,9 +997,9 @@ operator<=(const set<_Key, _Compare, _Allocator>& __x, const set<_Key, _Compare,
 
 #  else // _LIBCPP_STD_VER <= 17
 
-template <class _Key, class _Allocator>
+template <class _Key, class _Compare, class _Allocator>
 _LIBCPP_HIDE_FROM_ABI __synth_three_way_result<_Key>
-operator<=>(const set<_Key, _Allocator>& __x, const set<_Key, _Allocator>& __y) {
+operator<=>(const set<_Key, _Compare, _Allocator>& __x, const set<_Key, _Compare, _Allocator>& __y) {
   return std::lexicographical_compare_three_way(__x.begin(), __x.end(), __y.begin(), __y.end(), std::__synth_three_way);
 }
 
@@ -1032,10 +1026,12 @@ struct __container_traits<set<_Key, _Compare, _Allocator> > {
   // For associative containers, if an exception is thrown by any operation from within
   // an insert or emplace function inserting a single element, the insertion has no effect.
   static _LIBCPP_CONSTEXPR const bool __emplacement_has_strong_exception_safety_guarantee = true;
+
+  static _LIBCPP_CONSTEXPR const bool __reservable = false;
 };
 
-template <class _Key, class _Compare = less<_Key>, class _Allocator = allocator<_Key> >
-class _LIBCPP_TEMPLATE_VIS multiset {
+template <class _Key, class _Compare, class _Allocator>
+class multiset {
 public:
   // types:
   typedef _Key key_type;
@@ -1072,9 +1068,9 @@ public:
 #  endif
 
   template <class _Key2, class _Compare2, class _Alloc2>
-  friend class _LIBCPP_TEMPLATE_VIS set;
+  friend class set;
   template <class _Key2, class _Compare2, class _Alloc2>
-  friend class _LIBCPP_TEMPLATE_VIS multiset;
+  friend class multiset;
 
   // construct/copy/destroy:
   _LIBCPP_HIDE_FROM_ABI multiset() _NOEXCEPT_(
@@ -1129,14 +1125,10 @@ public:
     insert(__s.begin(), __s.end());
   }
 
-  _LIBCPP_HIDE_FROM_ABI multiset& operator=(const multiset& __s) {
-    __tree_ = __s.__tree_;
-    return *this;
-  }
+  _LIBCPP_HIDE_FROM_ABI multiset& operator=(const multiset& __s) = default;
 
 #  ifndef _LIBCPP_CXX03_LANG
-  _LIBCPP_HIDE_FROM_ABI multiset(multiset&& __s) noexcept(is_nothrow_move_constructible<__base>::value)
-      : __tree_(std::move(__s.__tree_)) {}
+  _LIBCPP_HIDE_FROM_ABI multiset(multiset&& __s) noexcept(is_nothrow_move_constructible<__base>::value) = default;
 
   _LIBCPP_HIDE_FROM_ABI multiset(multiset&& __s, const allocator_type& __a);
 #  endif // _LIBCPP_CXX03_LANG
@@ -1174,7 +1166,9 @@ public:
   }
 #  endif // _LIBCPP_CXX03_LANG
 
-  _LIBCPP_HIDE_FROM_ABI ~multiset() { static_assert(sizeof(__diagnose_non_const_comparator<_Key, _Compare>()), ""); }
+  _LIBCPP_HIDE_FROM_ABI ~multiset() {
+    static_assert(sizeof(std::__diagnose_non_const_comparator<_Key, _Compare>()), "");
+  }
 
   _LIBCPP_HIDE_FROM_ABI iterator begin() _NOEXCEPT { return __tree_.begin(); }
   _LIBCPP_HIDE_FROM_ABI const_iterator begin() const _NOEXCEPT { return __tree_.begin(); }
@@ -1207,15 +1201,15 @@ public:
   }
 #  endif // _LIBCPP_CXX03_LANG
 
-  _LIBCPP_HIDE_FROM_ABI iterator insert(const value_type& __v) { return __tree_.__insert_multi(__v); }
+  _LIBCPP_HIDE_FROM_ABI iterator insert(const value_type& __v) { return __tree_.__emplace_multi(__v); }
   _LIBCPP_HIDE_FROM_ABI iterator insert(const_iterator __p, const value_type& __v) {
-    return __tree_.__insert_multi(__p, __v);
+    return __tree_.__emplace_hint_multi(__p, __v);
   }
 
   template <class _InputIterator>
   _LIBCPP_HIDE_FROM_ABI void insert(_InputIterator __f, _InputIterator __l) {
     for (const_iterator __e = cend(); __f != __l; ++__f)
-      __tree_.__insert_multi(__e, *__f);
+      __tree_.__emplace_hint_multi(__e, *__f);
   }
 
 #  if _LIBCPP_STD_VER >= 23
@@ -1223,16 +1217,16 @@ public:
   _LIBCPP_HIDE_FROM_ABI void insert_range(_Range&& __range) {
     const_iterator __end = cend();
     for (auto&& __element : __range) {
-      __tree_.__insert_multi(__end, std::forward<decltype(__element)>(__element));
+      __tree_.__emplace_hint_multi(__end, std::forward<decltype(__element)>(__element));
     }
   }
 #  endif
 
 #  ifndef _LIBCPP_CXX03_LANG
-  _LIBCPP_HIDE_FROM_ABI iterator insert(value_type&& __v) { return __tree_.__insert_multi(std::move(__v)); }
+  _LIBCPP_HIDE_FROM_ABI iterator insert(value_type&& __v) { return __tree_.__emplace_multi(std::move(__v)); }
 
   _LIBCPP_HIDE_FROM_ABI iterator insert(const_iterator __p, value_type&& __v) {
-    return __tree_.__insert_multi(__p, std::move(__v));
+    return __tree_.__emplace_hint_multi(__p, std::move(__v));
   }
 
   _LIBCPP_HIDE_FROM_ABI void insert(initializer_list<value_type> __il) { insert(__il.begin(), __il.end()); }
@@ -1470,9 +1464,9 @@ operator<=(const multiset<_Key, _Compare, _Allocator>& __x, const multiset<_Key,
 
 #  else // _LIBCPP_STD_VER <= 17
 
-template <class _Key, class _Allocator>
+template <class _Key, class _Compare, class _Allocator>
 _LIBCPP_HIDE_FROM_ABI __synth_three_way_result<_Key>
-operator<=>(const multiset<_Key, _Allocator>& __x, const multiset<_Key, _Allocator>& __y) {
+operator<=>(const multiset<_Key, _Compare, _Allocator>& __x, const multiset<_Key, _Compare, _Allocator>& __y) {
   return std::lexicographical_compare_three_way(__x.begin(), __x.end(), __y.begin(), __y.end(), __synth_three_way);
 }
 
@@ -1499,6 +1493,8 @@ struct __container_traits<multiset<_Key, _Compare, _Allocator> > {
   // For associative containers, if an exception is thrown by any operation from within
   // an insert or emplace function inserting a single element, the insertion has no effect.
   static _LIBCPP_CONSTEXPR const bool __emplacement_has_strong_exception_safety_guarantee = true;
+
+  static _LIBCPP_CONSTEXPR const bool __reservable = false;
 };
 
 _LIBCPP_END_NAMESPACE_STD

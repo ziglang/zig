@@ -16,11 +16,11 @@
 #endif
 
 #if _LIBCPP_STD_VER >= 17
-namespace std { // purposefully not versioned
+_LIBCPP_BEGIN_UNVERSIONED_NAMESPACE_STD
 
 enum class byte : unsigned char;
 
-} // namespace std
+_LIBCPP_END_UNVERSIONED_NAMESPACE_STD
 #endif // _LIBCPP_STD_VER >= 17
 
 #endif // _LIBCPP___FWD_BYTE_H

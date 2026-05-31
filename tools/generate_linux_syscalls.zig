@@ -177,7 +177,9 @@ pub fn main() !void {
 
     const args = try std.process.argsAlloc(gpa);
     if (args.len < 2 or mem.eql(u8, args[1], "--help")) {
-        usage(std.debug.lockStderrWriter(&.{}), args[0]) catch std.process.exit(2);
+        const w, _ = std.debug.lockStderrWriter(&.{});
+        defer std.debug.unlockStderrWriter();
+        usage(w, args[0]) catch std.process.exit(2);
         std.process.exit(1);
     }
     const linux_path = args[1];
@@ -248,7 +250,7 @@ pub fn main() !void {
     try Io.Writer.flush(stdout);
 }
 
-fn usage(w: *std.io.Writer, arg0: []const u8) std.io.Writer.Error!void {
+fn usage(w: *std.Io.Writer, arg0: []const u8) std.Io.Writer.Error!void {
     try w.print(
         \\Usage: {s} /path/to/zig /path/to/linux
         \\Alternative Usage: zig run /path/to/git/zig/tools/generate_linux_syscalls.zig -- /path/to/zig /path/to/linux

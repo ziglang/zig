@@ -12,8 +12,10 @@
 #include <__config>
 #include <__cstddef/ptrdiff_t.h>
 #include <__iterator/iterator_traits.h>
+#include <__memory/addressof.h>
 #include <__memory/pointer_traits.h>
-#include <__type_traits/is_trivial.h>
+#include <__type_traits/is_trivially_constructible.h>
+#include <__type_traits/is_trivially_copyable.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -44,7 +46,8 @@ struct __aliasing_iterator_wrapper {
     using reference         = value_type&;
     using pointer           = value_type*;
 
-    static_assert(is_trivial<value_type>::value);
+    static_assert(is_trivially_default_constructible<value_type>::value);
+    static_assert(is_trivially_copyable<value_type>::value);
     static_assert(sizeof(__base_value_type) == sizeof(value_type));
 
     _LIBCPP_HIDE_FROM_ABI __iterator() = default;
@@ -102,7 +105,7 @@ struct __aliasing_iterator_wrapper {
 
     _LIBCPP_HIDE_FROM_ABI _Alias operator*() const _NOEXCEPT {
       _Alias __val;
-      __builtin_memcpy(&__val, std::__to_address(__base_), sizeof(value_type));
+      __builtin_memcpy(std::addressof(__val), std::__to_address(__base_), sizeof(value_type));
       return __val;
     }
 

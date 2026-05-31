@@ -9,8 +9,6 @@ export fn entry2() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:37: error: expected type '[2:1]u8', found '[2:2]u8'
 // :2:37: note: array sentinel '2' cannot cast into array sentinel '1'

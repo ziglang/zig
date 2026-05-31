@@ -1,0 +1,42 @@
+// -*- C++ -*-
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef _LIBCPP___LOG_HARDENING_FAILURE
+#define _LIBCPP___LOG_HARDENING_FAILURE
+
+#include <__config>
+
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#  pragma GCC system_header
+#endif
+
+// Hardening logging is not available in the C++03 mode; moreover, it is currently only available in the experimental
+// library.
+#if _LIBCPP_HAS_EXPERIMENTAL_HARDENING_OBSERVE_SEMANTIC && !defined(_LIBCPP_CXX03_LANG)
+
+_LIBCPP_BEGIN_NAMESPACE_STD
+
+// This function should never be called directly from the code -- it should only be called through the
+// `_LIBCPP_LOG_HARDENING_FAILURE` macro.
+[[__gnu__::__cold__]] _LIBCPP_EXPORTED_FROM_ABI void __log_hardening_failure(const char* __message) noexcept;
+
+// _LIBCPP_LOG_HARDENING_FAILURE(message)
+//
+// This macro is used to log an error without terminating the program (as is the case for hardening failures if the
+// `observe` assertion semantic is used).
+
+#  if !defined(_LIBCPP_LOG_HARDENING_FAILURE)
+#    define _LIBCPP_LOG_HARDENING_FAILURE(__message) ::std::__log_hardening_failure(__message)
+#  endif // !defined(_LIBCPP_LOG_HARDENING_FAILURE)
+
+_LIBCPP_END_NAMESPACE_STD
+
+#endif // _LIBCPP_HAS_EXPERIMENTAL_HARDENING_OBSERVE_SEMANTIC && !defined(_LIBCPP_CXX03_LANG)
+
+#endif // _LIBCPP___LOG_HARDENING_FAILURE

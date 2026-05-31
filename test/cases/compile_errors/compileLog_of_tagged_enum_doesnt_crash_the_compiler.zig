@@ -12,8 +12,6 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:5: error: found compile log statement
 // :6:5: note: also here

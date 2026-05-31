@@ -34,6 +34,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .aarch64, .os = .freebsd, .abi = .none, .os_ver = .{ .major = 11, .minor = 0, .patch = 0 } },
     .{ .arch = .aarch64, .os = .linux, .abi = .gnu, .os_ver = .{ .major = 3, .minor = 7, .patch = 0 }, .glibc_min = .{ .major = 2, .minor = 17, .patch = 0 } },
     .{ .arch = .aarch64, .os = .linux, .abi = .musl, .os_ver = .{ .major = 3, .minor = 7, .patch = 0 } },
+    .{ .arch = .aarch64, .os = .maccatalyst, .abi = .none, .os_ver = .{ .major = 11, .minor = 0, .patch = 0 } },
     .{ .arch = .aarch64, .os = .macos, .abi = .none, .os_ver = .{ .major = 11, .minor = 0, .patch = 0 } },
     .{ .arch = .aarch64, .os = .netbsd, .abi = .none, .os_ver = .{ .major = 9, .minor = 0, .patch = 0 } },
     .{ .arch = .aarch64, .os = .windows, .abi = .gnu },
@@ -105,6 +106,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .x86_64, .os = .linux, .abi = .gnux32, .os_ver = .{ .major = 3, .minor = 4, .patch = 0 }, .glibc_triple = "x86_64-linux-gnu-x32" },
     .{ .arch = .x86_64, .os = .linux, .abi = .musl, .os_ver = .{ .major = 2, .minor = 6, .patch = 4 } },
     .{ .arch = .x86_64, .os = .linux, .abi = .muslx32, .os_ver = .{ .major = 3, .minor = 4, .patch = 0 } },
+    .{ .arch = .x86_64, .os = .maccatalyst, .abi = .none, .os_ver = .{ .major = 10, .minor = 15, .patch = 0 } },
     .{ .arch = .x86_64, .os = .macos, .abi = .none, .os_ver = .{ .major = 10, .minor = 7, .patch = 0 } },
     .{ .arch = .x86_64, .os = .netbsd, .abi = .none, .os_ver = .{ .major = 2, .minor = 0, .patch = 0 } },
     .{ .arch = .x86_64, .os = .windows, .abi = .gnu },
@@ -393,11 +395,11 @@ pub fn isLibCLibName(target: *const std.Target, name: []const u8) bool {
             return true;
         if (eqlIgnoreCase(ignore_case, name, "rpcsvc"))
             return true;
-    }
 
-    if (target.os.isAtLeast(.macos, .{ .major = 10, .minor = 8, .patch = 0 }) orelse false) {
-        if (eqlIgnoreCase(ignore_case, name, "mx"))
-            return true;
+        if (target.os.tag == .maccatalyst or target.os.tag == .macos) {
+            if (eqlIgnoreCase(ignore_case, name, "mx"))
+                return true;
+        }
     }
 
     if (target.isFreeBSDLibC()) {
@@ -472,8 +474,9 @@ fn eqlIgnoreCase(ignore_case: bool, a: []const u8, b: []const u8) bool {
     }
 }
 
-pub fn intByteSize(target: *const std.Target, bits: u16) u19 {
-    return std.mem.alignForward(u19, @intCast((@as(u17, bits) + 7) / 8), intAlignment(target, bits));
+pub fn intByteSize(target: *const std.Target, bits: u16) u16 {
+    const previous_aligned = std.mem.alignBackward(u16, bits, 8);
+    return std.mem.alignForward(u16, @divExact(previous_aligned, 8) + @intFromBool(previous_aligned != bits), intAlignment(target, bits));
 }
 
 pub fn intAlignment(target: *const std.Target, bits: u16) u16 {

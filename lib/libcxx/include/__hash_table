@@ -29,6 +29,7 @@
 #include <__memory/unique_ptr.h>
 #include <__new/launder.h>
 #include <__type_traits/can_extract_key.h>
+#include <__type_traits/copy_cvref.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/invoke.h>
 #include <__type_traits/is_const.h>
@@ -108,9 +109,22 @@ struct __hash_node_base {
   _LIBCPP_HIDE_FROM_ABI explicit __hash_node_base(__next_pointer __next) _NOEXCEPT : __next_(__next) {}
 };
 
+template <class _Tp>
+struct __get_hash_node_value_type {
+  using type _LIBCPP_NODEBUG = _Tp;
+};
+
+template <class _Key, class _Tp>
+struct __get_hash_node_value_type<__hash_value_type<_Key, _Tp> > {
+  using type _LIBCPP_NODEBUG = pair<const _Key, _Tp>;
+};
+
+template <class _Tp>
+using __get_hash_node_value_type_t _LIBCPP_NODEBUG = typename __get_hash_node_value_type<_Tp>::type;
+
 template <class _Tp, class _VoidPtr>
 struct __hash_node : public __hash_node_base< __rebind_pointer_t<_VoidPtr, __hash_node<_Tp, _VoidPtr> > > {
-  typedef _Tp __node_value_type;
+  using __node_value_type _LIBCPP_NODEBUG = __get_hash_node_value_type_t<_Tp>;
   using _Base _LIBCPP_NODEBUG          = __hash_node_base<__rebind_pointer_t<_VoidPtr, __hash_node<_Tp, _VoidPtr> > >;
   using __next_pointer _LIBCPP_NODEBUG = typename _Base::__next_pointer;
 
@@ -122,18 +136,20 @@ struct __hash_node : public __hash_node_base< __rebind_pointer_t<_VoidPtr, __has
 
 private:
   union {
-    _Tp __value_;
+    __node_value_type __value_;
   };
 
 public:
-  _LIBCPP_HIDE_FROM_ABI _Tp& __get_value() { return __value_; }
+  _LIBCPP_HIDE_FROM_ABI __node_value_type& __get_value() { return __value_; }
 #else
 
 private:
-  _ALIGNAS_TYPE(_Tp) char __buffer_[sizeof(_Tp)];
+  _ALIGNAS_TYPE(__node_value_type) char __buffer_[sizeof(__node_value_type)];
 
 public:
-  _LIBCPP_HIDE_FROM_ABI _Tp& __get_value() { return *std::__launder(reinterpret_cast<_Tp*>(&__buffer_)); }
+  _LIBCPP_HIDE_FROM_ABI __node_value_type& __get_value() {
+    return *std::__launder(reinterpret_cast<__node_value_type*>(&__buffer_));
+  }
 #endif
 
   _LIBCPP_HIDE_FROM_ABI explicit __hash_node(__next_pointer __next, size_t __hash) : _Base(__next), __hash_(__hash) {}
@@ -147,24 +163,24 @@ inline _LIBCPP_HIDE_FROM_ABI size_t __constrain_hash(size_t __h, size_t __bc) {
 }
 
 inline _LIBCPP_HIDE_FROM_ABI size_t __next_hash_pow2(size_t __n) {
-  return __n < 2 ? __n : (size_t(1) << (numeric_limits<size_t>::digits - __libcpp_clz(__n - 1)));
+  return __n < 2 ? __n : (size_t(1) << (numeric_limits<size_t>::digits - std::__countl_zero(__n - 1)));
 }
 
 template <class _Tp, class _Hash, class _Equal, class _Alloc>
 class __hash_table;
 
 template <class _NodePtr>
-class _LIBCPP_TEMPLATE_VIS __hash_iterator;
+class __hash_iterator;
 template <class _ConstNodePtr>
-class _LIBCPP_TEMPLATE_VIS __hash_const_iterator;
+class __hash_const_iterator;
 template <class _NodePtr>
-class _LIBCPP_TEMPLATE_VIS __hash_local_iterator;
+class __hash_local_iterator;
 template <class _ConstNodePtr>
-class _LIBCPP_TEMPLATE_VIS __hash_const_local_iterator;
+class __hash_const_local_iterator;
 template <class _HashIterator>
-class _LIBCPP_TEMPLATE_VIS __hash_map_iterator;
+class __hash_map_iterator;
 template <class _HashIterator>
-class _LIBCPP_TEMPLATE_VIS __hash_map_const_iterator;
+class __hash_map_const_iterator;
 
 template <class _Tp>
 struct __hash_key_value_types {
@@ -191,18 +207,18 @@ struct __hash_key_value_types<__hash_value_type<_Key, _Tp> > {
 
   _LIBCPP_HIDE_FROM_ABI static key_type const& __get_key(__container_value_type const& __v) { return __v.first; }
 
-  template <class _Up, __enable_if_t<__is_same_uncvref<_Up, __node_value_type>::value, int> = 0>
+  template <class _Up, __enable_if_t<is_same<__remove_cvref_t<_Up>, __node_value_type>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI static __container_value_type const& __get_value(_Up& __t) {
     return __t.__get_value();
   }
 
-  template <class _Up, __enable_if_t<__is_same_uncvref<_Up, __container_value_type>::value, int> = 0>
+  template <class _Up, __enable_if_t<is_same<__remove_cvref_t<_Up>, __container_value_type>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI static __container_value_type const& __get_value(_Up& __t) {
     return __t;
   }
 
-  _LIBCPP_HIDE_FROM_ABI static __container_value_type* __get_ptr(__node_value_type& __n) {
-    return std::addressof(__n.__get_value());
+  _LIBCPP_HIDE_FROM_ABI static __container_value_type* __get_ptr(__container_value_type& __n) {
+    return std::addressof(__n);
   }
   _LIBCPP_HIDE_FROM_ABI static pair<key_type&&, mapped_type&&> __move(__node_value_type& __v) { return __v.__move(); }
 };
@@ -242,7 +258,7 @@ public:
 
   typedef typename __node_base_type::__next_pointer __next_pointer;
 
-  typedef _Tp __node_value_type;
+  using __node_value_type _LIBCPP_NODEBUG = __get_hash_node_value_type_t<_Tp>;
   typedef __rebind_pointer_t<_VoidPtr, __node_value_type> __node_value_type_pointer;
   typedef __rebind_pointer_t<_VoidPtr, const __node_value_type> __const_node_value_type_pointer;
 
@@ -273,7 +289,7 @@ struct __make_hash_node_types {
 };
 
 template <class _NodePtr>
-class _LIBCPP_TEMPLATE_VIS __hash_iterator {
+class __hash_iterator {
   typedef __hash_node_types<_NodePtr> _NodeTypes;
   typedef _NodePtr __node_pointer;
   typedef typename _NodeTypes::__next_pointer __next_pointer;
@@ -327,17 +343,17 @@ private:
   template <class, class, class, class>
   friend class __hash_table;
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS __hash_const_iterator;
+  friend class __hash_const_iterator;
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS __hash_map_iterator;
+  friend class __hash_map_iterator;
   template <class, class, class, class, class>
-  friend class _LIBCPP_TEMPLATE_VIS unordered_map;
+  friend class unordered_map;
   template <class, class, class, class, class>
-  friend class _LIBCPP_TEMPLATE_VIS unordered_multimap;
+  friend class unordered_multimap;
 };
 
 template <class _NodePtr>
-class _LIBCPP_TEMPLATE_VIS __hash_const_iterator {
+class __hash_const_iterator {
   static_assert(!is_const<typename pointer_traits<_NodePtr>::element_type>::value, "");
   typedef __hash_node_types<_NodePtr> _NodeTypes;
   typedef _NodePtr __node_pointer;
@@ -395,15 +411,15 @@ private:
   template <class, class, class, class>
   friend class __hash_table;
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS __hash_map_const_iterator;
+  friend class __hash_map_const_iterator;
   template <class, class, class, class, class>
-  friend class _LIBCPP_TEMPLATE_VIS unordered_map;
+  friend class unordered_map;
   template <class, class, class, class, class>
-  friend class _LIBCPP_TEMPLATE_VIS unordered_multimap;
+  friend class unordered_multimap;
 };
 
 template <class _NodePtr>
-class _LIBCPP_TEMPLATE_VIS __hash_local_iterator {
+class __hash_local_iterator {
   typedef __hash_node_types<_NodePtr> _NodeTypes;
   typedef _NodePtr __node_pointer;
   typedef typename _NodeTypes::__next_pointer __next_pointer;
@@ -468,13 +484,13 @@ private:
   template <class, class, class, class>
   friend class __hash_table;
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS __hash_const_local_iterator;
+  friend class __hash_const_local_iterator;
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS __hash_map_iterator;
+  friend class __hash_map_iterator;
 };
 
 template <class _ConstNodePtr>
-class _LIBCPP_TEMPLATE_VIS __hash_const_local_iterator {
+class __hash_const_local_iterator {
   typedef __hash_node_types<_ConstNodePtr> _NodeTypes;
   typedef _ConstNodePtr __node_pointer;
   typedef typename _NodeTypes::__next_pointer __next_pointer;
@@ -553,7 +569,7 @@ private:
   template <class, class, class, class>
   friend class __hash_table;
   template <class>
-  friend class _LIBCPP_TEMPLATE_VIS __hash_map_const_iterator;
+  friend class __hash_map_const_iterator;
 };
 
 template <class _Alloc>
@@ -667,14 +683,14 @@ int __diagnose_unordered_container_requirements(void*);
 template <class _Tp, class _Hash, class _Equal, class _Alloc>
 class __hash_table {
 public:
-  typedef _Tp value_type;
+  using value_type = __get_hash_node_value_type_t<_Tp>;
   typedef _Hash hasher;
   typedef _Equal key_equal;
   typedef _Alloc allocator_type;
 
 private:
   typedef allocator_traits<allocator_type> __alloc_traits;
-  typedef typename __make_hash_node_types<value_type, typename __alloc_traits::void_pointer>::type _NodeTypes;
+  typedef typename __make_hash_node_types<_Tp, typename __alloc_traits::void_pointer>::type _NodeTypes;
 
 public:
   typedef typename _NodeTypes::__node_value_type __node_value_type;
@@ -770,9 +786,10 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI __hash_table& operator=(const __hash_table& __u);
   _LIBCPP_HIDE_FROM_ABI __hash_table& operator=(__hash_table&& __u)
-      _NOEXCEPT_(__node_traits::propagate_on_container_move_assignment::value&&
-                     is_nothrow_move_assignable<__node_allocator>::value&& is_nothrow_move_assignable<hasher>::value&&
-                         is_nothrow_move_assignable<key_equal>::value);
+      _NOEXCEPT_(is_nothrow_move_assignable<hasher>::value&& is_nothrow_move_assignable<key_equal>::value &&
+                 ((__node_traits::propagate_on_container_move_assignment::value &&
+                   is_nothrow_move_assignable<__node_allocator>::value) ||
+                  allocator_traits<__node_allocator>::is_always_equal::value));
   template <class _InputIterator>
   _LIBCPP_HIDE_FROM_ABI void __assign_unique(_InputIterator __first, _InputIterator __last);
   template <class _InputIterator>
@@ -835,27 +852,36 @@ public:
   template <class... _Args>
   _LIBCPP_HIDE_FROM_ABI iterator __emplace_hint_multi(const_iterator __p, _Args&&... __args);
 
-  _LIBCPP_HIDE_FROM_ABI pair<iterator, bool> __insert_unique(__container_value_type&& __x) {
-    return __emplace_unique_key_args(_NodeTypes::__get_key(__x), std::move(__x));
+  template <class _ValueT = _Tp, __enable_if_t<__is_hash_value_type<_ValueT>::value, int> = 0>
+  _LIBCPP_HIDE_FROM_ABI void __insert_unique_from_orphaned_node(value_type&& __value) {
+    using __key_type = typename _NodeTypes::key_type;
+
+    __node_holder __h = __construct_node(const_cast<__key_type&&>(__value.first), std::move(__value.second));
+    __node_insert_unique(__h.get());
+    __h.release();
   }
 
-  template <class _Pp, __enable_if_t<!__is_same_uncvref<_Pp, __container_value_type>::value, int> = 0>
-  _LIBCPP_HIDE_FROM_ABI pair<iterator, bool> __insert_unique(_Pp&& __x) {
-    return __emplace_unique(std::forward<_Pp>(__x));
+  template <class _ValueT = _Tp, __enable_if_t<!__is_hash_value_type<_ValueT>::value, int> = 0>
+  _LIBCPP_HIDE_FROM_ABI void __insert_unique_from_orphaned_node(value_type&& __value) {
+    __node_holder __h = __construct_node(std::move(__value));
+    __node_insert_unique(__h.get());
+    __h.release();
   }
 
-  template <class _Pp>
-  _LIBCPP_HIDE_FROM_ABI iterator __insert_multi(_Pp&& __x) {
-    return __emplace_multi(std::forward<_Pp>(__x));
+  template <class _ValueT = _Tp, __enable_if_t<__is_hash_value_type<_ValueT>::value, int> = 0>
+  _LIBCPP_HIDE_FROM_ABI void __insert_multi_from_orphaned_node(value_type&& __value) {
+    using __key_type = typename _NodeTypes::key_type;
+
+    __node_holder __h = __construct_node(const_cast<__key_type&&>(__value.first), std::move(__value.second));
+    __node_insert_multi(__h.get());
+    __h.release();
   }
 
-  template <class _Pp>
-  _LIBCPP_HIDE_FROM_ABI iterator __insert_multi(const_iterator __p, _Pp&& __x) {
-    return __emplace_hint_multi(__p, std::forward<_Pp>(__x));
-  }
-
-  _LIBCPP_HIDE_FROM_ABI pair<iterator, bool> __insert_unique(const __container_value_type& __x) {
-    return __emplace_unique_key_args(_NodeTypes::__get_key(__x), __x);
+  template <class _ValueT = _Tp, __enable_if_t<!__is_hash_value_type<_ValueT>::value, int> = 0>
+  _LIBCPP_HIDE_FROM_ABI void __insert_multi_from_orphaned_node(value_type&& __value) {
+    __node_holder __h = __construct_node(std::move(__value));
+    __node_insert_multi(__h.get());
+    __h.release();
   }
 
 #if _LIBCPP_STD_VER >= 17
@@ -1019,10 +1045,25 @@ private:
   _LIBCPP_HIDE_FROM_ABI void __deallocate_node(__next_pointer __np) _NOEXCEPT;
   _LIBCPP_HIDE_FROM_ABI __next_pointer __detach() _NOEXCEPT;
 
+  template <class _From, class _ValueT = _Tp, __enable_if_t<__is_hash_value_type<_ValueT>::value, int> = 0>
+  _LIBCPP_HIDE_FROM_ABI void __assign_value(__get_hash_node_value_type_t<_Tp>& __lhs, _From&& __rhs) {
+    using __key_type = typename _NodeTypes::key_type;
+
+    // This is technically UB, since the object was constructed as `const`.
+    // Clang doesn't optimize on this currently though.
+    const_cast<__key_type&>(__lhs.first) = const_cast<__copy_cvref_t<_From, __key_type>&&>(__rhs.first);
+    __lhs.second                         = std::forward<_From>(__rhs).second;
+  }
+
+  template <class _From, class _ValueT = _Tp, __enable_if_t<!__is_hash_value_type<_ValueT>::value, int> = 0>
+  _LIBCPP_HIDE_FROM_ABI void __assign_value(_Tp& __lhs, _From&& __rhs) {
+    __lhs = std::forward<_From>(__rhs);
+  }
+
   template <class, class, class, class, class>
-  friend class _LIBCPP_TEMPLATE_VIS unordered_map;
+  friend class unordered_map;
   template <class, class, class, class, class>
-  friend class _LIBCPP_TEMPLATE_VIS unordered_multimap;
+  friend class unordered_multimap;
 };
 
 template <class _Tp, class _Hash, class _Equal, class _Alloc>
@@ -1215,8 +1256,8 @@ void __hash_table<_Tp, _Hash, _Equal, _Alloc>::__move_assign(__hash_table& __u, 
 #endif // _LIBCPP_HAS_EXCEPTIONS
         const_iterator __i = __u.begin();
         while (__cache != nullptr && __u.size() != 0) {
-          __cache->__upcast()->__get_value() = std::move(__u.remove(__i++)->__get_value());
-          __next_pointer __next              = __cache->__next_;
+          __assign_value(__cache->__upcast()->__get_value(), std::move(__u.remove(__i++)->__get_value()));
+          __next_pointer __next = __cache->__next_;
           __node_insert_multi(__cache->__upcast());
           __cache = __next;
         }
@@ -1229,19 +1270,17 @@ void __hash_table<_Tp, _Hash, _Equal, _Alloc>::__move_assign(__hash_table& __u, 
       __deallocate_node(__cache);
     }
     const_iterator __i = __u.begin();
-    while (__u.size() != 0) {
-      __node_holder __h = __construct_node(_NodeTypes::__move(__u.remove(__i++)->__get_value()));
-      __node_insert_multi(__h.get());
-      __h.release();
-    }
+    while (__u.size() != 0)
+      __insert_multi_from_orphaned_node(std::move(__u.remove(__i++)->__get_value()));
   }
 }
 
 template <class _Tp, class _Hash, class _Equal, class _Alloc>
-inline __hash_table<_Tp, _Hash, _Equal, _Alloc>&
-__hash_table<_Tp, _Hash, _Equal, _Alloc>::operator=(__hash_table&& __u) _NOEXCEPT_(
-    __node_traits::propagate_on_container_move_assignment::value&& is_nothrow_move_assignable<__node_allocator>::value&&
-        is_nothrow_move_assignable<hasher>::value&& is_nothrow_move_assignable<key_equal>::value) {
+inline __hash_table<_Tp, _Hash, _Equal, _Alloc>& __hash_table<_Tp, _Hash, _Equal, _Alloc>::operator=(__hash_table&& __u)
+    _NOEXCEPT_(is_nothrow_move_assignable<hasher>::value&& is_nothrow_move_assignable<key_equal>::value &&
+               ((__node_traits::propagate_on_container_move_assignment::value &&
+                 is_nothrow_move_assignable<__node_allocator>::value) ||
+                allocator_traits<__node_allocator>::is_always_equal::value)) {
   __move_assign(__u, integral_constant<bool, __node_traits::propagate_on_container_move_assignment::value>());
   return *this;
 }
@@ -1260,8 +1299,8 @@ void __hash_table<_Tp, _Hash, _Equal, _Alloc>::__assign_unique(_InputIterator __
     try {
 #endif // _LIBCPP_HAS_EXCEPTIONS
       for (; __cache != nullptr && __first != __last; ++__first) {
-        __cache->__upcast()->__get_value() = *__first;
-        __next_pointer __next              = __cache->__next_;
+        __assign_value(__cache->__upcast()->__get_value(), *__first);
+        __next_pointer __next = __cache->__next_;
         __node_insert_unique(__cache->__upcast());
         __cache = __next;
       }
@@ -1274,7 +1313,7 @@ void __hash_table<_Tp, _Hash, _Equal, _Alloc>::__assign_unique(_InputIterator __
     __deallocate_node(__cache);
   }
   for (; __first != __last; ++__first)
-    __insert_unique(*__first);
+    __emplace_unique(*__first);
 }
 
 template <class _Tp, class _Hash, class _Equal, class _Alloc>
@@ -1292,7 +1331,7 @@ void __hash_table<_Tp, _Hash, _Equal, _Alloc>::__assign_multi(_InputIterator __f
     try {
 #endif // _LIBCPP_HAS_EXCEPTIONS
       for (; __cache != nullptr && __first != __last; ++__first) {
-        __cache->__upcast()->__get_value() = *__first;
+        __assign_value(__cache->__upcast()->__get_value(), *__first);
         __next_pointer __next              = __cache->__next_;
         __node_insert_multi(__cache->__upcast());
         __cache = __next;
@@ -1306,7 +1345,7 @@ void __hash_table<_Tp, _Hash, _Equal, _Alloc>::__assign_multi(_InputIterator __f
     __deallocate_node(__cache);
   }
   for (; __first != __last; ++__first)
-    __insert_multi(_NodeTypes::__get_value(*__first));
+    __emplace_multi(_NodeTypes::__get_value(*__first));
 }
 
 template <class _Tp, class _Hash, class _Equal, class _Alloc>
@@ -1769,9 +1808,9 @@ template <class _Tp, class _Hash, class _Equal, class _Alloc>
 template <class _Key>
 typename __hash_table<_Tp, _Hash, _Equal, _Alloc>::iterator
 __hash_table<_Tp, _Hash, _Equal, _Alloc>::find(const _Key& __k) {
-  size_t __hash  = hash_function()(__k);
   size_type __bc = bucket_count();
-  if (__bc != 0) {
+  if (__bc != 0 && size() != 0) {
+    size_t __hash       = hash_function()(__k);
     size_t __chash      = std::__constrain_hash(__hash, __bc);
     __next_pointer __nd = __bucket_list_[__chash];
     if (__nd != nullptr) {
@@ -1790,9 +1829,9 @@ template <class _Tp, class _Hash, class _Equal, class _Alloc>
 template <class _Key>
 typename __hash_table<_Tp, _Hash, _Equal, _Alloc>::const_iterator
 __hash_table<_Tp, _Hash, _Equal, _Alloc>::find(const _Key& __k) const {
-  size_t __hash  = hash_function()(__k);
   size_type __bc = bucket_count();
-  if (__bc != 0) {
+  if (__bc != 0 && size() != 0) {
+    size_t __hash       = hash_function()(__k);
     size_t __chash      = std::__constrain_hash(__hash, __bc);
     __next_pointer __nd = __bucket_list_[__chash];
     if (__nd != nullptr) {

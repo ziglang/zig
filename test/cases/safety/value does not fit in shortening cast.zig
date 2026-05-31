@@ -17,5 +17,5 @@ fn shorten_cast(x: i32) i8 {
     return @intCast(x);
 }
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux,aarch64-linux

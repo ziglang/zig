@@ -1,6 +1,7 @@
-const std = @import("std.zig");
 const builtin = @import("builtin");
-const io = std.io;
+
+const std = @import("std.zig");
+const Io = std.Io;
 const fs = std.fs;
 const mem = std.mem;
 const debug = std.debug;
@@ -111,6 +112,7 @@ pub const ReleaseMode = enum {
 /// Shared state among all Build instances.
 /// Settings that are here rather than in Build are not configurable per-package.
 pub const Graph = struct {
+    io: Io,
     arena: Allocator,
     system_library_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .empty,
     system_package_mode: bool = false,
@@ -414,7 +416,7 @@ fn createChildOnly(
 fn userInputOptionsFromArgs(arena: Allocator, args: anytype) UserInputOptionsMap {
     var map = UserInputOptionsMap.init(arena);
     inline for (@typeInfo(@TypeOf(args)).@"struct".fields) |field| {
-        if (field.type == @Type(.null)) continue;
+        if (field.type == @TypeOf(null)) continue;
         addUserInputOptionFromArg(arena, &map, field, field.type, @field(args, field.name));
     }
     return map;
@@ -524,16 +526,11 @@ fn addUserInputOptionFromArg(
             .pointer => |ptr_info| switch (ptr_info.size) {
                 .one => switch (@typeInfo(ptr_info.child)) {
                     .array => |array_info| {
-                        comptime var slice_info = ptr_info;
-                        slice_info.size = .slice;
-                        slice_info.is_const = true;
-                        slice_info.child = array_info.child;
-                        slice_info.sentinel_ptr = null;
                         addUserInputOptionFromArg(
                             arena,
                             map,
                             field,
-                            @Type(.{ .pointer = slice_info }),
+                            @Pointer(.slice, .{ .@"const" = true }, array_info.child, null),
                             maybe_value orelse null,
                         );
                         return;
@@ -551,14 +548,11 @@ fn addUserInputOptionFromArg(
                         }) catch @panic("OOM");
                     },
                     else => {
-                        comptime var slice_info = ptr_info;
-                        slice_info.is_const = true;
-                        slice_info.sentinel_ptr = null;
                         addUserInputOptionFromArg(
                             arena,
                             map,
                             field,
-                            @Type(.{ .pointer = slice_info }),
+                            @Pointer(ptr_info.size, .{ .@"const" = true }, ptr_info.child, null),
                             maybe_value orelse null,
                         );
                         return;
@@ -957,8 +951,37 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
             run_step.addArtifactArg(exe);
         }
 
-        const test_server_mode = if (exe.test_runner) |r| r.mode == .server else true;
-        if (test_server_mode) run_step.enableTestRunnerMode();
+        const test_server_mode: bool = s: {
+            if (exe.test_runner) |r| break :s r.mode == .server;
+            if (exe.use_llvm == false) {
+                // The default test runner does not use the server protocol if the selected backend
+                // is too immature to support it. Keep this logic in sync with `need_simple` in the
+                // default test runner implementation.
+                switch (exe.rootModuleTarget().cpu.arch) {
+                    // stage2_aarch64
+                    .aarch64,
+                    .aarch64_be,
+                    // stage2_powerpc
+                    .powerpc,
+                    .powerpcle,
+                    .powerpc64,
+                    .powerpc64le,
+                    // stage2_riscv64
+                    .riscv64,
+                    => break :s false,
+
+                    else => {},
+                }
+            }
+            break :s true;
+        };
+        if (test_server_mode) {
+            run_step.enableTestRunnerMode();
+        } else if (exe.test_runner == null) {
+            // If a test runner does not use the `std.zig.Server` protocol, it can instead
+            // communicate failure via its exit code.
+            run_step.expectExitCode(0);
+        }
     } else {
         run_step.addArtifactArg(exe);
     }
@@ -1595,20 +1618,6 @@ pub fn validateUserInputDidItFail(b: *Build) bool {
     return b.invalid_user_input;
 }
 
-fn allocPrintCmd(gpa: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8) error{OutOfMemory}![]u8 {
-    var buf: ArrayList(u8) = .empty;
-    if (opt_cwd) |cwd| try buf.print(gpa, "cd {s} && ", .{cwd});
-    for (argv) |arg| {
-        try buf.print(gpa, "{s} ", .{arg});
-    }
-    return buf.toOwnedSlice(gpa);
-}
-
-fn printCmd(ally: Allocator, cwd: ?[]const u8, argv: []const []const u8) void {
-    const text = allocPrintCmd(ally, cwd, argv) catch @panic("OOM");
-    std.debug.print("{s}\n", .{text});
-}
-
 /// This creates the install step and adds it to the dependencies of the
 /// top-level install step, using all the default options.
 /// See `addInstallArtifact` for a more flexible function.
@@ -1820,6 +1829,8 @@ pub fn runAllowFail(
     if (!process.can_spawn)
         return error.ExecNotSupported;
 
+    const io = b.graph.io;
+
     const max_output_size = 400 * 1024;
     var child = std.process.Child.init(argv, b.allocator);
     child.stdin_behavior = .Ignore;
@@ -1830,7 +1841,8 @@ pub fn runAllowFail(
     try Step.handleVerbose2(b, null, child.env_map, argv);
     try child.spawn();
 
-    const stdout = child.stdout.?.deprecatedReader().readAllAlloc(b.allocator, max_output_size) catch {
+    var stdout_reader = child.stdout.?.readerStreaming(io, &.{});
+    const stdout = stdout_reader.interface.allocRemaining(b.allocator, .limited(max_output_size)) catch {
         return error.ReadFailure;
     };
     errdefer b.allocator.free(stdout);
@@ -1857,14 +1869,14 @@ pub fn runAllowFail(
 pub fn run(b: *Build, argv: []const []const u8) []u8 {
     if (!process.can_spawn) {
         std.debug.print("unable to spawn the following command: cannot spawn child process\n{s}\n", .{
-            try allocPrintCmd(b.allocator, null, argv),
+            try Step.allocPrintCmd(b.allocator, null, argv),
         });
         process.exit(1);
     }
 
     var code: u8 = undefined;
     return b.runAllowFail(argv, &code, .Inherit) catch |err| {
-        const printed_cmd = allocPrintCmd(b.allocator, null, argv) catch @panic("OOM");
+        const printed_cmd = Step.allocPrintCmd(b.allocator, null, argv) catch @panic("OOM");
         std.debug.print("unable to spawn the following command: {s}\n{s}\n", .{
             @errorName(err), printed_cmd,
         });
@@ -2195,7 +2207,7 @@ fn dependencyInner(
         sub_builder.runBuild(bz) catch @panic("unhandled error");
 
         if (sub_builder.validateUserInputDidItFail()) {
-            std.debug.dumpCurrentStackTrace(@returnAddress());
+            std.debug.dumpCurrentStackTrace(.{ .first_address = @returnAddress() });
         }
     }
 
@@ -2237,8 +2249,8 @@ pub const GeneratedFile = struct {
 
     pub fn getPath2(gen: GeneratedFile, src_builder: *Build, asking_step: ?*Step) []const u8 {
         return gen.path orelse {
-            const w = debug.lockStderrWriter(&.{});
-            dumpBadGetPathHelp(gen.step, w, .detect(.stderr()), src_builder, asking_step) catch {};
+            const w, const ttyconf = debug.lockStderrWriter(&.{});
+            dumpBadGetPathHelp(gen.step, w, ttyconf, src_builder, asking_step) catch {};
             debug.unlockStderrWriter();
             @panic("misconfigured build script");
         };
@@ -2446,8 +2458,8 @@ pub const LazyPath = union(enum) {
                 var file_path: Cache.Path = .{
                     .root_dir = Cache.Directory.cwd(),
                     .sub_path = gen.file.path orelse {
-                        const w = debug.lockStderrWriter(&.{});
-                        dumpBadGetPathHelp(gen.file.step, w, .detect(.stderr()), src_builder, asking_step) catch {};
+                        const w, const ttyconf = debug.lockStderrWriter(&.{});
+                        dumpBadGetPathHelp(gen.file.step, w, ttyconf, src_builder, asking_step) catch {};
                         debug.unlockStderrWriter();
                         @panic("misconfigured build script");
                     },
@@ -2524,7 +2536,10 @@ pub const LazyPath = union(enum) {
                 .up = gen.up,
                 .sub_path = dupePathInner(allocator, gen.sub_path),
             } },
-            .dependency => |dep| .{ .dependency = dep },
+            .dependency => |dep| .{ .dependency = .{
+                .dependency = dep.dependency,
+                .sub_path = dupePathInner(allocator, dep.sub_path),
+            } },
         };
     }
 };
@@ -2535,12 +2550,10 @@ fn dumpBadDirnameHelp(
     comptime msg: []const u8,
     args: anytype,
 ) anyerror!void {
-    const w = debug.lockStderrWriter(&.{});
+    const w, const tty_config = debug.lockStderrWriter(&.{});
     defer debug.unlockStderrWriter();
 
     try w.print(msg, args);
-
-    const tty_config = std.io.tty.detectConfig(.stderr());
 
     if (fail_step) |s| {
         tty_config.setColor(w, .red) catch {};
@@ -2566,8 +2579,8 @@ fn dumpBadDirnameHelp(
 /// In this function the stderr mutex has already been locked.
 pub fn dumpBadGetPathHelp(
     s: *Step,
-    w: *std.io.Writer,
-    tty_config: std.io.tty.Config,
+    w: *std.Io.Writer,
+    tty_config: std.Io.tty.Config,
     src_builder: *Build,
     asking_step: ?*Step,
 ) anyerror!void {
@@ -2648,9 +2661,10 @@ pub fn resolveTargetQuery(b: *Build, query: Target.Query) ResolvedTarget {
         // Hot path. This is faster than querying the native CPU and OS again.
         return b.graph.host;
     }
+    const io = b.graph.io;
     return .{
         .query = query,
-        .result = std.zig.system.resolveTargetQuery(query) catch
+        .result = std.zig.system.resolveTargetQuery(io, query) catch
             @panic("unable to resolve target query"),
     };
 }

@@ -38,31 +38,11 @@ export fn i() void {
 }
 
 export fn j() void {
-    _ = @Type(.{ .@"struct" = .{
-        .layout = .auto,
-        .fields = &.{.{
-            .name = "test",
-            .type = u32,
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = 0,
-        }},
-        .decls = &.{},
-        .is_tuple = false,
-    } });
+    _ = @Struct(.auto, null, &.{"test"}, &.{u32}, &.{.{ .@"align" = 0 }});
 }
 
 export fn k() void {
-    _ = @Type(.{ .pointer = .{
-        .size = .one,
-        .is_const = false,
-        .is_volatile = false,
-        .alignment = 0,
-        .address_space = .generic,
-        .child = u32,
-        .is_allowzero = false,
-        .sentinel_ptr = null,
-    } });
+    _ = @Pointer(.one, .{ .@"align" = 0 }, u32, null);
 }
 
 // error
@@ -76,5 +56,5 @@ export fn k() void {
 // :29:17: error: alignment must be >= 1
 // :33:35: error: alignment must be >= 1
 // :37:34: error: alignment must be >= 1
-// :41:9: error: alignment must be >= 1
-// :56:9: error: alignment must be >= 1
+// :41:51: error: alignment must be >= 1
+// :45:25: error: alignment must be >= 1

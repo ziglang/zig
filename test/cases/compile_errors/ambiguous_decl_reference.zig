@@ -13,8 +13,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:13: error: ambiguous reference
 // :7:9: note: declared here

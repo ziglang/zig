@@ -1,26 +1,31 @@
 //! This type provides a wrapper around a `*Zcu` for uses which require a thread `Id`.
 //! Any operation which mutates `InternPool` state lives here rather than on `Zcu`.
 
-const Air = @import("../Air.zig");
+const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Ast = std.zig.Ast;
 const AstGen = std.zig.AstGen;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
+const Cache = std.Build.Cache;
+const log = std.log.scoped(.zcu);
+const mem = std.mem;
+const Zir = std.zig.Zir;
+const Zoir = std.zig.Zoir;
+const ZonGen = std.zig.ZonGen;
+const Io = std.Io;
+
+const Air = @import("../Air.zig");
 const Builtin = @import("../Builtin.zig");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
-const Cache = std.Build.Cache;
 const dev = @import("../dev.zig");
 const InternPool = @import("../InternPool.zig");
 const AnalUnit = InternPool.AnalUnit;
 const introspect = @import("../introspect.zig");
-const log = std.log.scoped(.zcu);
 const Module = @import("../Package.zig").Module;
 const Sema = @import("../Sema.zig");
-const std = @import("std");
-const mem = std.mem;
 const target_util = @import("../target.zig");
 const trace = @import("../tracy.zig").trace;
 const Type = @import("../Type.zig");
@@ -28,9 +33,7 @@ const Value = @import("../Value.zig");
 const Zcu = @import("../Zcu.zig");
 const Compilation = @import("../Compilation.zig");
 const codegen = @import("../codegen.zig");
-const Zir = std.zig.Zir;
-const Zoir = std.zig.Zoir;
-const ZonGen = std.zig.ZonGen;
+const crash_report = @import("../crash_report.zig");
 
 zcu: *Zcu,
 
@@ -86,6 +89,7 @@ pub fn updateFile(
     const zcu = pt.zcu;
     const comp = zcu.comp;
     const gpa = zcu.gpa;
+    const io = comp.io;
 
     // In any case we need to examine the stat of the file to determine the course of action.
     var source_file = f: {
@@ -126,7 +130,7 @@ pub fn updateFile(
         .astgen_failure, .success => lock: {
             const unchanged_metadata =
                 stat.size == file.stat.size and
-                stat.mtime == file.stat.mtime and
+                stat.mtime.nanoseconds == file.stat.mtime.nanoseconds and
                 stat.inode == file.stat.inode;
 
             if (unchanged_metadata) {
@@ -172,8 +176,6 @@ pub fn updateFile(
             .lock = lock,
         }) catch |err| switch (err) {
             error.NotDir => unreachable, // no dir components
-            error.InvalidUtf8 => unreachable, // it's a hex encoded name
-            error.InvalidWtf8 => unreachable, // it's a hex encoded name
             error.BadPathName => unreachable, // it's a hex encoded name
             error.NameTooLong => unreachable, // it's a fixed size name
             error.PipeBusy => unreachable, // it's not a pipe
@@ -189,7 +191,7 @@ pub fn updateFile(
                 // disambiguates by returning EEXIST, indicating original
                 // failure was a race, or ENOENT, indicating deletion of the
                 // directory of our open handle.
-                if (builtin.os.tag != .macos) {
+                if (!builtin.os.tag.isDarwin()) {
                     std.process.fatal("cache directory '{f}' unexpectedly removed during compiler execution", .{
                         cache_directory,
                     });
@@ -254,7 +256,7 @@ pub fn updateFile(
 
         const source = try gpa.allocSentinel(u8, @intCast(stat.size), 0);
         defer if (file.source == null) gpa.free(source);
-        var source_fr = source_file.reader(&.{});
+        var source_fr = source_file.reader(io, &.{});
         source_fr.size = stat.size;
         source_fr.interface.readSliceAll(source) catch |err| switch (err) {
             error.ReadFailed => return source_fr.err.?,
@@ -352,6 +354,7 @@ fn loadZirZoirCache(
     assert(file.getMode() == mode);
 
     const gpa = zcu.gpa;
+    const io = zcu.comp.io;
 
     const Header = switch (mode) {
         .zig => Zir.Header,
@@ -359,7 +362,7 @@ fn loadZirZoirCache(
     };
 
     var buffer: [2000]u8 = undefined;
-    var cache_fr = cache_file.reader(&buffer);
+    var cache_fr = cache_file.reader(io, &buffer);
     cache_fr.size = stat.size;
     const cache_br = &cache_fr.interface;
 
@@ -374,7 +377,7 @@ fn loadZirZoirCache(
 
     const unchanged_metadata =
         stat.size == header.stat_size and
-        stat.mtime == header.stat_mtime and
+        stat.mtime.nanoseconds == header.stat_mtime and
         stat.inode == header.stat_inode;
 
     if (!unchanged_metadata) {
@@ -677,6 +680,7 @@ pub fn ensureMemoizedStateUpToDate(pt: Zcu.PerThread, stage: InternPool.Memoized
             // TODO: same as for `ensureComptimeUnitUpToDate` etc
             return error.OutOfMemory;
         },
+        error.Canceled => |e| return e,
         error.ComptimeReturn => unreachable,
         error.ComptimeBreak => unreachable,
     };
@@ -700,7 +704,7 @@ fn analyzeMemoizedState(pt: Zcu.PerThread, stage: InternPool.MemoizedStateStage)
 
     const unit: AnalUnit = .wrap(.{ .memoized_state = stage });
 
-    try zcu.analysis_in_progress.put(gpa, unit, {});
+    try zcu.analysis_in_progress.putNoClobber(gpa, unit, {});
     defer assert(zcu.analysis_in_progress.swapRemove(unit));
 
     // Before we begin, collect:
@@ -841,6 +845,7 @@ pub fn ensureComptimeUnitUpToDate(pt: Zcu.PerThread, cu_id: InternPool.ComptimeU
             // for reporting OOM errors without allocating.
             return error.OutOfMemory;
         },
+        error.Canceled => |e| return e,
         error.ComptimeReturn => unreachable,
         error.ComptimeBreak => unreachable,
     };
@@ -864,7 +869,7 @@ fn analyzeComptimeUnit(pt: Zcu.PerThread, cu_id: InternPool.ComptimeUnit.Id) Zcu
     const file = zcu.fileByIndex(inst_resolved.file);
     const zir = file.zir.?;
 
-    try zcu.analysis_in_progress.put(gpa, anal_unit, {});
+    try zcu.analysis_in_progress.putNoClobber(gpa, anal_unit, {});
     defer assert(zcu.analysis_in_progress.swapRemove(anal_unit));
 
     var analysis_arena: std.heap.ArenaAllocator = .init(gpa);
@@ -958,6 +963,8 @@ pub fn ensureNavValUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu
 
     log.debug("ensureNavValUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
+    assert(!zcu.analysis_in_progress.contains(anal_unit));
+
     // Determine whether or not this `Nav`'s value is outdated. This also includes checking if the
     // status is `.unresolved`, which indicates that the value is outdated because it has *never*
     // been analyzed so far.
@@ -1027,6 +1034,7 @@ pub fn ensureNavValUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu
             // for reporting OOM errors without allocating.
             return error.OutOfMemory;
         },
+        error.Canceled => |e| return e,
         error.ComptimeReturn => unreachable,
         error.ComptimeBreak => unreachable,
     };
@@ -1090,9 +1098,18 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
     const inst_resolved = old_nav.analysis.?.zir_index.resolveFull(ip) orelse return error.AnalysisFail;
     const file = zcu.fileByIndex(inst_resolved.file);
     const zir = file.zir.?;
+    const zir_decl = zir.getDeclaration(inst_resolved.inst);
 
-    try zcu.analysis_in_progress.put(gpa, anal_unit, {});
+    try zcu.analysis_in_progress.putNoClobber(gpa, anal_unit, {});
     errdefer _ = zcu.analysis_in_progress.swapRemove(anal_unit);
+
+    // If there's no type body, we are also resolving the type here.
+    if (zir_decl.type_body == null) {
+        try zcu.analysis_in_progress.putNoClobber(gpa, .wrap(.{ .nav_ty = nav_id }), {});
+    }
+    errdefer if (zir_decl.type_body == null) {
+        _ = zcu.analysis_in_progress.swapRemove(.wrap(.{ .nav_ty = nav_id }));
+    };
 
     var analysis_arena: std.heap.ArenaAllocator = .init(gpa);
     defer analysis_arena.deinit();
@@ -1132,8 +1149,6 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
         .type_name_ctx = old_nav.fqn,
     };
     defer block.instructions.deinit(gpa);
-
-    const zir_decl = zir.getDeclaration(inst_resolved.inst);
 
     const ty_src = block.src(.{ .node_offset_var_decl_ty = .zero });
     const init_src = block.src(.{ .node_offset_var_decl_init = .zero });
@@ -1305,6 +1320,9 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
 
     // Mark the unit as completed before evaluating the export!
     assert(zcu.analysis_in_progress.swapRemove(anal_unit));
+    if (zir_decl.type_body == null) {
+        assert(zcu.analysis_in_progress.swapRemove(.wrap(.{ .nav_ty = nav_id })));
+    }
 
     if (zir_decl.linkage == .@"export") {
         const export_src = block.src(.{ .token_offset = @enumFromInt(@intFromBool(zir_decl.is_pub)) });
@@ -1346,6 +1364,8 @@ pub fn ensureNavTypeUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zc
     const nav = ip.getNav(nav_id);
 
     log.debug("ensureNavTypeUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
+
+    assert(!zcu.analysis_in_progress.contains(anal_unit));
 
     const type_resolved_by_value: bool = from_val: {
         const analysis = nav.analysis orelse break :from_val false;
@@ -1428,6 +1448,7 @@ pub fn ensureNavTypeUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zc
             // for reporting OOM errors without allocating.
             return error.OutOfMemory;
         },
+        error.Canceled => |e| return e,
         error.ComptimeReturn => unreachable,
         error.ComptimeBreak => unreachable,
     };
@@ -1463,8 +1484,8 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
     const file = zcu.fileByIndex(inst_resolved.file);
     const zir = file.zir.?;
 
-    try zcu.analysis_in_progress.put(gpa, anal_unit, {});
-    defer _ = zcu.analysis_in_progress.swapRemove(anal_unit);
+    try zcu.analysis_in_progress.putNoClobber(gpa, anal_unit, {});
+    defer assert(zcu.analysis_in_progress.swapRemove(anal_unit));
 
     const zir_decl = zir.getDeclaration(inst_resolved.inst);
     const type_body = zir_decl.type_body.?;
@@ -1571,7 +1592,7 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
     return .{ .type_changed = true };
 }
 
-pub fn ensureFuncBodyUpToDate(pt: Zcu.PerThread, maybe_coerced_func_index: InternPool.Index) Zcu.SemaError!void {
+pub fn ensureFuncBodyUpToDate(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaError!void {
     dev.check(.sema);
 
     const tracy = trace(@src());
@@ -1581,15 +1602,17 @@ pub fn ensureFuncBodyUpToDate(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
 
-    _ = zcu.func_body_analysis_queued.swapRemove(maybe_coerced_func_index);
+    _ = zcu.func_body_analysis_queued.swapRemove(func_index);
 
-    // We only care about the uncoerced function.
-    const func_index = ip.unwrapCoercedFunc(maybe_coerced_func_index);
     const anal_unit: AnalUnit = .wrap(.{ .func = func_index });
 
     log.debug("ensureFuncBodyUpToDate {f}", .{zcu.fmtAnalUnit(anal_unit)});
 
-    const func = zcu.funcInfo(maybe_coerced_func_index);
+    assert(!zcu.analysis_in_progress.contains(anal_unit));
+
+    const func = zcu.funcInfo(func_index);
+
+    assert(func.ty == func.uncoerced_ty); // analyze the body of the original function, not a coerced one
 
     const was_outdated = zcu.outdated.swapRemove(anal_unit) or
         zcu.potentially_outdated.swapRemove(anal_unit);
@@ -1651,6 +1674,7 @@ pub fn ensureFuncBodyUpToDate(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
             // for reporting OOM errors without allocating.
             return error.OutOfMemory;
         },
+        error.Canceled => |e| return e,
     };
 
     if (was_outdated) {
@@ -1799,7 +1823,7 @@ fn createFileRootStruct(
     wip_ty.setName(ip, try file.internFullyQualifiedName(pt), .none);
     ip.namespacePtr(namespace_index).owner_type = wip_ty.index;
 
-    if (zcu.comp.incremental) {
+    if (zcu.comp.config.incremental) {
         try pt.addDependency(.wrap(.{ .type = wip_ty.index }), .{ .src_hash = tracked_inst });
     }
 
@@ -2343,6 +2367,7 @@ pub fn embedFile(
     import_string: []const u8,
 ) error{
     OutOfMemory,
+    Canceled,
     ImportOutsideModulePath,
     CurrentWorkingDirectoryUnlinked,
 }!Zcu.EmbedFile.Index {
@@ -2419,6 +2444,7 @@ fn updateEmbedFileInner(
     const tid = pt.tid;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
+    const io = zcu.comp.io;
     const ip = &zcu.intern_pool;
 
     var file = f: {
@@ -2433,7 +2459,7 @@ fn updateEmbedFileInner(
         const old_stat = ef.stat;
         const unchanged_metadata =
             stat.size == old_stat.size and
-            stat.mtime == old_stat.mtime and
+            stat.mtime.nanoseconds == old_stat.mtime.nanoseconds and
             stat.inode == old_stat.inode;
         if (unchanged_metadata) return;
     }
@@ -2443,11 +2469,11 @@ fn updateEmbedFileInner(
 
     // The loaded bytes of the file, including a sentinel 0 byte.
     const ip_str: InternPool.String = str: {
-        const strings = ip.getLocal(tid).getMutableStrings(gpa);
-        const old_len = strings.mutate.len;
-        errdefer strings.shrinkRetainingCapacity(old_len);
-        const bytes = (try strings.addManyAsSlice(size_plus_one))[0];
-        var fr = file.reader(&.{});
+        const string_bytes = ip.getLocal(tid).getMutableStringBytes(gpa);
+        const old_len = string_bytes.mutate.len;
+        errdefer string_bytes.shrinkRetainingCapacity(old_len);
+        const bytes = (try string_bytes.addManyAsSlice(size_plus_one))[0];
+        var fr = file.reader(io, &.{});
         fr.size = stat.size;
         fr.interface.readSliceAll(bytes[0..size]) catch |err| switch (err) {
             error.ReadFailed => return fr.err.?,
@@ -2781,7 +2807,7 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
     const file = zcu.fileByIndex(inst_info.file);
     const zir = file.zir.?;
 
-    try zcu.analysis_in_progress.put(gpa, anal_unit, {});
+    try zcu.analysis_in_progress.putNoClobber(gpa, anal_unit, {});
     errdefer _ = zcu.analysis_in_progress.swapRemove(anal_unit);
 
     func.setAnalyzed(ip);
@@ -3073,8 +3099,8 @@ pub fn processExports(pt: Zcu.PerThread) !void {
     }
 
     // First, construct a mapping of every exported value and Nav to the indices of all its different exports.
-    var nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, std.ArrayListUnmanaged(Zcu.Export.Index)) = .empty;
-    var uav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Index, std.ArrayListUnmanaged(Zcu.Export.Index)) = .empty;
+    var nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, std.ArrayList(Zcu.Export.Index)) = .empty;
+    var uav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Index, std.ArrayList(Zcu.Export.Index)) = .empty;
     defer {
         for (nav_exports.values()) |*exports| {
             exports.deinit(gpa);
@@ -3494,7 +3520,6 @@ pub fn ptrType(pt: Zcu.PerThread, info: InternPool.Key.PtrType) Allocator.Error!
                 canon_info.packed_offset.host_size = 0;
             }
         },
-        .runtime => {},
         _ => assert(@intFromEnum(info.flags.vector_index) < info.packed_offset.host_size),
     }
 
@@ -3645,21 +3670,40 @@ pub fn intRef(pt: Zcu.PerThread, ty: Type, x: anytype) Allocator.Error!Air.Inst.
 }
 
 pub fn intValue_big(pt: Zcu.PerThread, ty: Type, x: BigIntConst) Allocator.Error!Value {
-    return Value.fromInterned(try pt.intern(.{ .int = .{
+    if (ty.toIntern() != .comptime_int_type) {
+        const int_info = ty.intInfo(pt.zcu);
+        assert(x.fitsInTwosComp(int_info.signedness, int_info.bits));
+    }
+    return .fromInterned(try pt.intern(.{ .int = .{
         .ty = ty.toIntern(),
         .storage = .{ .big_int = x },
     } }));
 }
 
 pub fn intValue_u64(pt: Zcu.PerThread, ty: Type, x: u64) Allocator.Error!Value {
-    return Value.fromInterned(try pt.intern(.{ .int = .{
+    if (ty.toIntern() != .comptime_int_type and x != 0) {
+        const int_info = ty.intInfo(pt.zcu);
+        const unsigned_bits = int_info.bits - @intFromBool(int_info.signedness == .signed);
+        assert(unsigned_bits >= std.math.log2(x) + 1);
+    }
+    return .fromInterned(try pt.intern(.{ .int = .{
         .ty = ty.toIntern(),
         .storage = .{ .u64 = x },
     } }));
 }
 
 pub fn intValue_i64(pt: Zcu.PerThread, ty: Type, x: i64) Allocator.Error!Value {
-    return Value.fromInterned(try pt.intern(.{ .int = .{
+    if (ty.toIntern() != .comptime_int_type and x != 0) {
+        const int_info = ty.intInfo(pt.zcu);
+        const unsigned_bits = int_info.bits - @intFromBool(int_info.signedness == .signed);
+        if (x > 0) {
+            assert(unsigned_bits >= std.math.log2(x) + 1);
+        } else {
+            assert(int_info.signedness == .signed);
+            assert(unsigned_bits >= std.math.log2_int_ceil(u64, @abs(x)));
+        }
+    }
+    return .fromInterned(try pt.intern(.{ .int = .{
         .ty = ty.toIntern(),
         .storage = .{ .i64 = x },
     } }));
@@ -4087,7 +4131,7 @@ fn recreateEnumType(
     pt: Zcu.PerThread,
     old_ty: InternPool.Index,
     key: InternPool.Key.NamespaceType.Declared,
-) Allocator.Error!InternPool.Index {
+) (Allocator.Error || Io.Cancelable)!InternPool.Index {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -4198,6 +4242,7 @@ fn recreateEnumType(
         body_end,
     ) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
+        error.Canceled => |e| return e,
         error.AnalysisFail => {}, // call sites are responsible for checking `[transitive_]failed_analysis` to detect this
     };
 
@@ -4374,6 +4419,9 @@ pub fn addDependency(pt: Zcu.PerThread, unit: AnalUnit, dependee: InternPool.Dep
 pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air, out: *@import("../link.zig").ZcuTask.LinkFunc.SharedMir) void {
     const zcu = pt.zcu;
 
+    crash_report.CodegenFunc.start(zcu, func_index);
+    defer crash_report.CodegenFunc.stop(func_index);
+
     var timer = zcu.comp.startTimer();
 
     const success: bool = if (runCodegenInner(pt, func_index, air)) |mir| success: {
@@ -4452,7 +4500,7 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
     defer if (liveness) |*l| l.deinit(gpa);
 
     if (build_options.enable_debug_extensions and comp.verbose_air) {
-        const stderr = std.debug.lockStderrWriter(&.{});
+        const stderr, _ = std.debug.lockStderrWriter(&.{});
         defer std.debug.unlockStderrWriter();
         stderr.print("# Begin Function AIR: {f}:\n", .{fqn.fmt(ip)}) catch {};
         air.write(stderr, pt, liveness);

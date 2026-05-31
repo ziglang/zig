@@ -16,7 +16,7 @@ pub const DynLib = struct {
         else
             DlDynLib,
         .windows => WindowsDynLib,
-        .macos, .tvos, .watchos, .ios, .visionos, .freebsd, .netbsd, .openbsd, .dragonfly, .solaris, .illumos => DlDynLib,
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos, .freebsd, .netbsd, .openbsd, .dragonfly, .illumos => DlDynLib,
         else => struct {
             const open = @compileError("unsupported platform");
             const openZ = @compileError("unsupported platform");
@@ -92,11 +92,9 @@ pub fn get_DYNAMIC() ?[*]const elf.Dyn {
     });
 }
 
-pub fn linkmap_iterator(phdrs: []const elf.Phdr) error{InvalidExe}!LinkMap.Iterator {
-    _ = phdrs;
+pub fn linkmap_iterator() error{InvalidExe}!LinkMap.Iterator {
     const _DYNAMIC = get_DYNAMIC() orelse {
-        // No PT_DYNAMIC means this is either a statically-linked program or a
-        // badly corrupted dynamically-linked one.
+        // No PT_DYNAMIC means this is a statically-linked non-PIE program.
         return .{ .current = null };
     };
 
@@ -138,6 +136,8 @@ const ElfDynLibError = error{
     ElfStringSectionNotFound,
     ElfSymSectionNotFound,
     ElfHashTableNotFound,
+    Canceled,
+    Streaming,
 } || posix.OpenError || posix.MMapError;
 
 pub const ElfDynLib = struct {
@@ -673,9 +673,9 @@ pub const DlDynLib = struct {
 
 test "dynamic_library" {
     const libname = switch (native_os) {
-        .linux, .freebsd, .openbsd, .solaris, .illumos => "invalid_so.so",
+        .linux, .freebsd, .openbsd, .illumos => "invalid_so.so",
         .windows => "invalid_dll.dll",
-        .macos, .tvos, .watchos, .ios, .visionos => "invalid_dylib.dylib",
+        .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => "invalid_dylib.dylib",
         else => return error.SkipZigTest,
     };
 

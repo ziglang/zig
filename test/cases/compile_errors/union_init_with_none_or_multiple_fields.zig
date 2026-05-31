@@ -24,8 +24,6 @@ export fn u2m() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :10:20: error: union initializer must initialize one field
 // :14:20: error: cannot initialize multiple union fields at once; unions can only have one active field

@@ -16,8 +16,7 @@
 #  pragma GCC system_header
 #endif
 
-// purposefully not using versioning namespace
-namespace std {
+_LIBCPP_BEGIN_UNVERSIONED_NAMESPACE_STD
 #if _LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION && !defined(_LIBCPP_ABI_VCRUNTIME)
 #  ifndef _LIBCPP_CXX03_LANG
 enum class align_val_t : size_t {};
@@ -25,6 +24,6 @@ enum class align_val_t : size_t {};
 enum align_val_t { __zero = 0, __max = (size_t)-1 };
 #  endif
 #endif
-} // namespace std
+_LIBCPP_END_UNVERSIONED_NAMESPACE_STD
 
 #endif // _LIBCPP___NEW_ALIGN_VAL_T_H

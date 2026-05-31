@@ -8,7 +8,5 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:5: error: switch must handle all possibilities

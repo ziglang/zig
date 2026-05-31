@@ -22,8 +22,6 @@ pub export fn entry3() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:21: error: cannot enumerate values of type 'anyerror' for 'inline else'
 // :13:21: error: cannot enumerate values of type 'tmp.E' for 'inline else'

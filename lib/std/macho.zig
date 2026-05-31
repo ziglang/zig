@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const io = std.io;
 const mem = std.mem;
 const meta = std.meta;
 const testing = std.testing;
@@ -840,62 +839,75 @@ pub const nlist = extern struct {
 
 pub const nlist_64 = extern struct {
     n_strx: u32,
-    n_type: u8,
+    n_type: packed union {
+        bits: packed struct(u8) {
+            ext: bool,
+            type: enum(u3) {
+                undf = 0,
+                abs = 1,
+                sect = 7,
+                pbud = 6,
+                indr = 5,
+                _,
+            },
+            pext: bool,
+            /// Any non-zero value indicates this is an stab, so the `stab` field should be used.
+            is_stab: u3,
+        },
+        stab: enum(u8) {
+            gsym = N_GSYM,
+            fname = N_FNAME,
+            fun = N_FUN,
+            stsym = N_STSYM,
+            lcsym = N_LCSYM,
+            bnsym = N_BNSYM,
+            ast = N_AST,
+            opt = N_OPT,
+            rsym = N_RSYM,
+            sline = N_SLINE,
+            ensym = N_ENSYM,
+            ssym = N_SSYM,
+            so = N_SO,
+            oso = N_OSO,
+            lsym = N_LSYM,
+            bincl = N_BINCL,
+            sol = N_SOL,
+            params = N_PARAMS,
+            version = N_VERSION,
+            olevel = N_OLEVEL,
+            psym = N_PSYM,
+            eincl = N_EINCL,
+            entry = N_ENTRY,
+            lbrac = N_LBRAC,
+            excl = N_EXCL,
+            rbrac = N_RBRAC,
+            bcomm = N_BCOMM,
+            ecomm = N_ECOMM,
+            ecoml = N_ECOML,
+            leng = N_LENG,
+            _,
+        },
+    },
     n_sect: u8,
-    n_desc: u16,
+    n_desc: packed struct(u16) {
+        _pad0: u3 = 0,
+        arm_thumb_def: bool,
+        referenced_dynamically: bool,
+        /// The meaning of this bit is contextual.
+        /// See `N_DESC_DISCARDED` and `N_NO_DEAD_STRIP`.
+        discarded_or_no_dead_strip: bool,
+        weak_ref: bool,
+        /// The meaning of this bit is contextual.
+        /// See `N_WEAK_DEF` and `N_REF_TO_WEAK`.
+        weak_def_or_ref_to_weak: bool,
+        symbol_resolver: bool,
+        alt_entry: bool,
+        _pad2: u6 = 0,
+    },
     n_value: u64,
 
-    pub fn stab(sym: nlist_64) bool {
-        return N_STAB & sym.n_type != 0;
-    }
-
-    pub fn pext(sym: nlist_64) bool {
-        return N_PEXT & sym.n_type != 0;
-    }
-
-    pub fn ext(sym: nlist_64) bool {
-        return N_EXT & sym.n_type != 0;
-    }
-
-    pub fn sect(sym: nlist_64) bool {
-        const type_ = N_TYPE & sym.n_type;
-        return type_ == N_SECT;
-    }
-
-    pub fn undf(sym: nlist_64) bool {
-        const type_ = N_TYPE & sym.n_type;
-        return type_ == N_UNDF;
-    }
-
-    pub fn indr(sym: nlist_64) bool {
-        const type_ = N_TYPE & sym.n_type;
-        return type_ == N_INDR;
-    }
-
-    pub fn abs(sym: nlist_64) bool {
-        const type_ = N_TYPE & sym.n_type;
-        return type_ == N_ABS;
-    }
-
-    pub fn weakDef(sym: nlist_64) bool {
-        return sym.n_desc & N_WEAK_DEF != 0;
-    }
-
-    pub fn weakRef(sym: nlist_64) bool {
-        return sym.n_desc & N_WEAK_REF != 0;
-    }
-
-    pub fn discarded(sym: nlist_64) bool {
-        return sym.n_desc & N_DESC_DISCARDED != 0;
-    }
-
-    pub fn noDeadStrip(sym: nlist_64) bool {
-        return sym.n_desc & N_NO_DEAD_STRIP != 0;
-    }
-
     pub fn tentative(sym: nlist_64) bool {
-        if (!sym.undf()) return false;
-        return sym.n_value != 0;
+        return sym.n_type.bits.type == .undf and sym.n_value != 0;
     }
 };
 
@@ -1883,83 +1895,83 @@ pub const GenericBlob = extern struct {
 pub const data_in_code_entry = extern struct {
     /// From mach_header to start of data range.
     offset: u32,
-
     /// Number of bytes in data range.
     length: u16,
-
     /// A DICE_KIND value.
     kind: u16,
 };
 
 pub const LoadCommandIterator = struct {
+    next_index: usize,
     ncmds: usize,
-    buffer: []const u8,
-    index: usize = 0,
+    r: std.Io.Reader,
 
     pub const LoadCommand = struct {
         hdr: load_command,
         data: []const u8,
 
-        pub fn cmd(lc: LoadCommand) LC {
-            return lc.hdr.cmd;
-        }
-
-        pub fn cmdsize(lc: LoadCommand) u32 {
-            return lc.hdr.cmdsize;
-        }
-
         pub fn cast(lc: LoadCommand, comptime Cmd: type) ?Cmd {
             if (lc.data.len < @sizeOf(Cmd)) return null;
-            return @as(*align(1) const Cmd, @ptrCast(lc.data.ptr)).*;
+            const ptr: *align(1) const Cmd = @ptrCast(lc.data.ptr);
+            var cmd = ptr.*;
+            if (builtin.cpu.arch.endian() != .little) std.mem.byteSwapAllFields(Cmd, &cmd);
+            return cmd;
         }
 
         /// Asserts LoadCommand is of type segment_command_64.
+        /// If the native endian is not `.little`, the `section_64` values must be byte-swapped by the caller.
         pub fn getSections(lc: LoadCommand) []align(1) const section_64 {
             const segment_lc = lc.cast(segment_command_64).?;
-            if (segment_lc.nsects == 0) return &[0]section_64{};
-            const data = lc.data[@sizeOf(segment_command_64)..];
-            const sections = @as([*]align(1) const section_64, @ptrCast(data.ptr))[0..segment_lc.nsects];
-            return sections;
+            const sects_ptr: [*]align(1) const section_64 = @ptrCast(lc.data[@sizeOf(segment_command_64)..]);
+            return sects_ptr[0..segment_lc.nsects];
         }
 
         /// Asserts LoadCommand is of type dylib_command.
         pub fn getDylibPathName(lc: LoadCommand) []const u8 {
             const dylib_lc = lc.cast(dylib_command).?;
-            const data = lc.data[dylib_lc.dylib.name..];
-            return mem.sliceTo(data, 0);
+            return mem.sliceTo(lc.data[dylib_lc.dylib.name..], 0);
         }
 
         /// Asserts LoadCommand is of type rpath_command.
         pub fn getRpathPathName(lc: LoadCommand) []const u8 {
             const rpath_lc = lc.cast(rpath_command).?;
-            const data = lc.data[rpath_lc.path..];
-            return mem.sliceTo(data, 0);
+            return mem.sliceTo(lc.data[rpath_lc.path..], 0);
         }
 
         /// Asserts LoadCommand is of type build_version_command.
+        /// If the native endian is not `.little`, the `build_tool_version` values must be byte-swapped by the caller.
         pub fn getBuildVersionTools(lc: LoadCommand) []align(1) const build_tool_version {
             const build_lc = lc.cast(build_version_command).?;
-            const ntools = build_lc.ntools;
-            if (ntools == 0) return &[0]build_tool_version{};
-            const data = lc.data[@sizeOf(build_version_command)..];
-            const tools = @as([*]align(1) const build_tool_version, @ptrCast(data.ptr))[0..ntools];
-            return tools;
+            const tools_ptr: [*]align(1) const build_tool_version = @ptrCast(lc.data[@sizeOf(build_version_command)..]);
+            return tools_ptr[0..build_lc.ntools];
         }
     };
 
-    pub fn next(it: *LoadCommandIterator) ?LoadCommand {
-        if (it.index >= it.ncmds) return null;
+    pub fn next(it: *LoadCommandIterator) error{InvalidMachO}!?LoadCommand {
+        if (it.next_index >= it.ncmds) return null;
 
-        const hdr = @as(*align(1) const load_command, @ptrCast(it.buffer.ptr)).*;
-        const cmd = LoadCommand{
-            .hdr = hdr,
-            .data = it.buffer[0..hdr.cmdsize],
+        const hdr = it.r.peekStruct(load_command, .little) catch |err| switch (err) {
+            error.ReadFailed => unreachable,
+            error.EndOfStream => return error.InvalidMachO,
+        };
+        const data = it.r.take(hdr.cmdsize) catch |err| switch (err) {
+            error.ReadFailed => unreachable,
+            error.EndOfStream => return error.InvalidMachO,
         };
 
-        it.buffer = it.buffer[hdr.cmdsize..];
-        it.index += 1;
+        it.next_index += 1;
+        return .{ .hdr = hdr, .data = data };
+    }
 
-        return cmd;
+    pub fn init(hdr: *const mach_header_64, cmds_buf_overlong: []const u8) error{InvalidMachO}!LoadCommandIterator {
+        if (cmds_buf_overlong.len < hdr.sizeofcmds) return error.InvalidMachO;
+        if (hdr.ncmds > 0 and hdr.sizeofcmds < @sizeOf(load_command)) return error.InvalidMachO;
+        const cmds_buf = cmds_buf_overlong[0..hdr.sizeofcmds];
+        return .{
+            .next_index = 0,
+            .ncmds = hdr.ncmds,
+            .r = .fixed(cmds_buf),
+        };
     }
 };
 
@@ -2049,7 +2061,7 @@ pub const unwind_info_compressed_second_level_page_header = extern struct {
     // encodings array
 };
 
-pub const UnwindInfoCompressedEntry = packed struct {
+pub const UnwindInfoCompressedEntry = packed struct(u32) {
     funcOffset: u24,
     encodingIndex: u8,
 };

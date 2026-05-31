@@ -18,7 +18,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _Tp, bool = is_enum<_Tp>::value>
+template <class _Tp, bool>
 struct __underlying_type_impl;
 
 template <class _Tp>
@@ -32,9 +32,18 @@ struct __underlying_type_impl<_Tp, true> {
 template <class _Tp>
 struct _LIBCPP_NO_SPECIALIZATIONS underlying_type : __underlying_type_impl<_Tp, is_enum<_Tp>::value> {};
 
+// GCC doesn't SFINAE away when using __underlying_type directly
+#if !defined(_LIBCPP_COMPILER_GCC)
+template <class _Tp>
+using __underlying_type_t _LIBCPP_NODEBUG = __underlying_type(_Tp);
+#else
+template <class _Tp>
+using __underlying_type_t _LIBCPP_NODEBUG = typename underlying_type<_Tp>::type;
+#endif
+
 #if _LIBCPP_STD_VER >= 14
 template <class _Tp>
-using underlying_type_t = typename underlying_type<_Tp>::type;
+using underlying_type_t = __underlying_type_t<_Tp>;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

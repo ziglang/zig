@@ -29,8 +29,6 @@ pub export fn entry1() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :10:10: error: no field named 'foo' in struct 'tmp.A'
 // :1:11: note: struct declared here

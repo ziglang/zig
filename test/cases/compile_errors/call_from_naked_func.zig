@@ -17,8 +17,6 @@ export fn comptimeBuiltinCall() callconv(.naked) void {
 fn f() void {}
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:6: error: runtime call not allowed in naked function
 // :6:5: error: runtime @call not allowed in naked function

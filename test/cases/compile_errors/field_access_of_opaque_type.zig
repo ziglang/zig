@@ -10,7 +10,5 @@ fn bar(x: *MyType) bool {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :9:13: error: type '*tmp.MyType' does not support field access

@@ -3,11 +3,11 @@ index: File.Index,
 
 parsed: Parsed,
 
-symbols: std.ArrayListUnmanaged(Symbol),
-symbols_extra: std.ArrayListUnmanaged(u32),
-symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index),
+symbols: std.ArrayList(Symbol),
+symbols_extra: std.ArrayList(u32),
+symbols_resolver: std.ArrayList(Elf.SymbolResolver.Index),
 
-aliases: ?std.ArrayListUnmanaged(u32),
+aliases: ?std.ArrayList(u32),
 
 needed: bool,
 alive: bool,
@@ -35,7 +35,7 @@ pub const Header = struct {
     verdef_sect_index: ?u32,
 
     stat: Stat,
-    strtab: std.ArrayListUnmanaged(u8),
+    strtab: std.ArrayList(u8),
 
     pub fn deinit(header: *Header, gpa: Allocator) void {
         gpa.free(header.sections);
@@ -105,7 +105,7 @@ pub fn parseHeader(
         if (amt != buf.len) return error.UnexpectedEndOfFile;
     }
     if (!mem.eql(u8, ehdr.e_ident[0..4], "\x7fELF")) return error.BadMagic;
-    if (ehdr.e_ident[elf.EI_VERSION] != 1) return error.BadElfVersion;
+    if (ehdr.e_ident[elf.EI.VERSION] != 1) return error.BadElfVersion;
     if (ehdr.e_type != elf.ET.DYN) return error.NotSharedObject;
 
     if (target.toElfMachine() != ehdr.e_machine)
@@ -149,7 +149,7 @@ pub fn parseHeader(
     } else &.{};
     errdefer gpa.free(dynamic_table);
 
-    var strtab: std.ArrayListUnmanaged(u8) = .empty;
+    var strtab: std.ArrayList(u8) = .empty;
     errdefer strtab.deinit(gpa);
 
     if (dynsym_sect_index) |index| {
@@ -206,7 +206,7 @@ pub fn parse(
     } else &.{};
     defer gpa.free(symtab);
 
-    var verstrings: std.ArrayListUnmanaged(u32) = .empty;
+    var verstrings: std.ArrayList(u32) = .empty;
     defer verstrings.deinit(gpa);
 
     if (header.verdef_sect_index) |shndx| {
@@ -243,13 +243,13 @@ pub fn parse(
     } else &.{};
     defer gpa.free(versyms);
 
-    var nonlocal_esyms: std.ArrayListUnmanaged(elf.Elf64_Sym) = .empty;
+    var nonlocal_esyms: std.ArrayList(elf.Elf64_Sym) = .empty;
     defer nonlocal_esyms.deinit(gpa);
 
-    var nonlocal_versyms: std.ArrayListUnmanaged(elf.Versym) = .empty;
+    var nonlocal_versyms: std.ArrayList(elf.Versym) = .empty;
     defer nonlocal_versyms.deinit(gpa);
 
-    var nonlocal_symbols: std.ArrayListUnmanaged(Parsed.Symbol) = .empty;
+    var nonlocal_symbols: std.ArrayList(Parsed.Symbol) = .empty;
     defer nonlocal_symbols.deinit(gpa);
 
     var strtab = header.strtab;
@@ -357,7 +357,7 @@ pub fn markImportExports(self: *SharedObject, elf_file: *Elf) void {
         const ref = self.resolveSymbol(@intCast(i), elf_file);
         const ref_sym = elf_file.symbol(ref) orelse continue;
         const ref_file = ref_sym.file(elf_file).?;
-        const vis = @as(elf.STV, @enumFromInt(ref_sym.elfSym(elf_file).st_other));
+        const vis: elf.STV = @enumFromInt(@as(u3, @truncate(ref_sym.elfSym(elf_file).st_other)));
         if (ref_file != .shared_object and vis != .HIDDEN) ref_sym.flags.@"export" = true;
     }
 }
@@ -509,7 +509,7 @@ pub fn setSymbolExtra(self: *SharedObject, index: u32, extra: Symbol.Extra) void
     }
 }
 
-pub fn fmtSymtab(self: SharedObject, elf_file: *Elf) std.fmt.Formatter(Format, Format.symtab) {
+pub fn fmtSymtab(self: SharedObject, elf_file: *Elf) std.fmt.Alt(Format, Format.symtab) {
     return .{ .data = .{
         .shared = self,
         .elf_file = elf_file,
@@ -520,7 +520,7 @@ const Format = struct {
     shared: SharedObject,
     elf_file: *Elf,
 
-    fn symtab(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn symtab(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const shared = f.shared;
         const elf_file = f.elf_file;
         try writer.writeAll("  globals\n");

@@ -1,0 +1,13 @@
+contact_links:
+  - name: Language Proposal
+    about: "Please do not submit a proposal to change the language"
+    url: https://ziglang.org/code-of-conduct
+  - name: Question
+    about: "Please use one of the community spaces instead for questions or general discussions."
+    url: https://ziglang.org/community
+  - name: C Translation
+    about: "Issues related to `zig translate-c` and `@cImport` are tracked separately."
+    url: https://codeberg.org/ziglang/translate-c
+  - name: Copilot and Other LLMs
+    about: "Please do not use GitHub Copilot or any other LLM to write an issue."
+    url: https://ziglang.org/code-of-conduct

@@ -3,7 +3,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:17: error: invalid escape character: 'U'

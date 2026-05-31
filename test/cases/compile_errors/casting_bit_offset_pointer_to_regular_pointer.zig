@@ -17,8 +17,6 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :8:16: error: expected type '*const u3', found '*align(1:3:1) const u3'
 // :8:16: note: pointer host size '1' cannot cast into pointer host size '0'

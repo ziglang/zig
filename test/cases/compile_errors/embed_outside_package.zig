@@ -3,6 +3,5 @@ export fn a() usize {
 }
 
 // error
-// target=native
 //
 //:2:23: error: embed of file outside package path: '/root/foo'

@@ -34,7 +34,7 @@ namespace std {
 */
 
 #if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
-#  include <__cxx03/print>
+#  include <__cxx03/__config>
 #else
 #  include <__assert>
 #  include <__concepts/same_as.h>
@@ -123,7 +123,7 @@ _LIBCPP_HIDE_FROM_ABI constexpr void __encode(_OutIt& __out_it, char32_t __value
   _LIBCPP_ASSERT_UNCATEGORIZED(__is_scalar_value(__value), "an invalid unicode scalar value results in invalid UTF-16");
 
   if (__value < 0x10000) {
-    *__out_it++ = __value;
+    *__out_it++ = static_cast<iter_value_t<_OutIt>>(__value);
     return;
   }
 

@@ -407,8 +407,8 @@ test "import passed byref to function in return type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
-        fn get() @import("std").ArrayListUnmanaged(i32) {
-            const x: @import("std").ArrayListUnmanaged(i32) = .empty;
+        fn get() @import("std").ArrayList(i32) {
+            const x: @import("std").ArrayList(i32) = .empty;
             return x;
         }
     };
@@ -556,10 +556,10 @@ test "lazy values passed to anytype parameter" {
 
 test "pass and return comptime-only types" {
     const S = struct {
-        fn returnNull(comptime x: @Type(.null)) @Type(.null) {
+        fn returnNull(comptime x: @TypeOf(null)) @TypeOf(null) {
             return x;
         }
-        fn returnUndefined(comptime x: @Type(.undefined)) @Type(.undefined) {
+        fn returnUndefined(comptime x: @TypeOf(undefined)) @TypeOf(undefined) {
             return x;
         }
     };
@@ -741,4 +741,32 @@ test "coerce generic function making generic parameter concrete" {
     const coerced: fn (anytype, u32) u32 = S.foo;
     const result = coerced({}, 123);
     try expect(result == 123);
+}
+
+test "return undefined pointer from function, directly and by expired local" {
+    const S = struct {
+        var global: i32 = 1;
+
+        fn returnGlobalPointer() *i32 {
+            return &global;
+        }
+
+        fn returnUndefPointer() *i32 {
+            return undefined;
+        }
+
+        /// Semantically equivalent to `returnUndefPointer`.
+        fn returnStackPointer() *i32 {
+            var stack_allocation: i32 = 1234;
+            const ptr = &stack_allocation; // defeats ast-check detection
+            return ptr;
+        }
+    };
+
+    const ok_ptr = S.returnGlobalPointer();
+    try expect(ok_ptr.* == 1);
+    const bad_ptr_1 = S.returnStackPointer();
+    _ = bad_ptr_1; // dereferencing this would be illegal behavior
+    const bad_ptr_2 = S.returnStackPointer();
+    _ = bad_ptr_2; // dereferencing this would be illegal behavior
 }

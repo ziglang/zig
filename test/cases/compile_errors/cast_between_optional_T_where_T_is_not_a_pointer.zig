@@ -16,8 +16,6 @@ export fn entry2() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:9: error: expected type '?*const fn (i8) void', found '?*const fn (u64) void'
 // :6:9: note: pointer type child 'fn (u64) void' cannot cast into pointer type child 'fn (i8) void'

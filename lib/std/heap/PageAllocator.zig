@@ -183,7 +183,7 @@ pub fn realloc(uncasted_memory: []u8, new_len: usize, may_move: bool) ?[*]u8 {
 
     if (posix.MREMAP != void) {
         // TODO: if the next_mmap_addr_hint is within the remapped range, update it
-        const new_memory = posix.mremap(memory.ptr, memory.len, new_len, .{ .MAYMOVE = may_move }, null) catch return null;
+        const new_memory = posix.mremap(memory.ptr, page_aligned_len, new_size_aligned, .{ .MAYMOVE = may_move }, null) catch return null;
         return new_memory.ptr;
     }
 

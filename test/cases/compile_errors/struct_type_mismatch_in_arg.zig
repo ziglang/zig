@@ -9,8 +9,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :7:15: error: expected type 'tmp.Foo', found 'tmp.Bar'
 // :2:13: note: struct declared here

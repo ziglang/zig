@@ -21,27 +21,27 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <size_t _Ip, class _Tp>
-struct _LIBCPP_TEMPLATE_VIS tuple_element;
+struct tuple_element;
 
 template <size_t _Ip, class _Tp>
-struct _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, const _Tp> {
+struct tuple_element<_Ip, const _Tp> {
   using type _LIBCPP_NODEBUG = const typename tuple_element<_Ip, _Tp>::type;
 };
 
 template <size_t _Ip, class _Tp>
-struct _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, volatile _Tp> {
+struct tuple_element<_Ip, volatile _Tp> {
   using type _LIBCPP_NODEBUG = volatile typename tuple_element<_Ip, _Tp>::type;
 };
 
 template <size_t _Ip, class _Tp>
-struct _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, const volatile _Tp> {
+struct tuple_element<_Ip, const volatile _Tp> {
   using type _LIBCPP_NODEBUG = const volatile typename tuple_element<_Ip, _Tp>::type;
 };
 
 #ifndef _LIBCPP_CXX03_LANG
 
 template <size_t _Ip, class... _Types>
-struct _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, __tuple_types<_Types...> > {
+struct tuple_element<_Ip, __tuple_types<_Types...> > {
   static_assert(_Ip < sizeof...(_Types), "tuple_element index out of range");
   using type _LIBCPP_NODEBUG = __type_pack_element<_Ip, _Types...>;
 };

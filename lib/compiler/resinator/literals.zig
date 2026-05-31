@@ -469,8 +469,8 @@ pub fn parseQuotedString(
     const T = if (literal_type == .ascii) u8 else u16;
     std.debug.assert(bytes.slice.len >= 2); // must at least have 2 double quote chars
 
-    var buf = try std.array_list.Managed(T).initCapacity(allocator, bytes.slice.len);
-    errdefer buf.deinit();
+    var buf = try std.ArrayList(T).initCapacity(allocator, bytes.slice.len);
+    errdefer buf.deinit(allocator);
 
     var iterative_parser = IterativeStringParser.init(bytes, options);
 
@@ -480,13 +480,13 @@ pub fn parseQuotedString(
             .ascii => switch (options.output_code_page) {
                 .windows1252 => {
                     if (parsed.from_escaped_integer) {
-                        try buf.append(@truncate(c));
+                        try buf.append(allocator, @truncate(c));
                     } else if (windows1252.bestFitFromCodepoint(c)) |best_fit| {
-                        try buf.append(best_fit);
+                        try buf.append(allocator, best_fit);
                     } else if (c < 0x10000 or c == code_pages.Codepoint.invalid) {
-                        try buf.append('?');
+                        try buf.append(allocator, '?');
                     } else {
-                        try buf.appendSlice("??");
+                        try buf.appendSlice(allocator, "??");
                     }
                 },
                 .utf8 => {
@@ -500,35 +500,35 @@ pub fn parseQuotedString(
                     }
                     var utf8_buf: [4]u8 = undefined;
                     const utf8_len = std.unicode.utf8Encode(codepoint_to_encode, &utf8_buf) catch unreachable;
-                    try buf.appendSlice(utf8_buf[0..utf8_len]);
+                    try buf.appendSlice(allocator, utf8_buf[0..utf8_len]);
                 },
             },
             .wide => {
                 // Parsing any string type as a wide string is handled separately, see parseQuotedStringAsWideString
                 std.debug.assert(iterative_parser.declared_string_type == .wide);
                 if (parsed.from_escaped_integer) {
-                    try buf.append(std.mem.nativeToLittle(u16, @truncate(c)));
+                    try buf.append(allocator, std.mem.nativeToLittle(u16, @truncate(c)));
                 } else if (c == code_pages.Codepoint.invalid) {
-                    try buf.append(std.mem.nativeToLittle(u16, '�'));
+                    try buf.append(allocator, std.mem.nativeToLittle(u16, '�'));
                 } else if (c < 0x10000) {
                     const short: u16 = @intCast(c);
-                    try buf.append(std.mem.nativeToLittle(u16, short));
+                    try buf.append(allocator, std.mem.nativeToLittle(u16, short));
                 } else {
                     if (!parsed.escaped_surrogate_pair) {
                         const high = @as(u16, @intCast((c - 0x10000) >> 10)) + 0xD800;
-                        try buf.append(std.mem.nativeToLittle(u16, high));
+                        try buf.append(allocator, std.mem.nativeToLittle(u16, high));
                     }
                     const low = @as(u16, @intCast(c & 0x3FF)) + 0xDC00;
-                    try buf.append(std.mem.nativeToLittle(u16, low));
+                    try buf.append(allocator, std.mem.nativeToLittle(u16, low));
                 }
             },
         }
     }
 
     if (literal_type == .wide) {
-        return buf.toOwnedSliceSentinel(0);
+        return buf.toOwnedSliceSentinel(allocator, 0);
     } else {
-        return buf.toOwnedSlice();
+        return buf.toOwnedSlice(allocator);
     }
 }
 
@@ -564,8 +564,8 @@ pub fn parseQuotedStringAsWideString(allocator: std.mem.Allocator, bytes: Source
     // Note: We're only handling the case of parsing an ASCII string into a wide string from here on out.
     // TODO: The logic below is similar to that in AcceleratorKeyCodepointTranslator, might be worth merging the two
 
-    var buf = try std.array_list.Managed(u16).initCapacity(allocator, bytes.slice.len);
-    errdefer buf.deinit();
+    var buf = try std.ArrayList(u16).initCapacity(allocator, bytes.slice.len);
+    errdefer buf.deinit(allocator);
 
     var iterative_parser = IterativeStringParser.init(bytes, options);
 
@@ -578,23 +578,23 @@ pub fn parseQuotedStringAsWideString(allocator: std.mem.Allocator, bytes: Source
                 .windows1252 => windows1252.toCodepoint(byte_to_interpret),
                 .utf8 => if (byte_to_interpret > 0x7F) '�' else byte_to_interpret,
             };
-            try buf.append(std.mem.nativeToLittle(u16, code_unit_to_encode));
+            try buf.append(allocator, std.mem.nativeToLittle(u16, code_unit_to_encode));
         } else if (c == code_pages.Codepoint.invalid) {
-            try buf.append(std.mem.nativeToLittle(u16, '�'));
+            try buf.append(allocator, std.mem.nativeToLittle(u16, '�'));
         } else if (c < 0x10000) {
             const short: u16 = @intCast(c);
-            try buf.append(std.mem.nativeToLittle(u16, short));
+            try buf.append(allocator, std.mem.nativeToLittle(u16, short));
         } else {
             if (!parsed.escaped_surrogate_pair) {
                 const high = @as(u16, @intCast((c - 0x10000) >> 10)) + 0xD800;
-                try buf.append(std.mem.nativeToLittle(u16, high));
+                try buf.append(allocator, std.mem.nativeToLittle(u16, high));
             }
             const low = @as(u16, @intCast(c & 0x3FF)) + 0xDC00;
-            try buf.append(std.mem.nativeToLittle(u16, low));
+            try buf.append(allocator, std.mem.nativeToLittle(u16, low));
         }
     }
 
-    return buf.toOwnedSliceSentinel(0);
+    return buf.toOwnedSliceSentinel(allocator, 0);
 }
 
 test "parse quoted ascii string" {

@@ -16,6 +16,7 @@
 #include <__iterator/advance.h>
 #include <__iterator/distance.h>
 #include <__iterator/iterator_traits.h>
+#include <__memory/construct_at.h>
 #include <__memory/destruct_n.h>
 #include <__memory/unique_ptr.h>
 #include <__memory/unique_temporary_buffer.h>
@@ -33,7 +34,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _AlgPolicy, class _Predicate, class _ForwardIterator, class _Distance, class _Pair>
-_LIBCPP_HIDE_FROM_ABI _ForwardIterator __stable_partition_impl(
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 _ForwardIterator __stable_partition_impl(
     _ForwardIterator __first,
     _ForwardIterator __last,
     _Predicate __pred,
@@ -61,7 +62,7 @@ _LIBCPP_HIDE_FROM_ABI _ForwardIterator __stable_partition_impl(
     // Move the falses into the temporary buffer, and the trues to the front of the line
     // Update __first to always point to the end of the trues
     value_type* __t = __p.first;
-    ::new ((void*)__t) value_type(_Ops::__iter_move(__first));
+    std::__construct_at(__t, _Ops::__iter_move(__first));
     __d.template __incr<value_type>();
     ++__t;
     _ForwardIterator __i = __first;
@@ -70,7 +71,7 @@ _LIBCPP_HIDE_FROM_ABI _ForwardIterator __stable_partition_impl(
         *__first = _Ops::__iter_move(__i);
         ++__first;
       } else {
-        ::new ((void*)__t) value_type(_Ops::__iter_move(__i));
+        std::__construct_at(__t, _Ops::__iter_move(__i));
         __d.template __incr<value_type>();
         ++__t;
       }
@@ -116,7 +117,7 @@ __second_half_done:
 }
 
 template <class _AlgPolicy, class _Predicate, class _ForwardIterator>
-_LIBCPP_HIDE_FROM_ABI _ForwardIterator
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 _ForwardIterator
 __stable_partition_impl(_ForwardIterator __first, _ForwardIterator __last, _Predicate __pred, forward_iterator_tag) {
   typedef typename iterator_traits<_ForwardIterator>::difference_type difference_type;
   typedef typename iterator_traits<_ForwardIterator>::value_type value_type;
@@ -145,7 +146,7 @@ __stable_partition_impl(_ForwardIterator __first, _ForwardIterator __last, _Pred
 }
 
 template <class _AlgPolicy, class _Predicate, class _BidirectionalIterator, class _Distance, class _Pair>
-_BidirectionalIterator __stable_partition_impl(
+_LIBCPP_CONSTEXPR_SINCE_CXX26 _BidirectionalIterator __stable_partition_impl(
     _BidirectionalIterator __first,
     _BidirectionalIterator __last,
     _Predicate __pred,
@@ -179,7 +180,7 @@ _BidirectionalIterator __stable_partition_impl(
     // Move the falses into the temporary buffer, and the trues to the front of the line
     // Update __first to always point to the end of the trues
     value_type* __t = __p.first;
-    ::new ((void*)__t) value_type(_Ops::__iter_move(__first));
+    std::__construct_at(__t, _Ops::__iter_move(__first));
     __d.template __incr<value_type>();
     ++__t;
     _BidirectionalIterator __i = __first;
@@ -188,7 +189,7 @@ _BidirectionalIterator __stable_partition_impl(
         *__first = _Ops::__iter_move(__i);
         ++__first;
       } else {
-        ::new ((void*)__t) value_type(_Ops::__iter_move(__i));
+        std::__construct_at(__t, _Ops::__iter_move(__i));
         __d.template __incr<value_type>();
         ++__t;
       }
@@ -247,7 +248,7 @@ __second_half_done:
 }
 
 template <class _AlgPolicy, class _Predicate, class _BidirectionalIterator>
-_LIBCPP_HIDE_FROM_ABI _BidirectionalIterator __stable_partition_impl(
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 _BidirectionalIterator __stable_partition_impl(
     _BidirectionalIterator __first, _BidirectionalIterator __last, _Predicate __pred, bidirectional_iterator_tag) {
   typedef typename iterator_traits<_BidirectionalIterator>::difference_type difference_type;
   typedef typename iterator_traits<_BidirectionalIterator>::value_type value_type;
@@ -283,14 +284,14 @@ _LIBCPP_HIDE_FROM_ABI _BidirectionalIterator __stable_partition_impl(
 }
 
 template <class _AlgPolicy, class _Predicate, class _ForwardIterator, class _IterCategory>
-_LIBCPP_HIDE_FROM_ABI _ForwardIterator __stable_partition(
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 _ForwardIterator __stable_partition(
     _ForwardIterator __first, _ForwardIterator __last, _Predicate&& __pred, _IterCategory __iter_category) {
   return std::__stable_partition_impl<_AlgPolicy, __remove_cvref_t<_Predicate>&>(
       std::move(__first), std::move(__last), __pred, __iter_category);
 }
 
 template <class _ForwardIterator, class _Predicate>
-inline _LIBCPP_HIDE_FROM_ABI _ForwardIterator
+_LIBCPP_HIDE_FROM_ABI inline _LIBCPP_CONSTEXPR_SINCE_CXX26 _ForwardIterator
 stable_partition(_ForwardIterator __first, _ForwardIterator __last, _Predicate __pred) {
   using _IterCategory = typename iterator_traits<_ForwardIterator>::iterator_category;
   return std::__stable_partition<_ClassicAlgPolicy, _Predicate&>(

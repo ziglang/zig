@@ -20,8 +20,6 @@ export fn e() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:7: error: no field named 'foo' in struct 'tmp.A'
 // :1:11: note: struct declared here

@@ -14,5 +14,5 @@ pub fn main() !void {
     x += buffer[2];
 }
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux,aarch64-linux

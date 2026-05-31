@@ -20,8 +20,6 @@ export fn entry4() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:31: error: type 'u8' cannot represent integer value '300'
 // :8:22: error: type 'u8' cannot represent integer value '300'

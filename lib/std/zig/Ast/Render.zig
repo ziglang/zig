@@ -6,7 +6,7 @@ const meta = std.meta;
 const Ast = std.zig.Ast;
 const Token = std.zig.Token;
 const primitives = std.zig.primitives;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const Render = @This();
 
@@ -2056,7 +2056,8 @@ fn renderStructInit(
             const init_token = tree.firstToken(field_init);
             try renderToken(r, init_token - 3, .none); // .
             try renderIdentifier(r, init_token - 2, .space, .eagerly_unquote); // name
-            try renderToken(r, init_token - 1, .space); // =
+            const space_after_equal: Space = if (tree.nodeTag(field_init) == .multiline_string_literal) .none else .space;
+            try renderToken(r, init_token - 1, space_after_equal); // =
             try renderExpressionFixup(r, field_init, .comma_space);
         }
     }
@@ -2169,7 +2170,7 @@ fn renderArrayInit(
 
         const section_exprs = row_exprs[0..section_end];
 
-        var sub_expr_buffer: std.io.Writer.Allocating = .init(gpa);
+        var sub_expr_buffer: Writer.Allocating = .init(gpa);
         defer sub_expr_buffer.deinit();
 
         const sub_expr_buffer_starts = try gpa.alloc(usize, section_exprs.len + 1);

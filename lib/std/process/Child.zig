@@ -1,5 +1,9 @@
-const std = @import("../std.zig");
+const ChildProcess = @This();
+
 const builtin = @import("builtin");
+const native_os = builtin.os.tag;
+
+const std = @import("../std.zig");
 const unicode = std.unicode;
 const fs = std.fs;
 const process = std.process;
@@ -11,9 +15,7 @@ const mem = std.mem;
 const EnvMap = std.process.EnvMap;
 const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
-const native_os = builtin.os.tag;
 const Allocator = std.mem.Allocator;
-const ChildProcess = @This();
 const ArrayList = std.ArrayList;
 
 pub const Id = switch (native_os) {
@@ -52,6 +54,8 @@ term: ?(SpawnError!Term),
 argv: []const []const u8,
 
 /// Leave as null to use the current env map using the supplied allocator.
+/// Required if unable to access the current env map (e.g. building a library on
+/// some platforms).
 env_map: ?*const EnvMap,
 
 stdin_behavior: StdIo,
@@ -81,8 +85,8 @@ expand_arg0: Arg0Expand,
 /// Darwin-only. Disable ASLR for the child process.
 disable_aslr: bool = false,
 
-/// Darwin and Windows only. Start child process in suspended state. For Darwin it's started
-/// as if SIGSTOP was sent.
+/// Start child process in suspended state.
+/// For Posix systems it's started as if SIGSTOP was sent.
 start_suspended: bool = false,
 
 /// Windows-only. Sets the CREATE_NO_WINDOW flag in CreateProcess.
@@ -132,7 +136,7 @@ pub const ResourceUsageStatistics = struct {
                     return null;
                 }
             },
-            .macos, .ios => {
+            .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
                 if (rus.rusage) |ru| {
                     // Darwin oddly reports in bytes instead of kilobytes.
                     return @as(usize, @intCast(ru.maxrss));
@@ -145,7 +149,7 @@ pub const ResourceUsageStatistics = struct {
     }
 
     const rusage_init = switch (native_os) {
-        .linux, .macos, .ios => @as(?posix.rusage, null),
+        .linux, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => @as(?posix.rusage, null),
         .windows => @as(?windows.VM_COUNTERS, null),
         else => {},
     };
@@ -160,7 +164,7 @@ pub const SpawnError = error{
     NoDevice,
 
     /// Windows-only. `cwd` or `argv` was provided and it was invalid WTF-8.
-    /// https://simonsapin.github.io/wtf-8/
+    /// https://wtf-8.codeberg.page/
     InvalidWtf8,
 
     /// Windows-only. `cwd` was provided, but the path did not exist when spawning the child process.
@@ -315,16 +319,23 @@ pub fn waitForSpawn(self: *ChildProcess) SpawnError!void {
 
     const err_pipe = self.err_pipe orelse return;
     self.err_pipe = null;
-
     // Wait for the child to report any errors in or before `execvpe`.
-    if (readIntFd(err_pipe)) |child_err_int| {
-        posix.close(err_pipe);
+    const report = readIntFd(err_pipe);
+    posix.close(err_pipe);
+    if (report) |child_err_int| {
         const child_err: SpawnError = @errorCast(@errorFromInt(child_err_int));
         self.term = child_err;
         return child_err;
-    } else |_| {
-        // Write end closed by CLOEXEC at the time of the `execvpe` call, indicating success!
-        posix.close(err_pipe);
+    } else |read_err| switch (read_err) {
+        error.EndOfStream => {
+            // Write end closed by CLOEXEC at the time of the `execvpe` call,
+            // indicating success.
+        },
+        else => {
+            // Problem reading the error from the error reporting pipe. We
+            // don't know if the child is alive or dead. Better to assume it is
+            // alive so the resource does not risk being leaked.
+        },
     }
 }
 
@@ -414,6 +425,8 @@ pub fn run(args: struct {
     argv: []const []const u8,
     cwd: ?[]const u8 = null,
     cwd_dir: ?fs.Dir = null,
+    /// Required if unable to access the current env map (e.g. building a
+    /// library on some platforms).
     env_map: ?*const EnvMap = null,
     max_output_bytes: usize = 50 * 1024,
     expand_arg0: Arg0Expand = .no_expand,
@@ -473,7 +486,7 @@ fn waitUnwrappedPosix(self: *ChildProcess) void {
     const res: posix.WaitPidResult = res: {
         if (self.request_resource_usage_statistics) {
             switch (native_os) {
-                .linux, .macos, .ios => {
+                .linux, .driverkit, .ios, .maccatalyst, .macos, .tvos, .visionos, .watchos => {
                     var ru: posix.rusage = undefined;
                     const res = posix.wait4(self.id, 0, &ru);
                     self.resource_usage_statistics.rusage = ru;
@@ -559,6 +572,10 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
             error.BadPathName => unreachable, // Windows-only
             error.WouldBlock => unreachable,
             error.NetworkNotFound => unreachable, // Windows-only
+            error.Canceled => unreachable, // temporarily in the posix error set
+            error.SharingViolation => unreachable, // Windows-only
+            error.PipeBusy => unreachable, // not a pipe
+            error.AntivirusInterference => unreachable, // Windows-only
             else => |e| return e,
         }
     else
@@ -614,7 +631,7 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
             })).ptr;
         } else {
             // TODO come up with a solution for this.
-            @compileError("missing std lib enhancement: ChildProcess implementation has no way to collect the environment variables to forward to the child process");
+            @panic("missing std lib enhancement: ChildProcess implementation has no way to collect the environment variables to forward to the child process");
         }
     };
 
@@ -650,6 +667,10 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
 
         if (self.pgid) |pid| {
             posix.setpgid(0, pid) catch |err| forkChildErrReport(err_pipe[1], err);
+        }
+
+        if (self.start_suspended) {
+            posix.kill(posix.getpid(), .STOP) catch |err| forkChildErrReport(err_pipe[1], err);
         }
 
         const err = switch (self.expand_arg0) {
@@ -1010,8 +1031,14 @@ fn writeIntFd(fd: i32, value: ErrInt) !void {
 
 fn readIntFd(fd: i32) !ErrInt {
     var buffer: [8]u8 = undefined;
-    var fr: std.fs.File.Reader = .initStreaming(.{ .handle = fd }, &buffer);
-    return @intCast(fr.interface.takeInt(u64, .little) catch return error.SystemResources);
+    var i: usize = 0;
+    while (i < buffer.len) {
+        const n = try std.posix.read(fd, buffer[i..]);
+        if (n == 0) return error.EndOfStream;
+        i += n;
+    }
+    const int = mem.readInt(u64, &buffer, .little);
+    return @intCast(int);
 }
 
 const ErrInt = std.meta.Int(.unsigned, @sizeOf(anyerror) * 8);
@@ -1061,16 +1088,24 @@ fn windowsCreateProcessPathExt(
     // or a version with a supported PATHEXT appended. We then try calling CreateProcessW
     // with the found versions in the appropriate order.
 
+    // In the future, child process execution needs to move to Io implementation.
+    // Under those conditions, here we will have access to lower level directory
+    // opening function knowing which implementation we are in. Here, we imitate
+    // that scenario.
+    var threaded: std.Io.Threaded = .init_single_threaded;
+    const io = threaded.ioBasic();
+
     var dir = dir: {
         // needs to be null-terminated
         try dir_buf.append(allocator, 0);
         defer dir_buf.shrinkRetainingCapacity(dir_path_len);
         const dir_path_z = dir_buf.items[0 .. dir_buf.items.len - 1 :0];
         const prefixed_path = try windows.wToPrefixedFileW(null, dir_path_z);
-        break :dir fs.cwd().openDirW(prefixed_path.span().ptr, .{ .iterate = true }) catch
-            return error.FileNotFound;
+        break :dir threaded.dirOpenDirWindows(.cwd(), prefixed_path.span(), .{
+            .iterate = true,
+        }) catch return error.FileNotFound;
     };
-    defer dir.close();
+    defer dir.close(io);
 
     // Add wildcard and null-terminator
     try app_buf.append(allocator, '*');
@@ -1104,7 +1139,7 @@ fn windowsCreateProcessPathExt(
             .Buffer = @constCast(app_name_wildcard.ptr),
         };
         const rc = windows.ntdll.NtQueryDirectoryFile(
-            dir.fd,
+            dir.handle,
             null,
             null,
             null,
@@ -1192,7 +1227,7 @@ fn windowsCreateProcessPathExt(
                     const app_name = app_buf.items[0..app_name_len];
                     const ext_start = std.mem.lastIndexOfScalar(u16, app_name, '.') orelse break :unappended err;
                     const ext = app_name[ext_start..];
-                    if (windows.eqlIgnoreCaseWTF16(ext, unicode.utf8ToUtf16LeStringLiteral(".EXE"))) {
+                    if (windows.eqlIgnoreCaseWtf16(ext, unicode.utf8ToUtf16LeStringLiteral(".EXE"))) {
                         return error.UnrecoverableInvalidExe;
                     }
                     break :unappended err;
@@ -1243,7 +1278,7 @@ fn windowsCreateProcessPathExt(
                 // On InvalidExe, if the extension of the app name is .exe then
                 // it's treated as an unrecoverable error. Otherwise, it'll be
                 // skipped as normal.
-                if (windows.eqlIgnoreCaseWTF16(ext, unicode.utf8ToUtf16LeStringLiteral(".EXE"))) {
+                if (windows.eqlIgnoreCaseWtf16(ext, unicode.utf8ToUtf16LeStringLiteral(".EXE"))) {
                     return error.UnrecoverableInvalidExe;
                 }
                 continue;
@@ -1320,10 +1355,11 @@ fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *cons
     const pipe_path = blk: {
         var tmp_buf: [128]u8 = undefined;
         // Forge a random path for the pipe.
-        const pipe_path = std.fmt.bufPrintZ(
+        const pipe_path = std.fmt.bufPrintSentinel(
             &tmp_buf,
             "\\\\.\\pipe\\zig-childprocess-{d}-{d}",
             .{ windows.GetCurrentProcessId(), pipe_name_counter.fetchAdd(1, .monotonic) },
+            0,
         ) catch unreachable;
         const len = std.unicode.wtf8ToWtf16Le(&tmp_bufw, pipe_path) catch unreachable;
         tmp_bufw[len] = 0;

@@ -27,7 +27,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _CharT, class _Traits>
-class _LIBCPP_TEMPLATE_VIS istreambuf_iterator
+class istreambuf_iterator
 #if _LIBCPP_STD_VER <= 14 || !defined(_LIBCPP_ABI_NO_ITERATOR_BASES)
     : public iterator<input_iterator_tag, _CharT, typename _Traits::off_type, _CharT*, _CharT>
 #endif

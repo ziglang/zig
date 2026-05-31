@@ -24,8 +24,6 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :8:27: error: switch must handle all possibilities
 // :8:27: note: unhandled error value: 'error.Four'

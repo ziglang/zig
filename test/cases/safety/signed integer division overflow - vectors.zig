@@ -19,5 +19,5 @@ fn div(a: @Vector(4, i16), b: @Vector(4, i16)) @Vector(4, i16) {
     return @divTrunc(a, b);
 }
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux

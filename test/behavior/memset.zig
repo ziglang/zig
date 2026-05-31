@@ -122,7 +122,6 @@ test "memset with large array element, runtime known" {
 }
 
 test "memset with large array element, comptime known" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -174,4 +173,20 @@ test "zero keys with @memset" {
     try expect(!Keys.keys.down);
     try expect(!Keys.keys.left);
     try expect(!Keys.keys.right);
+}
+
+test "@memset with zero-length array" {
+    var array: [0]usize = undefined;
+    @memset(&array, 0);
+}
+
+test "@memset a global array" {
+    const S = struct {
+        var buf: [1]u32 = .{123};
+    };
+    try expect(S.buf[0] == 123);
+    @memset(&S.buf, 456);
+    try expect(S.buf[0] == 456);
+    @memset(&S.buf, S.buf[0] + 333);
+    try expect(S.buf[0] == 789);
 }

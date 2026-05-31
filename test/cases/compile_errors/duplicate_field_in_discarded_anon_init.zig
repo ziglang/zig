@@ -3,8 +3,6 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:13: error: duplicate struct field name
 // :2:21: note: duplicate name here

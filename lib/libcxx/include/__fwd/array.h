@@ -20,7 +20,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp, size_t _Size>
-struct _LIBCPP_TEMPLATE_VIS array;
+struct array;
 
 template <size_t _Ip, class _Tp, size_t _Size>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp& get(array<_Tp, _Size>&) _NOEXCEPT;

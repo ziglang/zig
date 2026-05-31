@@ -17,15 +17,9 @@
  * 02110-1301, USA.
  */
 
-#ifndef _ASM_SETUP_H
-#define _ASM_SETUP_H
-
-#define __init
+#ifndef _ASM_HEXAGON_SETUP_H
+#define _ASM_HEXAGON_SETUP_H
 
 #include <asm-generic/setup.h>
-
-extern char external_cmdline_buffer;
-
-void __init setup_arch_memory(void);
 
 #endif

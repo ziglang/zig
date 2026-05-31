@@ -8,7 +8,5 @@ export fn b() void {
 // zig fmt: on
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:21: error: extra capture in for loop

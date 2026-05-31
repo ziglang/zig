@@ -7,7 +7,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:5: error: union field missing type

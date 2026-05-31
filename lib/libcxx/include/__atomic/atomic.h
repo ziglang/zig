@@ -23,6 +23,7 @@
 #include <__type_traits/is_integral.h>
 #include <__type_traits/is_nothrow_constructible.h>
 #include <__type_traits/is_same.h>
+#include <__type_traits/is_trivially_copyable.h>
 #include <__type_traits/remove_const.h>
 #include <__type_traits/remove_pointer.h>
 #include <__type_traits/remove_volatile.h>
@@ -39,6 +40,8 @@ template <class _Tp, bool = is_integral<_Tp>::value && !is_same<_Tp, bool>::valu
 struct __atomic_base // false
 {
   mutable __cxx_atomic_impl<_Tp> __a_;
+
+  using value_type = _Tp;
 
 #if _LIBCPP_STD_VER >= 17
   static constexpr bool is_always_lock_free = __libcpp_is_always_lock_free<__cxx_atomic_impl<_Tp> >::__value;
@@ -145,6 +148,8 @@ template <class _Tp>
 struct __atomic_base<_Tp, true> : public __atomic_base<_Tp, false> {
   using __base _LIBCPP_NODEBUG = __atomic_base<_Tp, false>;
 
+  using difference_type = typename __base::value_type;
+
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 __atomic_base() _NOEXCEPT = default;
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR __atomic_base(_Tp __d) _NOEXCEPT : __base(__d) {}
@@ -226,11 +231,15 @@ struct __atomic_waitable_traits<__atomic_base<_Tp, _IsIntegral> > {
   }
 };
 
+template <typename _Tp>
+struct __check_atomic_mandates {
+  using type _LIBCPP_NODEBUG = _Tp;
+  static_assert(is_trivially_copyable<_Tp>::value, "std::atomic<T> requires that 'T' be a trivially copyable type");
+};
+
 template <class _Tp>
-struct atomic : public __atomic_base<_Tp> {
+struct atomic : public __atomic_base<typename __check_atomic_mandates<_Tp>::type> {
   using __base _LIBCPP_NODEBUG = __atomic_base<_Tp>;
-  using value_type             = _Tp;
-  using difference_type        = value_type;
 
 #if _LIBCPP_STD_VER >= 20
   _LIBCPP_HIDE_FROM_ABI atomic() = default;
@@ -258,8 +267,8 @@ struct atomic : public __atomic_base<_Tp> {
 template <class _Tp>
 struct atomic<_Tp*> : public __atomic_base<_Tp*> {
   using __base _LIBCPP_NODEBUG = __atomic_base<_Tp*>;
-  using value_type             = _Tp*;
-  using difference_type        = ptrdiff_t;
+
+  using difference_type = ptrdiff_t;
 
   _LIBCPP_HIDE_FROM_ABI atomic() _NOEXCEPT = default;
 
@@ -361,7 +370,7 @@ private:
           // https://github.com/llvm/llvm-project/issues/47978
           // clang bug: __old is not updated on failure for atomic<long double>::compare_exchange_weak
           // Note __old = __self.load(memory_order_relaxed) will not work
-          std::__cxx_atomic_load_inplace(std::addressof(__self.__a_), &__old, memory_order_relaxed);
+          std::__cxx_atomic_load_inplace(std::addressof(__self.__a_), std::addressof(__old), memory_order_relaxed);
         }
 #  endif
         __new = __operation(__old, __operand);

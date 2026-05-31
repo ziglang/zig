@@ -38,8 +38,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:11: error: invalid pointer-integer arithmetic operator
 // :2:11: note: pointer-integer arithmetic only supports addition and subtraction

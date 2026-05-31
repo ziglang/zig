@@ -102,7 +102,7 @@ const DebugFrame = struct {
         } + switch (target.cpu.arch) {
             .x86_64 => len: {
                 dev.check(.x86_64_backend);
-                const Register = @import("../arch/x86_64/bits.zig").Register;
+                const Register = @import("../codegen/x86_64/bits.zig").Register;
                 break :len uleb128Bytes(1) + sleb128Bytes(-8) + uleb128Bytes(Register.rip.dwarfNum()) +
                     1 + uleb128Bytes(Register.rsp.dwarfNum()) + sleb128Bytes(-1) +
                     1 + uleb128Bytes(1);
@@ -211,7 +211,7 @@ const DebugRngLists = struct {
 };
 
 const StringSection = struct {
-    contents: std.ArrayListUnmanaged(u8),
+    contents: std.ArrayList(u8),
     map: std.AutoArrayHashMapUnmanaged(void, void),
     section: Section,
 
@@ -275,7 +275,7 @@ pub const Section = struct {
     first: Unit.Index.Optional,
     last: Unit.Index.Optional,
     len: u64,
-    units: std.ArrayListUnmanaged(Unit),
+    units: std.ArrayList(Unit),
 
     pub const Index = enum {
         debug_abbrev,
@@ -511,9 +511,9 @@ const Unit = struct {
     trailer_len: u32,
     /// data length in bytes
     len: u32,
-    entries: std.ArrayListUnmanaged(Entry),
-    cross_unit_relocs: std.ArrayListUnmanaged(CrossUnitReloc),
-    cross_section_relocs: std.ArrayListUnmanaged(CrossSectionReloc),
+    entries: std.ArrayList(Entry),
+    cross_unit_relocs: std.ArrayList(CrossUnitReloc),
+    cross_section_relocs: std.ArrayList(CrossSectionReloc),
 
     const Index = enum(u32) {
         main,
@@ -790,10 +790,10 @@ const Entry = struct {
     off: u32,
     /// data length in bytes
     len: u32,
-    cross_entry_relocs: std.ArrayListUnmanaged(CrossEntryReloc),
-    cross_unit_relocs: std.ArrayListUnmanaged(CrossUnitReloc),
-    cross_section_relocs: std.ArrayListUnmanaged(CrossSectionReloc),
-    external_relocs: std.ArrayListUnmanaged(ExternalReloc),
+    cross_entry_relocs: std.ArrayList(CrossEntryReloc),
+    cross_unit_relocs: std.ArrayList(CrossUnitReloc),
+    cross_section_relocs: std.ArrayList(CrossSectionReloc),
+    external_relocs: std.ArrayList(ExternalReloc),
 
     fn clear(entry: *Entry) void {
         entry.cross_entry_relocs.clearRetainingCapacity();
@@ -1474,7 +1474,7 @@ pub const WipNav = struct {
     func: InternPool.Index,
     func_sym_index: u32,
     func_high_pc: u32,
-    blocks: std.ArrayListUnmanaged(struct {
+    blocks: std.ArrayList(struct {
         abbrev_code: u32,
         low_pc_off: u64,
         high_pc: u32,
@@ -2126,19 +2126,22 @@ pub const WipNav = struct {
         const size = if (ty.hasRuntimeBits(wip_nav.pt.zcu)) ty.abiSize(wip_nav.pt.zcu) else 0;
         try diw.writeUleb128(size);
         if (size == 0) return;
-        var bytes = wip_nav.debug_info.toArrayList();
-        defer wip_nav.debug_info = .fromArrayList(wip_nav.dwarf.gpa, &bytes);
-        const old_len = bytes.items.len;
+        const old_end = wip_nav.debug_info.writer.end;
         try codegen.generateSymbol(
             wip_nav.dwarf.bin_file,
             wip_nav.pt,
             src_loc,
             val,
-            &bytes,
+            &wip_nav.debug_info.writer,
             .{ .debug_output = .{ .dwarf = wip_nav } },
         );
-        if (old_len + size != bytes.items.len) {
-            std.debug.print("{f} [{}]: {} != {}\n", .{ ty.fmt(wip_nav.pt), ty.toIntern(), size, bytes.items.len - old_len });
+        if (old_end + size != wip_nav.debug_info.writer.end) {
+            std.debug.print("{f} [{}]: {} != {}\n", .{
+                ty.fmt(wip_nav.pt),
+                ty.toIntern(),
+                size,
+                wip_nav.debug_info.writer.end - old_end,
+            });
             unreachable;
         }
     }
@@ -2297,8 +2300,8 @@ pub const WipNav = struct {
     }
 
     const PendingLazy = struct {
-        types: std.ArrayListUnmanaged(InternPool.Index),
-        values: std.ArrayListUnmanaged(InternPool.Index),
+        types: std.ArrayList(InternPool.Index),
+        values: std.ArrayList(InternPool.Index),
 
         const empty: PendingLazy = .{ .types = .empty, .values = .empty };
     };
@@ -2346,7 +2349,7 @@ pub fn init(lf: *link.File, format: DW.Format) Dwarf {
         .debug_aranges = .{ .section = Section.init },
         .debug_frame = .{
             .header = if (target.cpu.arch == .x86_64 and target.ofmt == .elf) header: {
-                const Register = @import("../arch/x86_64/bits.zig").Register;
+                const Register = @import("../codegen/x86_64/bits.zig").Register;
                 break :header comptime .{
                     .format = .eh_frame,
                     .code_alignment_factor = 1,
@@ -3155,11 +3158,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
                                     .struct_field
                             else
                                 .struct_field);
-                            if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
-                                var field_name_buf: [std.fmt.count("{d}", .{std.math.maxInt(u32)})]u8 = undefined;
-                                const field_name = std.fmt.bufPrint(&field_name_buf, "{d}", .{field_index}) catch unreachable;
-                                try wip_nav.strp(field_name);
-                            }
+                            try wip_nav.strp(loaded_struct.fieldName(ip, field_index).toSlice(ip));
                             try wip_nav.refType(field_type);
                             if (!is_comptime) {
                                 try diw.writeUleb128(loaded_struct.offsets.get(ip)[field_index]);
@@ -3184,7 +3183,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
                     var field_bit_offset: u16 = 0;
                     for (0..loaded_struct.field_types.len) |field_index| {
                         try wip_nav.abbrevCode(.packed_struct_field);
-                        try wip_nav.strp(loaded_struct.fieldName(ip, field_index).unwrap().?.toSlice(ip));
+                        try wip_nav.strp(loaded_struct.fieldName(ip, field_index).toSlice(ip));
                         const field_type: Type = .fromInterned(loaded_struct.field_types.get(ip)[field_index]);
                         try wip_nav.refType(field_type);
                         try diw.writeUleb128(field_bit_offset);
@@ -3902,6 +3901,8 @@ fn updateLazyType(
 
                     .m68k_rtd => .LLVM_M68kRTD,
 
+                    .sh_renesas => .GNU_renesas_sh,
+
                     .amdgcn_kernel => .LLVM_OpenCLKernel,
                     .nvptx_kernel,
                     .spirv_kernel,
@@ -3914,11 +3915,15 @@ fn updateLazyType(
                     .mips_interrupt,
                     .riscv64_interrupt,
                     .riscv32_interrupt,
+                    .sh_interrupt,
+                    .arc_interrupt,
                     .avr_builtin,
                     .avr_signal,
                     .avr_interrupt,
                     .csky_interrupt,
                     .m68k_interrupt,
+                    .microblaze_interrupt,
+                    .msp430_interrupt,
                     => .normal,
 
                     else => .nocall,
@@ -4061,6 +4066,7 @@ fn updateLazyValue(
         },
         .error_union => |error_union| {
             try wip_nav.abbrevCode(.aggregate_comptime_value);
+            try wip_nav.refType(.fromInterned(error_union.ty));
             var err_buf: [4]u8 = undefined;
             const err_bytes = err_buf[0 .. std.math.divCeil(u17, zcu.errorSetBits(), 8) catch unreachable];
             dwarf.writeInt(err_bytes, switch (error_union.val) {
@@ -4098,7 +4104,6 @@ fn updateLazyValue(
                 try diw.writeUleb128(err_bytes.len);
                 try diw.writeAll(err_bytes);
             }
-            try wip_nav.refType(.fromInterned(error_union.ty));
             try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
         },
         .enum_literal => |enum_literal| {
@@ -4260,11 +4265,7 @@ fn updateLazyValue(
                             .comptime_value_field_runtime_bits
                         else
                             continue);
-                        if (loaded_struct_type.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
-                            var field_name_buf: [std.fmt.count("{d}", .{std.math.maxInt(u32)})]u8 = undefined;
-                            const field_name = std.fmt.bufPrint(&field_name_buf, "{d}", .{field_index}) catch unreachable;
-                            try wip_nav.strp(field_name);
-                        }
+                        try wip_nav.strp(loaded_struct_type.fieldName(ip, field_index).toSlice(ip));
                         const field_value: Value = .fromInterned(switch (aggregate.storage) {
                             .bytes => unreachable,
                             .elems => |elems| elems[field_index],
@@ -4458,11 +4459,7 @@ fn updateContainerTypeWriterError(
                         .struct_field
                 else
                     .struct_field);
-                if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
-                    var field_name_buf: [std.fmt.count("{d}", .{std.math.maxInt(u32)})]u8 = undefined;
-                    const field_name = std.fmt.bufPrint(&field_name_buf, "{d}", .{field_index}) catch unreachable;
-                    try wip_nav.strp(field_name);
-                }
+                try wip_nav.strp(loaded_struct.fieldName(ip, field_index).toSlice(ip));
                 try wip_nav.refType(field_type);
                 if (!is_comptime) {
                     try diw.writeUleb128(loaded_struct.offsets.get(ip)[field_index]);
@@ -4493,7 +4490,12 @@ fn updateContainerTypeWriterError(
                     .enum_decl => @as(Zir.Inst.EnumDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
                     .union_decl => @as(Zir.Inst.UnionDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
                     .opaque_decl => @as(Zir.Inst.OpaqueDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
-                    .reify => @as(Zir.Inst.NameStrategy, @enumFromInt(decl_inst.data.extended.small)),
+
+                    .reify_enum,
+                    .reify_struct,
+                    .reify_union,
+                    => @enumFromInt(decl_inst.data.extended.small),
+
                     else => unreachable,
                 },
                 else => unreachable,
@@ -4564,11 +4566,7 @@ fn updateContainerTypeWriterError(
                                         .struct_field
                                 else
                                     .struct_field);
-                                if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
-                                    var field_name_buf: [std.fmt.count("{d}", .{std.math.maxInt(u32)})]u8 = undefined;
-                                    const field_name = std.fmt.bufPrint(&field_name_buf, "{d}", .{field_index}) catch unreachable;
-                                    try wip_nav.strp(field_name);
-                                }
+                                try wip_nav.strp(loaded_struct.fieldName(ip, field_index).toSlice(ip));
                                 try wip_nav.refType(field_type);
                                 if (!is_comptime) {
                                     try diw.writeUleb128(loaded_struct.offsets.get(ip)[field_index]);
@@ -4591,7 +4589,7 @@ fn updateContainerTypeWriterError(
                         var field_bit_offset: u16 = 0;
                         for (0..loaded_struct.field_types.len) |field_index| {
                             try wip_nav.abbrevCode(.packed_struct_field);
-                            try wip_nav.strp(loaded_struct.fieldName(ip, field_index).unwrap().?.toSlice(ip));
+                            try wip_nav.strp(loaded_struct.fieldName(ip, field_index).toSlice(ip));
                             const field_type: Type = .fromInterned(loaded_struct.field_types.get(ip)[field_index]);
                             try wip_nav.refType(field_type);
                             try diw.writeUleb128(field_bit_offset);
@@ -4830,7 +4828,7 @@ fn flushWriterError(dwarf: *Dwarf, pt: Zcu.PerThread) (FlushError || Writer.Erro
             .eh_frame => switch (target.cpu.arch) {
                 .x86_64 => {
                     dev.check(.x86_64_backend);
-                    const Register = @import("../arch/x86_64/bits.zig").Register;
+                    const Register = @import("../codegen/x86_64/bits.zig").Register;
                     for (dwarf.debug_frame.section.units.items) |*unit| {
                         header_aw.clearRetainingCapacity();
                         try header_aw.ensureTotalCapacity(unit.header_len);
@@ -4849,7 +4847,7 @@ fn flushWriterError(dwarf: *Dwarf, pt: Zcu.PerThread) (FlushError || Writer.Erro
                         hw.writeSleb128(dwarf.debug_frame.header.data_alignment_factor) catch unreachable;
                         hw.writeUleb128(dwarf.debug_frame.header.return_address_register) catch unreachable;
                         hw.writeUleb128(1) catch unreachable;
-                        hw.writeByte(DW.EH.PE.pcrel | DW.EH.PE.sdata4) catch unreachable;
+                        hw.writeByte(@bitCast(@as(DW.EH.PE, .{ .type = .sdata4, .rel = .pcrel }))) catch unreachable;
                         hw.writeByte(DW.CFA.def_cfa_sf) catch unreachable;
                         hw.writeUleb128(Register.rsp.dwarfNum()) catch unreachable;
                         hw.writeSleb128(-1) catch unreachable;
@@ -5132,25 +5130,23 @@ pub fn resolveRelocs(dwarf: *Dwarf) RelocError!void {
 
 fn DeclValEnum(comptime T: type) type {
     const decls = @typeInfo(T).@"struct".decls;
-    @setEvalBranchQuota(7 * decls.len);
-    var fields: [decls.len]std.builtin.Type.EnumField = undefined;
+    @setEvalBranchQuota(10 * decls.len);
+    var field_names: [decls.len][]const u8 = undefined;
     var fields_len = 0;
     var min_value: ?comptime_int = null;
     var max_value: ?comptime_int = null;
     for (decls) |decl| {
         if (std.mem.startsWith(u8, decl.name, "HP_") or std.mem.endsWith(u8, decl.name, "_user")) continue;
         const value = @field(T, decl.name);
-        fields[fields_len] = .{ .name = decl.name, .value = value };
+        field_names[fields_len] = decl.name;
         fields_len += 1;
         if (min_value == null or min_value.? > value) min_value = value;
         if (max_value == null or max_value.? < value) max_value = value;
     }
-    return @Type(.{ .@"enum" = .{
-        .tag_type = std.math.IntFittingRange(min_value orelse 0, max_value orelse 0),
-        .fields = fields[0..fields_len],
-        .decls = &.{},
-        .is_exhaustive = true,
-    } });
+    const TagInt = std.math.IntFittingRange(min_value orelse 0, max_value orelse 0);
+    var field_vals: [fields_len]TagInt = undefined;
+    for (field_names[0..fields_len], &field_vals) |name, *val| val.* = @field(T, name);
+    return @Enum(TagInt, .exhaustive, field_names[0..fields_len], &field_vals);
 }
 
 const AbbrevCode = enum {
@@ -6384,10 +6380,12 @@ fn freeCommonEntry(
 
 fn writeInt(dwarf: *Dwarf, buf: []u8, int: u64) void {
     switch (buf.len) {
-        inline 0...8 => |len| std.mem.writeInt(@Type(.{ .int = .{
-            .signedness = .unsigned,
-            .bits = len * 8,
-        } }), buf[0..len], @intCast(int), dwarf.endian),
+        inline 0...8 => |len| std.mem.writeInt(
+            @Int(.unsigned, len * 8),
+            buf[0..len],
+            @intCast(int),
+            dwarf.endian,
+        ),
         else => unreachable,
     }
 }
@@ -6429,7 +6427,7 @@ fn sleb128Bytes(value: anytype) u32 {
 /// overrides `-fno-incremental` for testing incremental debug info until `-fincremental` is functional
 const force_incremental = false;
 inline fn incremental(dwarf: Dwarf) bool {
-    return force_incremental or dwarf.bin_file.comp.incremental;
+    return force_incremental or dwarf.bin_file.comp.config.incremental;
 }
 
 const Allocator = std.mem.Allocator;

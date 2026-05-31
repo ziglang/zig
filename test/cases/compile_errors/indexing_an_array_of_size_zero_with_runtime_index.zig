@@ -7,7 +7,5 @@ export fn foo() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:27: error: indexing into empty array is not allowed

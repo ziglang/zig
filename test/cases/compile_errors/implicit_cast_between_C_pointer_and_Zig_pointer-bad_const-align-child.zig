@@ -30,8 +30,6 @@ export fn f() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:27: error: expected type '*align(4) u8', found '[*c]u8'
 // :3:27: note: pointer alignment '1' cannot cast into pointer alignment '4'

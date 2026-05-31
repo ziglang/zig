@@ -206,7 +206,7 @@ pub fn main() !void {
                         .file => {
                             const rel_path = try std.fs.path.relative(arena, target_include_dir, full_path);
                             const max_size = 2 * 1024 * 1024 * 1024;
-                            const raw_bytes = try std.fs.cwd().readFileAlloc(arena, full_path, max_size);
+                            const raw_bytes = try std.fs.cwd().readFileAlloc(full_path, arena, .limited(max_size));
                             const trimmed = std.mem.trim(u8, raw_bytes, " \r\n\t");
                             total_bytes += raw_bytes.len;
                             const hash = try arena.alloc(u8, 32);

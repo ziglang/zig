@@ -9,7 +9,7 @@ const Progress = @This();
 const posix = std.posix;
 const is_big_endian = builtin.cpu.arch.endian() == .big;
 const is_windows = builtin.os.tag == .windows;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 /// `null` if the current node (and its children) should
 /// not print on update()
@@ -392,7 +392,7 @@ var global_progress: Progress = .{
     .terminal = undefined,
     .terminal_mode = .off,
     .update_thread = null,
-    .redraw_event = .{},
+    .redraw_event = .unset,
     .refresh_rate_ns = undefined,
     .initial_delay_ns = undefined,
     .rows = 0,
@@ -427,7 +427,6 @@ const noop_impl = builtin.single_threaded or switch (builtin.os.tag) {
     .wasi, .freestanding => true,
     else => false,
 } or switch (builtin.zig_backend) {
-    .stage2_aarch64 => true,
     else => false,
 };
 
@@ -493,7 +492,7 @@ pub fn start(options: Options) Node {
                     .mask = posix.sigemptyset(),
                     .flags = (posix.SA.SIGINFO | posix.SA.RESTART),
                 };
-                posix.sigaction(posix.SIG.WINCH, &act, null);
+                posix.sigaction(.WINCH, &act, null);
             }
 
             if (switch (global_progress.terminal_mode) {
@@ -523,9 +522,7 @@ pub fn setStatus(new_status: Status) void {
 
 /// Returns whether a resize is needed to learn the terminal size.
 fn wait(timeout_ns: u64) bool {
-    const resize_flag = if (global_progress.redraw_event.timedWait(timeout_ns)) |_|
-        true
-    else |err| switch (err) {
+    const resize_flag = if (global_progress.redraw_event.timedWait(timeout_ns)) |_| true else |err| switch (err) {
         error.Timeout => false,
     };
     global_progress.redraw_event.reset();
@@ -701,13 +698,13 @@ const save = "\x1b7";
 const restore = "\x1b8";
 const finish_sync = "\x1b[?2026l";
 
-const progress_remove = "\x1b]9;4;0\x07";
-const @"progress_normal {d}" = "\x1b]9;4;1;{d}\x07";
-const @"progress_error {d}" = "\x1b]9;4;2;{d}\x07";
-const progress_pulsing = "\x1b]9;4;3\x07";
-const progress_pulsing_error = "\x1b]9;4;2\x07";
-const progress_normal_100 = "\x1b]9;4;1;100\x07";
-const progress_error_100 = "\x1b]9;4;2;100\x07";
+const progress_remove = "\x1b]9;4;0\x1b\\";
+const @"progress_normal {d}" = "\x1b]9;4;1;{d}\x1b\\";
+const @"progress_error {d}" = "\x1b]9;4;2;{d}\x1b\\";
+const progress_pulsing = "\x1b]9;4;3\x1b\\";
+const progress_pulsing_error = "\x1b]9;4;2\x1b\\";
+const progress_normal_100 = "\x1b]9;4;1;100\x1b\\";
+const progress_error_100 = "\x1b]9;4;2;100\x1b\\";
 
 const TreeSymbol = enum {
     /// ├─
@@ -1248,7 +1245,9 @@ fn computeRedraw(serialized_buffer: *Serialized.Buffer) struct { []u8, usize } {
                         i += progress_pulsing.len;
                     } else {
                         const percent = completed_items * 100 / estimated_total;
-                        i += (std.fmt.bufPrint(buf[i..], @"progress_normal {d}", .{percent}) catch &.{}).len;
+                        if (std.fmt.bufPrint(buf[i..], @"progress_normal {d}", .{percent})) |b| {
+                            i += b.len;
+                        } else |_| {}
                     }
                 },
                 .success => {
@@ -1265,7 +1264,9 @@ fn computeRedraw(serialized_buffer: *Serialized.Buffer) struct { []u8, usize } {
                         i += progress_pulsing_error.len;
                     } else {
                         const percent = completed_items * 100 / estimated_total;
-                        i += (std.fmt.bufPrint(buf[i..], @"progress_error {d}", .{percent}) catch &.{}).len;
+                        if (std.fmt.bufPrint(buf[i..], @"progress_error {d}", .{percent})) |b| {
+                            i += b.len;
+                        } else |_| {}
                     }
                 },
             }
@@ -1364,12 +1365,18 @@ fn computeNode(
     if (!is_empty_root) {
         if (name.len != 0 or estimated_total > 0) {
             if (estimated_total > 0) {
-                i += (std.fmt.bufPrint(buf[i..], "[{d}/{d}] ", .{ completed_items, estimated_total }) catch &.{}).len;
+                if (std.fmt.bufPrint(buf[i..], "[{d}/{d}] ", .{ completed_items, estimated_total })) |b| {
+                    i += b.len;
+                } else |_| {}
             } else if (completed_items != 0) {
-                i += (std.fmt.bufPrint(buf[i..], "[{d}] ", .{completed_items}) catch &.{}).len;
+                if (std.fmt.bufPrint(buf[i..], "[{d}] ", .{completed_items})) |b| {
+                    i += b.len;
+                } else |_| {}
             }
             if (name.len != 0) {
-                i += (std.fmt.bufPrint(buf[i..], "{s}", .{name}) catch &.{}).len;
+                if (std.fmt.bufPrint(buf[i..], "{s}", .{name})) |b| {
+                    i += b.len;
+                } else |_| {}
             }
         }
 
@@ -1527,25 +1534,27 @@ fn maybeUpdateSize(resize_flag: bool) void {
     }
 }
 
-fn handleSigWinch(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
+fn handleSigWinch(sig: posix.SIG, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
     _ = info;
     _ = ctx_ptr;
-    assert(sig == posix.SIG.WINCH);
+    assert(sig == .WINCH);
     global_progress.redraw_event.set();
 }
 
 const have_sigwinch = switch (builtin.os.tag) {
     .linux,
     .plan9,
-    .solaris,
+    .illumos,
     .netbsd,
     .openbsd,
     .haiku,
-    .macos,
+    .driverkit,
     .ios,
-    .watchos,
+    .maccatalyst,
+    .macos,
     .tvos,
     .visionos,
+    .watchos,
     .dragonfly,
     .freebsd,
     .serenity,

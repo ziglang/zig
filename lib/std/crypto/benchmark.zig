@@ -19,6 +19,7 @@ const Crypto = struct {
 };
 
 const hashes = [_]Crypto{
+    Crypto{ .ty = crypto.hash.ascon.AsconHash256, .name = "ascon-256" },
     Crypto{ .ty = crypto.hash.Md5, .name = "md5" },
     Crypto{ .ty = crypto.hash.Sha1, .name = "sha1" },
     Crypto{ .ty = crypto.hash.sha2.Sha256, .name = "sha256" },
@@ -29,9 +30,15 @@ const hashes = [_]Crypto{
     Crypto{ .ty = crypto.hash.sha3.Shake256, .name = "shake-256" },
     Crypto{ .ty = crypto.hash.sha3.TurboShake128(null), .name = "turboshake-128" },
     Crypto{ .ty = crypto.hash.sha3.TurboShake256(null), .name = "turboshake-256" },
+    Crypto{ .ty = crypto.hash.sha3.KT128, .name = "kt128" },
     Crypto{ .ty = crypto.hash.blake2.Blake2s256, .name = "blake2s" },
     Crypto{ .ty = crypto.hash.blake2.Blake2b512, .name = "blake2b" },
     Crypto{ .ty = crypto.hash.Blake3, .name = "blake3" },
+};
+
+const parallel_hashes = [_]Crypto{
+    Crypto{ .ty = crypto.hash.Blake3, .name = "blake3-parallel" },
+    Crypto{ .ty = crypto.hash.sha3.KT128, .name = "kt128-parallel" },
 };
 
 const block_size: usize = 8 * 8192;
@@ -50,6 +57,25 @@ pub fn benchmarkHash(comptime Hash: anytype, comptime bytes: comptime_int) !u64 
     }
     var final: [Hash.digest_length]u8 = undefined;
     h.final(&final);
+    std.mem.doNotOptimizeAway(final);
+
+    const end = timer.read();
+
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = @as(u64, @intFromFloat(bytes / elapsed_s));
+
+    return throughput;
+}
+
+pub fn benchmarkHashParallel(comptime Hash: anytype, comptime bytes: comptime_int, allocator: mem.Allocator, io: std.Io) !u64 {
+    const data: []u8 = try allocator.alloc(u8, bytes);
+    defer allocator.free(data);
+    random.bytes(data);
+
+    var timer = try Timer.start();
+    const start = timer.lap();
+    var final: [Hash.digest_length]u8 = undefined;
+    try Hash.hashParallel(data, &final, .{}, allocator, io);
     std.mem.doNotOptimizeAway(final);
 
     const end = timer.read();
@@ -140,6 +166,9 @@ const signatures = [_]Crypto{
     Crypto{ .ty = crypto.sign.ecdsa.EcdsaP256Sha256, .name = "ecdsa-p256" },
     Crypto{ .ty = crypto.sign.ecdsa.EcdsaP384Sha384, .name = "ecdsa-p384" },
     Crypto{ .ty = crypto.sign.ecdsa.EcdsaSecp256k1Sha256, .name = "ecdsa-secp256k1" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA44, .name = "ml-dsa-44" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA65, .name = "ml-dsa-65" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA87, .name = "ml-dsa-87" },
 };
 
 pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
@@ -163,7 +192,12 @@ pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count
     return throughput;
 }
 
-const signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed25519, .name = "ed25519" }};
+const signature_verifications = [_]Crypto{
+    Crypto{ .ty = crypto.sign.Ed25519, .name = "ed25519" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA44, .name = "ml-dsa-44" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA65, .name = "ml-dsa-65" },
+    Crypto{ .ty = crypto.sign.mldsa.MLDSA87, .name = "ml-dsa-87" },
+};
 
 pub fn benchmarkSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
     const msg = [_]u8{0} ** 64;
@@ -283,6 +317,7 @@ pub fn benchmarkKemKeyGen(comptime Kem: anytype, comptime kems_count: comptime_i
 }
 
 const aeads = [_]Crypto{
+    Crypto{ .ty = crypto.aead.ascon.AsconAead128, .name = "ascon-aead-128" },
     Crypto{ .ty = crypto.aead.chacha_poly.ChaCha20Poly1305, .name = "chacha20Poly1305" },
     Crypto{ .ty = crypto.aead.chacha_poly.XChaCha20Poly1305, .name = "xchacha20Poly1305" },
     Crypto{ .ty = crypto.aead.chacha_poly.XChaCha8Poly1305, .name = "xchacha8Poly1305" },
@@ -458,7 +493,10 @@ fn mode(comptime x: comptime_int) comptime_int {
 }
 
 pub fn main() !void {
-    const stdout = std.fs.File.stdout().deprecatedWriter();
+    // Size of buffer is about size of printed message.
+    var stdout_buffer: [0x100]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -471,6 +509,7 @@ pub fn main() !void {
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--mode")) {
             try stdout.print("{}\n", .{builtin.mode});
+            try stdout.flush();
             return;
         } else if (std.mem.eql(u8, args[i], "--seed")) {
             i += 1;
@@ -502,6 +541,19 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
             const throughput = try benchmarkHash(H.ty, mode(128 * MiB));
             try stdout.print("{s:>17}: {:10} MiB/s\n", .{ H.name, throughput / (1 * MiB) });
+            try stdout.flush();
+        }
+    }
+
+    var io_threaded = std.Io.Threaded.init(arena_allocator);
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    inline for (parallel_hashes) |H| {
+        if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
+            const throughput = try benchmarkHashParallel(H.ty, mode(128 * MiB), arena_allocator, io);
+            try stdout.print("{s:>17}: {:10} MiB/s\n", .{ H.name, throughput / (1 * MiB) });
+            try stdout.flush();
         }
     }
 
@@ -509,6 +561,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, M.name, filter.?) != null) {
             const throughput = try benchmarkMac(M.ty, mode(128 * MiB));
             try stdout.print("{s:>17}: {:10} MiB/s\n", .{ M.name, throughput / (1 * MiB) });
+            try stdout.flush();
         }
     }
 
@@ -516,6 +569,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkKeyExchange(E.ty, mode(1000));
             try stdout.print("{s:>17}: {:10} exchanges/s\n", .{ E.name, throughput });
+            try stdout.flush();
         }
     }
 
@@ -523,6 +577,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkSignature(E.ty, mode(1000));
             try stdout.print("{s:>17}: {:10} signatures/s\n", .{ E.name, throughput });
+            try stdout.flush();
         }
     }
 
@@ -530,6 +585,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkSignatureVerification(E.ty, mode(1000));
             try stdout.print("{s:>17}: {:10} verifications/s\n", .{ E.name, throughput });
+            try stdout.flush();
         }
     }
 
@@ -537,6 +593,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkBatchSignatureVerification(E.ty, mode(1000));
             try stdout.print("{s:>17}: {:10} verifications/s (batch)\n", .{ E.name, throughput });
+            try stdout.flush();
         }
     }
 
@@ -544,6 +601,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkAead(E.ty, mode(128 * MiB));
             try stdout.print("{s:>17}: {:10} MiB/s\n", .{ E.name, throughput / (1 * MiB) });
+            try stdout.flush();
         }
     }
 
@@ -551,6 +609,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkAes(E.ty, mode(100000000));
             try stdout.print("{s:>17}: {:10} ops/s\n", .{ E.name, throughput });
+            try stdout.flush();
         }
     }
 
@@ -558,6 +617,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkAes8(E.ty, mode(10000000));
             try stdout.print("{s:>17}: {:10} ops/s\n", .{ E.name, throughput });
+            try stdout.flush();
         }
     }
 
@@ -565,6 +625,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, H.name, filter.?) != null) {
             const throughput = try benchmarkPwhash(arena_allocator, H.ty, H.params, mode(64));
             try stdout.print("{s:>17}: {d:10.3} s/ops\n", .{ H.name, throughput });
+            try stdout.flush();
         }
     }
 
@@ -572,6 +633,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkKem(E.ty, mode(1000));
             try stdout.print("{s:>17}: {:10} encaps/s\n", .{ E.name, throughput });
+            try stdout.flush();
         }
     }
 
@@ -579,6 +641,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkKemDecaps(E.ty, mode(25000));
             try stdout.print("{s:>17}: {:10} decaps/s\n", .{ E.name, throughput });
+            try stdout.flush();
         }
     }
 
@@ -586,6 +649,7 @@ pub fn main() !void {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkKemKeyGen(E.ty, mode(25000));
             try stdout.print("{s:>17}: {:10} keygen/s\n", .{ E.name, throughput });
+            try stdout.flush();
         }
     }
 }

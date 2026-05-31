@@ -34,6 +34,15 @@ struct _LIBCPP_EXPORTED_FROM_ABI to_chars_result {
 
 #endif // _LIBCPP_STD_VER >= 17
 
+struct __to_chars_result {
+  char* __ptr;
+  errc __ec;
+
+#if _LIBCPP_STD_VER >= 17
+  _LIBCPP_HIDE_FROM_ABI constexpr operator to_chars_result() { return {__ptr, __ec}; }
+#endif
+};
+
 _LIBCPP_END_NAMESPACE_STD
 
 #endif // _LIBCPP___CHARCONV_TO_CHARS_RESULT_H

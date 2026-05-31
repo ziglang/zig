@@ -31,8 +31,6 @@ pub export fn entry3() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :12:5: error: switch must handle all possibilities
 // :3:5: note: unhandled enumeration value: 'b'

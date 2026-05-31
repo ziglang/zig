@@ -42,6 +42,7 @@
 #include <__assert>
 #include <__config>
 #include <charconv>
+#include <cstddef>
 #include <cstring>
 
 #include "include/ryu/common.h"

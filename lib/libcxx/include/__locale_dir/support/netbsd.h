@@ -6,6 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+/* zig patch: https://github.com/llvm/llvm-project/pull/143055 */
+
 #ifndef _LIBCPP___LOCALE_DIR_SUPPORT_NETBSD_H
 #define _LIBCPP___LOCALE_DIR_SUPPORT_NETBSD_H
 

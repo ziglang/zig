@@ -5,8 +5,6 @@ export fn foo() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:13: error: expected type '*anyopaque', found '?*anyopaque'
 // :4:13: note: cannot convert optional to payload type

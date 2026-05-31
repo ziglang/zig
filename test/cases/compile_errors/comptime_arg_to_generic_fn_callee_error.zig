@@ -14,8 +14,6 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :7:28: error: enum 'meta.FieldEnum(tmp.MyStruct)' has no member named 'c'
 // :?:?: note: enum declared here

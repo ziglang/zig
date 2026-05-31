@@ -481,7 +481,8 @@ INTERCEPTOR(char*, textdomain, const char *domainname) {
 #endif
 
 #if SANITIZER_INTERCEPT_STRCMP || SANITIZER_INTERCEPT_MEMCMP
-static inline int CharCmpX(unsigned char c1, unsigned char c2) {
+[[maybe_unused]] static inline int CharCmpX(unsigned char c1,
+                                            unsigned char c2) {
   return (c1 == c2) ? 0 : (c1 < c2) ? -1 : 1;
 }
 #endif
@@ -953,7 +954,7 @@ INTERCEPTOR(double, frexp, double x, int *exp) {
 #define INIT_FREXP
 #endif  // SANITIZER_INTERCEPT_FREXP
 
-#if SANITIZER_INTERCEPT_FREXPF_FREXPL
+#if SANITIZER_INTERCEPT_FREXPF
 INTERCEPTOR(float, frexpf, float x, int *exp) {
   void *ctx;
   COMMON_INTERCEPTOR_ENTER(ctx, frexpf, x, exp);
@@ -963,6 +964,12 @@ INTERCEPTOR(float, frexpf, float x, int *exp) {
   return res;
 }
 
+#  define INIT_FREXPF COMMON_INTERCEPT_FUNCTION(frexpf);
+#else
+#  define INIT_FREXPF
+#endif
+
+#if SANITIZER_INTERCEPT_FREXPL
 INTERCEPTOR(long double, frexpl, long double x, int *exp) {
   void *ctx;
   COMMON_INTERCEPTOR_ENTER(ctx, frexpl, x, exp);
@@ -972,12 +979,10 @@ INTERCEPTOR(long double, frexpl, long double x, int *exp) {
   return res;
 }
 
-#define INIT_FREXPF_FREXPL           \
-  COMMON_INTERCEPT_FUNCTION(frexpf); \
-  COMMON_INTERCEPT_FUNCTION_LDBL(frexpl)
+#  define INIT_FREXPL COMMON_INTERCEPT_FUNCTION_LDBL(frexpl)
 #else
-#define INIT_FREXPF_FREXPL
-#endif  // SANITIZER_INTERCEPT_FREXPF_FREXPL
+#  define INIT_FREXPL
+#endif
 
 #if SI_POSIX
 static void write_iovec(void *ctx, struct __sanitizer_iovec *iovec,
@@ -1346,7 +1351,8 @@ INTERCEPTOR(unsigned long, time, unsigned long *t) {
 #if SANITIZER_INTERCEPT_LOCALTIME_AND_FRIENDS
 static void unpoison_tm(void *ctx, __sanitizer_tm *tm) {
   COMMON_INTERCEPTOR_WRITE_RANGE(ctx, tm, sizeof(*tm));
-#if !SANITIZER_SOLARIS
+// AIX tm struct does not have tm_zone field.
+#  if !SANITIZER_SOLARIS && !SANITIZER_AIX
   if (tm->tm_zone) {
     // Can not use COMMON_INTERCEPTOR_WRITE_RANGE here, because tm->tm_zone
     // can point to shared memory and tsan would report a data race.
@@ -1731,10 +1737,12 @@ INTERCEPTOR(int, __vsprintf_chk, char *str, int flag, SIZE_T size_to,
 VSPRINTF_INTERCEPTOR_IMPL(vsprintf, str, format, ap)
 #endif
 
+#  if SANITIZER_INTERCEPT_VASPRINTF
 INTERCEPTOR(int, vasprintf, char **strp, const char *format, va_list ap)
 VASPRINTF_INTERCEPTOR_IMPL(vasprintf, strp, format, ap)
+#  endif
 
-#if SANITIZER_INTERCEPT_ISOC99_PRINTF
+#  if SANITIZER_INTERCEPT_ISOC99_PRINTF
 INTERCEPTOR(int, __isoc99_vprintf, const char *format, va_list ap)
 VPRINTF_INTERCEPTOR_IMPL(__isoc99_vprintf, format, ap)
 
@@ -1783,10 +1791,12 @@ INTERCEPTOR(int, __snprintf_chk, char *str, SIZE_T size, int flag,
 FORMAT_INTERCEPTOR_IMPL(__snprintf_chk, vsnprintf, str, size, format)
 #endif
 
+#  if SANITIZER_INTERCEPT_ASPRINTF
 INTERCEPTOR(int, asprintf, char **strp, const char *format, ...)
 FORMAT_INTERCEPTOR_IMPL(asprintf, vasprintf, strp, format)
+#  endif
 
-#if SANITIZER_INTERCEPT_ISOC99_PRINTF
+#  if SANITIZER_INTERCEPT_ISOC99_PRINTF
 INTERCEPTOR(int, __isoc99_printf, const char *format, ...)
 FORMAT_INTERCEPTOR_IMPL(__isoc99_printf, __isoc99_vprintf, format)
 
@@ -1807,17 +1817,24 @@ FORMAT_INTERCEPTOR_IMPL(__isoc99_snprintf, __isoc99_vsnprintf, str, size,
 #endif  // SANITIZER_INTERCEPT_PRINTF
 
 #if SANITIZER_INTERCEPT_PRINTF
-#define INIT_PRINTF                     \
-  COMMON_INTERCEPT_FUNCTION_LDBL(printf);    \
-  COMMON_INTERCEPT_FUNCTION_LDBL(sprintf);   \
-  COMMON_INTERCEPT_FUNCTION_LDBL(snprintf);  \
-  COMMON_INTERCEPT_FUNCTION_LDBL(asprintf);  \
-  COMMON_INTERCEPT_FUNCTION_LDBL(fprintf);   \
-  COMMON_INTERCEPT_FUNCTION_LDBL(vprintf);   \
-  COMMON_INTERCEPT_FUNCTION_LDBL(vsprintf);  \
-  COMMON_INTERCEPT_FUNCTION_LDBL(vsnprintf); \
-  COMMON_INTERCEPT_FUNCTION_LDBL(vasprintf); \
-  COMMON_INTERCEPT_FUNCTION_LDBL(vfprintf);
+#  define INIT_PRINTF_COMMON                   \
+    COMMON_INTERCEPT_FUNCTION_LDBL(printf);    \
+    COMMON_INTERCEPT_FUNCTION_LDBL(sprintf);   \
+    COMMON_INTERCEPT_FUNCTION_LDBL(snprintf);  \
+    COMMON_INTERCEPT_FUNCTION_LDBL(fprintf);   \
+    COMMON_INTERCEPT_FUNCTION_LDBL(vprintf);   \
+    COMMON_INTERCEPT_FUNCTION_LDBL(vsprintf);  \
+    COMMON_INTERCEPT_FUNCTION_LDBL(vsnprintf); \
+    COMMON_INTERCEPT_FUNCTION_LDBL(vfprintf);
+#  if !SANITIZER_AIX
+// AIX does not have [v]asprintf.
+#    define INIT_PRINTF_EXTRA                   \
+      COMMON_INTERCEPT_FUNCTION_LDBL(asprintf); \
+      COMMON_INTERCEPT_FUNCTION_LDBL(vasprintf);
+#  else
+#    define INIT_PRINTF_EXTRA
+#  endif
+#  define INIT_PRINTF INIT_PRINTF_COMMON INIT_PRINTF_EXTRA
 #else
 #define INIT_PRINTF
 #endif
@@ -1853,6 +1870,22 @@ FORMAT_INTERCEPTOR_IMPL(__isoc99_snprintf, __isoc99_vsnprintf, str, size,
   COMMON_INTERCEPT_FUNCTION(__isoc99_vfprintf);
 #else
 #define INIT_ISOC99_PRINTF
+#endif
+
+#if SANITIZER_INTERCEPT_SETPROCTITLE
+INTERCEPTOR(void, setproctitle, const char *fmt, ...) {
+  void *ctx;
+  va_list ap;
+  va_start(ap, fmt);
+  COMMON_INTERCEPTOR_ENTER(ctx, setproctitle, fmt, ap);
+  if (common_flags()->check_printf)
+    printf_common(ctx, fmt, ap);
+  REAL(setproctitle)(fmt, ap);
+  va_end(ap);
+}
+#  define INIT_SETPROCTITLE COMMON_INTERCEPT_FUNCTION(setproctitle);
+#else
+#  define INIT_SETPROCTITLE
 #endif
 
 #if SANITIZER_INTERCEPT_IOCTL
@@ -3901,7 +3934,7 @@ INTERCEPTOR(SIZE_T, wcrtomb, char *dest, wchar_t src, void *ps) {
   if (res != ((SIZE_T)-1)) {
     CHECK_LE(res, sizeof(local_dest));
     COMMON_INTERCEPTOR_WRITE_RANGE(ctx, dest, res);
-    REAL(memcpy)(dest, local_dest, res);
+    internal_memcpy(dest, local_dest, res);
   }
   return res;
 }
@@ -3923,7 +3956,7 @@ INTERCEPTOR(int, wctomb, char *dest, wchar_t src) {
   if (res != -1) {
     CHECK_LE(res, sizeof(local_dest));
     COMMON_INTERCEPTOR_WRITE_RANGE(ctx, dest, res);
-    REAL(memcpy)(dest, local_dest, res);
+    internal_memcpy(dest, local_dest, res);
   }
   return res;
 }
@@ -10263,6 +10296,71 @@ INTERCEPTOR(SSIZE_T, freadlink, int fd, char *buf, SIZE_T bufsiz) {
 #  define INIT_FREADLINK
 #endif
 
+#if SANITIZER_INTERCEPT_GETSERVENT_R || SANITIZER_INTERCEPT_GETSERVBYNAME_R || \
+    SANITIZER_INTERCEPT_GETSERVBYPORT_R
+
+UNUSED static void HandleGetServentReentrantResult(
+    void *ctx, int res, struct __sanitizer_servent *result_buf, char *buf,
+    SIZE_T buflen, struct __sanitizer_servent **result) {
+  COMMON_INTERCEPTOR_WRITE_RANGE(ctx, (char *)result, sizeof(void *));
+  if (res)
+    return;
+  if (*result) {
+    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, (char *)*result,
+                                   sizeof(__sanitizer_servent));
+    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, buf, buflen);
+  }
+}
+
+#endif
+
+#if SANITIZER_INTERCEPT_GETSERVENT_R
+INTERCEPTOR(int, getservent_r, struct __sanitizer_servent *result_buf,
+            char *buf, SIZE_T buflen, struct __sanitizer_servent **result) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, getservent_r, result_buf, buf, buflen, result);
+  int res = REAL(getservent_r)(result_buf, buf, buflen, result);
+  HandleGetServentReentrantResult(ctx, res, result_buf, buf, buflen, result);
+  return res;
+}
+#  define INIT_GETSERVENT_R COMMON_INTERCEPT_FUNCTION(getservent_r)
+#else
+#  define INIT_GETSERVENT_R
+#endif
+
+#if SANITIZER_INTERCEPT_GETSERVBYNAME_R
+INTERCEPTOR(int, getservbyname_r, const char *name, const char *proto,
+            struct __sanitizer_servent *result_buf, char *buf, SIZE_T buflen,
+            struct __sanitizer_servent **result) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, getservbyname_r, name, proto, result_buf, buf,
+                           buflen, result);
+  COMMON_INTERCEPTOR_READ_STRING(ctx, name, internal_strlen(name));
+  int res = REAL(getservbyname_r)(name, proto, result_buf, buf, buflen, result);
+  HandleGetServentReentrantResult(ctx, res, result_buf, buf, buflen, result);
+  return res;
+}
+#  define INIT_GETSERVBYNAME_R COMMON_INTERCEPT_FUNCTION(getservbyname_r)
+#else
+#  define INIT_GETSERVBYNAME_R
+#endif
+
+#if SANITIZER_INTERCEPT_GETSERVBYPORT_R
+INTERCEPTOR(int, getservbyport_r, int port, const char *proto,
+            struct __sanitizer_servent *result_buf, char *buf, SIZE_T buflen,
+            struct __sanitizer_servent **result) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, getservbyport_r, port, proto, result_buf, buf,
+                           buflen, result);
+  int res = REAL(getservbyport_r)(port, proto, result_buf, buf, buflen, result);
+  HandleGetServentReentrantResult(ctx, res, result_buf, buf, buflen, result);
+  return res;
+}
+#  define INIT_GETSERVBYPORT_R COMMON_INTERCEPT_FUNCTION(getservbyport_r)
+#else
+#  define INIT_GETSERVBYPORT_R
+#endif
+
 #include "sanitizer_common_interceptors_netbsd_compat.inc"
 
 namespace __sanitizer {
@@ -10328,8 +10426,10 @@ static void InitializeCommonInterceptors() {
   INIT_PRINTF;
   INIT_PRINTF_L;
   INIT_ISOC99_PRINTF;
+  INIT_SETPROCTITLE;
   INIT_FREXP;
-  INIT_FREXPF_FREXPL;
+  INIT_FREXPF;
+  INIT_FREXPL;
   INIT_GETPWNAM_AND_FRIENDS;
   INIT_GETPWNAM_R_AND_FRIENDS;
   INIT_GETPWENT;
@@ -10587,4 +10687,7 @@ static void InitializeCommonInterceptors() {
   INIT_FREADLINK;
 
   INIT___PRINTF_CHK;
+  INIT_GETSERVENT_R;
+  INIT_GETSERVBYNAME_R;
+  INIT_GETSERVBYPORT_R;
 }

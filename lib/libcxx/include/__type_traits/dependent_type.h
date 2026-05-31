@@ -18,7 +18,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp, bool>
-struct _LIBCPP_TEMPLATE_VIS __dependent_type : public _Tp {};
+struct __dependent_type : public _Tp {};
 
 _LIBCPP_END_NAMESPACE_STD
 

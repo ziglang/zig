@@ -21,8 +21,6 @@ export fn errorSet() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:22: error: expected bool, integer, enum, packed struct, or pointer type; found 'f32'
 // :9:22: error: expected bool, integer, float, enum, packed struct, or pointer type; found 'tmp.NormalStruct'

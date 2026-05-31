@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <__config>
 #include <__mutex/once_flag.h>
 #include <__utility/exception_guard.h>
 

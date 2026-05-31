@@ -105,6 +105,7 @@ pub fn prepend(list: *DoublyLinkedList, new_node: *Node) void {
 }
 
 /// Remove a node from the list.
+/// Assumes the node is in the list.
 ///
 /// Arguments:
 ///     node: Pointer to the node to be removed.

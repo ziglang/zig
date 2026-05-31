@@ -6,8 +6,6 @@ fn SimpleList(comptime L: usize) type {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:19: error: mutable 'T' not accessible from here
 // :2:9: note: declared mutable here

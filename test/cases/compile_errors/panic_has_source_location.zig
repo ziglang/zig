@@ -11,7 +11,5 @@ pub fn panic(_: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :10:5: error: panic

@@ -10,7 +10,6 @@
 #define _LIBCPP___TYPE_TRAITS_REMOVE_CVREF_H
 
 #include <__config>
-#include <__type_traits/is_same.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -30,9 +29,6 @@ using __remove_cvref_t _LIBCPP_NODEBUG = typename __remove_cvref_gcc<_Tp>::type;
 template <class _Tp>
 using __remove_cvref_t _LIBCPP_NODEBUG = __remove_cvref(_Tp);
 #endif // __has_builtin(__remove_cvref)
-
-template <class _Tp, class _Up>
-using __is_same_uncvref _LIBCPP_NODEBUG = _IsSame<__remove_cvref_t<_Tp>, __remove_cvref_t<_Up> >;
 
 #if _LIBCPP_STD_VER >= 20
 template <class _Tp>

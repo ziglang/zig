@@ -5,7 +5,5 @@ export fn b() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:10: error: expected expression, found ')'

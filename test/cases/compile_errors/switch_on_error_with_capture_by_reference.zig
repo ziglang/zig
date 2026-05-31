@@ -17,8 +17,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:24: error: error set cannot be captured by reference
 // :13:24: error: error set cannot be captured by reference

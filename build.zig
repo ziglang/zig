@@ -81,23 +81,23 @@ pub fn build(b: *std.Build) !void {
     docs_step.dependOn(langref_step);
     docs_step.dependOn(std_docs_step);
 
+    const no_matrix = b.option(bool, "no-matrix", "Limit test matrix to exactly one target configuration") orelse false;
     const skip_debug = b.option(bool, "skip-debug", "Main test suite skips debug builds") orelse false;
-    const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
+    const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse no_matrix;
     const skip_release_small = b.option(bool, "skip-release-small", "Main test suite skips release-small builds") orelse skip_release;
     const skip_release_fast = b.option(bool, "skip-release-fast", "Main test suite skips release-fast builds") orelse skip_release;
     const skip_release_safe = b.option(bool, "skip-release-safe", "Main test suite skips release-safe builds") orelse skip_release;
-    const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
+    const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse no_matrix;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
     const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
     const skip_compile_errors = b.option(bool, "skip-compile-errors", "Main test suite skips compile error tests") orelse false;
-    const skip_translate_c = b.option(bool, "skip-translate-c", "Main test suite skips translate-c tests") orelse false;
-    const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
     const skip_freebsd = b.option(bool, "skip-freebsd", "Main test suite skips targets with freebsd OS") orelse false;
     const skip_netbsd = b.option(bool, "skip-netbsd", "Main test suite skips targets with netbsd OS") orelse false;
     const skip_windows = b.option(bool, "skip-windows", "Main test suite skips targets with windows OS") orelse false;
-    const skip_macos = b.option(bool, "skip-macos", "Main test suite skips targets with macos OS") orelse false;
+    const skip_darwin = b.option(bool, "skip-darwin", "Main test suite skips targets with darwin OSs") orelse false;
     const skip_linux = b.option(bool, "skip-linux", "Main test suite skips targets with linux OS") orelse false;
     const skip_llvm = b.option(bool, "skip-llvm", "Main test suite skips targets that use LLVM backend") orelse false;
+    const skip_test_incremental = b.option(bool, "skip-test-incremental", "Main test step omits dependency on test-incremental step") orelse false;
 
     const only_install_lib_files = b.option(bool, "lib-files-only", "Only install library files") orelse false;
 
@@ -202,6 +202,7 @@ pub fn build(b: *std.Build) !void {
     });
     exe.pie = pie;
     exe.entitlements = entitlements;
+    exe.use_new_linker = b.option(bool, "new-linker", "Use the new linker");
 
     const use_llvm = b.option(bool, "use-llvm", "Use the llvm backend");
     exe.use_llvm = use_llvm;
@@ -261,7 +262,7 @@ pub fn build(b: *std.Build) !void {
         };
         const git_describe = mem.trim(u8, git_describe_untrimmed, " \n\r");
 
-        switch (mem.count(u8, git_describe, "-")) {
+        switch (mem.countScalar(u8, git_describe, '-')) {
             0 => {
                 // Tagged release version (e.g. 0.10.0).
                 if (!mem.eql(u8, git_describe, version_string)) {
@@ -304,7 +305,7 @@ pub fn build(b: *std.Build) !void {
     if (enable_llvm) {
         const cmake_cfg = if (static_llvm) null else blk: {
             if (findConfigH(b, config_h_path_option)) |config_h_path| {
-                const file_contents = fs.cwd().readFileAlloc(b.allocator, config_h_path, max_config_h_bytes) catch unreachable;
+                const file_contents = fs.cwd().readFileAlloc(config_h_path, b.allocator, .limited(max_config_h_bytes)) catch unreachable;
                 break :blk parseConfigH(b, file_contents);
             } else {
                 std.log.warn("config.h could not be located automatically. Consider providing it explicitly via \"-Dconfig_h\"", .{});
@@ -415,7 +416,7 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(check_fmt);
 
     const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
-    try tests.addCases(b, test_cases_step, target, .{
+    try tests.addCases(b, test_cases_step, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
         .skip_compile_errors = skip_compile_errors,
@@ -423,13 +424,10 @@ pub fn build(b: *std.Build) !void {
         .skip_freebsd = skip_freebsd,
         .skip_netbsd = skip_netbsd,
         .skip_windows = skip_windows,
-        .skip_macos = skip_macos,
+        .skip_darwin = skip_darwin,
         .skip_linux = skip_linux,
         .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
-    }, .{
-        .skip_translate_c = skip_translate_c,
-        .skip_run_translated_c = skip_run_translated_c,
     }, .{
         .enable_llvm = enable_llvm,
         .llvm_has_m68k = llvm_has_m68k,
@@ -453,35 +451,16 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
+        .test_default_only = no_matrix,
         .skip_freebsd = skip_freebsd,
         .skip_netbsd = skip_netbsd,
         .skip_windows = skip_windows,
-        .skip_macos = skip_macos,
+        .skip_darwin = skip_darwin,
         .skip_linux = skip_linux,
         .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
         // 3888779264 was observed on an x86_64-linux-gnu host.
         .max_rss = 4000000000,
-    }));
-
-    test_modules_step.dependOn(tests.addModuleTests(b, .{
-        .test_filters = test_filters,
-        .test_target_filters = test_target_filters,
-        .test_extra_targets = test_extra_targets,
-        .root_src = "test/c_import.zig",
-        .name = "c-import",
-        .desc = "Run the @cImport tests",
-        .optimize_modes = optimization_modes,
-        .include_paths = &.{"test/c_import"},
-        .skip_single_threaded = true,
-        .skip_non_native = skip_non_native,
-        .skip_freebsd = skip_freebsd,
-        .skip_netbsd = skip_netbsd,
-        .skip_windows = skip_windows,
-        .skip_macos = skip_macos,
-        .skip_linux = skip_linux,
-        .skip_llvm = skip_llvm,
-        .skip_libc = skip_libc,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
@@ -495,10 +474,11 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
+        .test_default_only = no_matrix,
         .skip_freebsd = skip_freebsd,
         .skip_netbsd = skip_netbsd,
         .skip_windows = skip_windows,
-        .skip_macos = skip_macos,
+        .skip_darwin = skip_darwin,
         .skip_linux = skip_linux,
         .skip_llvm = skip_llvm,
         .skip_libc = true,
@@ -516,10 +496,11 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
+        .test_default_only = no_matrix,
         .skip_freebsd = skip_freebsd,
         .skip_netbsd = skip_netbsd,
         .skip_windows = skip_windows,
-        .skip_macos = skip_macos,
+        .skip_darwin = skip_darwin,
         .skip_linux = skip_linux,
         .skip_llvm = skip_llvm,
         .skip_libc = true,
@@ -537,10 +518,11 @@ pub fn build(b: *std.Build) !void {
         .include_paths = &.{},
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
+        .test_default_only = no_matrix,
         .skip_freebsd = skip_freebsd,
         .skip_netbsd = skip_netbsd,
         .skip_windows = skip_windows,
-        .skip_macos = skip_macos,
+        .skip_darwin = skip_darwin,
         .skip_linux = skip_linux,
         .skip_llvm = skip_llvm,
         .skip_libc = skip_libc,
@@ -568,7 +550,6 @@ pub fn build(b: *std.Build) !void {
     unit_tests.root_module.addOptions("build_options", exe_options);
     unit_tests_step.dependOn(&b.addRunArtifact(unit_tests).step);
 
-    test_step.dependOn(tests.addCompareOutputTests(b, test_filters, optimization_modes));
     test_step.dependOn(tests.addStandaloneTests(
         b,
         optimization_modes,
@@ -582,15 +563,15 @@ pub fn build(b: *std.Build) !void {
         .skip_freebsd = skip_freebsd,
         .skip_netbsd = skip_netbsd,
         .skip_windows = skip_windows,
-        .skip_macos = skip_macos,
+        .skip_darwin = skip_darwin,
         .skip_linux = skip_linux,
         .skip_llvm = skip_llvm,
         .skip_release = skip_release,
     }));
     test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, enable_symlinks_windows));
-    test_step.dependOn(tests.addStackTraceTests(b, test_filters, optimization_modes));
+    test_step.dependOn(tests.addStackTraceTests(b, test_filters, skip_non_native));
+    test_step.dependOn(tests.addErrorTraceTests(b, test_filters, optimization_modes, skip_non_native));
     test_step.dependOn(tests.addCliTests(b));
-    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filters, optimization_modes));
     if (tests.addDebuggerTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
@@ -629,7 +610,15 @@ pub fn build(b: *std.Build) !void {
 
     const test_incremental_step = b.step("test-incremental", "Run the incremental compilation test cases");
     try tests.addIncrementalTests(b, test_incremental_step);
-    test_step.dependOn(test_incremental_step);
+    if (!skip_test_incremental) test_step.dependOn(test_incremental_step);
+
+    if (tests.addLibcTests(b, .{
+        .optimize_modes = optimization_modes,
+        .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
+        // Highest RSS observed in any test case was exactly 1802878976 on x86_64-linux.
+        .max_rss = 2253598720,
+    })) |test_libc_step| test_step.dependOn(test_libc_step);
 }
 
 fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
@@ -690,14 +679,14 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     });
     run_opt.addArtifactArg(exe);
     run_opt.addArg("-o");
-    run_opt.addFileArg(b.path("stage1/zig1.wasm"));
+    const optimized_wasm = run_opt.addOutputFileArg("zig1.wasm");
 
-    const copy_zig_h = b.addUpdateSourceFiles();
-    copy_zig_h.addCopyFileToSource(b.path("lib/zig.h"), "stage1/zig.h");
+    const update_zig1 = b.addUpdateSourceFiles();
+    update_zig1.addCopyFileToSource(optimized_wasm, "stage1/zig1.wasm");
+    update_zig1.addCopyFileToSource(b.path("lib/zig.h"), "stage1/zig.h");
 
     const update_zig1_step = b.step("update-zig1", "Update stage1/zig1.wasm");
-    update_zig1_step.dependOn(&run_opt.step);
-    update_zig1_step.dependOn(&copy_zig_h.step);
+    update_zig1_step.dependOn(&update_zig1.step);
 }
 
 const AddCompilerModOptions = struct {
@@ -724,13 +713,7 @@ fn addCompilerMod(b: *std.Build, options: AddCompilerModOptions) *std.Build.Modu
         .root_source_file = b.path("lib/compiler/aro/aro.zig"),
     });
 
-    const aro_translate_c_mod = b.createModule(.{
-        .root_source_file = b.path("lib/compiler/aro_translate_c.zig"),
-    });
-
-    aro_translate_c_mod.addImport("aro", aro_mod);
     compiler_mod.addImport("aro", aro_mod);
-    compiler_mod.addImport("aro_translate_c", aro_translate_c_mod);
 
     return compiler_mod;
 }
@@ -836,7 +819,7 @@ fn addCmakeCfgOptionsToExe(
                 try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
                 if (static) try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
             },
-            .solaris, .illumos => {
+            .illumos => {
                 try addCxxKnownPath(b, cfg, exe, b.fmt("libstdc++.{s}", .{lib_suffix}), null, need_cpp_includes);
                 try addCxxKnownPath(b, cfg, exe, b.fmt("libgcc_eh.{s}", .{lib_suffix}), null, need_cpp_includes);
             },
@@ -1150,7 +1133,6 @@ fn toNativePathSep(b: *std.Build, s: []const u8) []u8 {
 const zig_cpp_sources = [_][]const u8{
     // These are planned to stay even when we are self-hosted.
     "src/zig_llvm.cpp",
-    "src/zig_clang.cpp",
     "src/zig_llvm-ar.cpp",
     "src/zig_clang_driver.cpp",
     "src/zig_clang_cc1_main.cpp",
@@ -1176,7 +1158,6 @@ const clang_libs = [_][]const u8{
     "clangBasic",
     "clangEdit",
     "clangLex",
-    "clangARCMigrate",
     "clangRewriteFrontend",
     "clangRewrite",
     "clangCrossTU",
@@ -1322,30 +1303,31 @@ const llvm_libs = [_][]const u8{
     "LLVMOrcTargetProcess",
     "LLVMOrcShared",
     "LLVMDWP",
+    "LLVMDWARFCFIChecker",
     "LLVMDebugInfoLogicalView",
-    "LLVMDebugInfoGSYM",
     "LLVMOption",
-    "LLVMObjectYAML",
     "LLVMObjCopy",
     "LLVMMCA",
     "LLVMMCDisassembler",
     "LLVMLTO",
-    "LLVMPasses",
-    "LLVMHipStdPar",
-    "LLVMCFGuard",
-    "LLVMCoroutines",
-    "LLVMipo",
-    "LLVMVectorize",
-    "LLVMSandboxIR",
-    "LLVMLinker",
-    "LLVMInstrumentation",
-    "LLVMFrontendOpenMP",
-    "LLVMFrontendOffloading",
     "LLVMFrontendOpenACC",
     "LLVMFrontendHLSL",
     "LLVMFrontendDriver",
-    "LLVMFrontendAtomic",
     "LLVMExtensions",
+    "LLVMPasses",
+    "LLVMHipStdPar",
+    "LLVMCoroutines",
+    "LLVMCFGuard",
+    "LLVMipo",
+    "LLVMInstrumentation",
+    "LLVMVectorize",
+    "LLVMSandboxIR",
+    "LLVMLinker",
+    "LLVMFrontendOpenMP",
+    "LLVMFrontendDirective",
+    "LLVMFrontendAtomic",
+    "LLVMFrontendOffloading",
+    "LLVMObjectYAML",
     "LLVMDWARFLinkerParallel",
     "LLVMDWARFLinkerClassic",
     "LLVMDWARFLinker",
@@ -1374,7 +1356,9 @@ const llvm_libs = [_][]const u8{
     "LLVMDebugInfoPDB",
     "LLVMDebugInfoMSF",
     "LLVMDebugInfoCodeView",
+    "LLVMDebugInfoGSYM",
     "LLVMDebugInfoDWARF",
+    "LLVMDebugInfoDWARFLowLevel",
     "LLVMObject",
     "LLVMTextAPI",
     "LLVMMCParser",

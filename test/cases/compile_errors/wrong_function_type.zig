@@ -13,8 +13,6 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:28: error: expected type 'fn () void', found 'fn () i32'
 // :1:28: note: return type 'i32' cannot cast into return type 'void'

@@ -15,8 +15,6 @@ export fn f() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :14:9: error: no field or member function named 'init' in 'tmp.Foo'
 // :1:13: note: struct declared here

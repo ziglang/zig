@@ -1,6 +1,5 @@
 const std = @import("std");
 const mem = std.mem;
-const io = std.io;
 const LibCInstallation = std.zig.LibCInstallation;
 
 const usage_libc =
@@ -29,6 +28,10 @@ pub fn main() !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
     const gpa = arena;
+
+    var threaded: std.Io.Threaded = .init(gpa);
+    defer threaded.deinit();
+    const io = threaded.io();
 
     const args = try std.process.argsAlloc(arena);
     const zig_lib_directory = args[1];
@@ -67,7 +70,7 @@ pub fn main() !void {
     const target_query = std.zig.parseTargetQueryOrReportFatalError(gpa, .{
         .arch_os_abi = target_arch_os_abi,
     });
-    const target = std.zig.resolveTargetQueryOrFatal(target_query);
+    const target = std.zig.resolveTargetQueryOrFatal(io, target_query);
 
     if (print_includes) {
         const libc_installation: ?*LibCInstallation = libc: {

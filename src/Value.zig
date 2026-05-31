@@ -1,12 +1,15 @@
-const std = @import("std");
-const builtin = @import("builtin");
 const build_options = @import("build_options");
-const Type = @import("Type.zig");
+const builtin = @import("builtin");
+
+const std = @import("std");
+const Io = std.Io;
 const assert = std.debug.assert;
 const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Allocator = std.mem.Allocator;
+
+const Type = @import("Type.zig");
 const Zcu = @import("Zcu.zig");
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
@@ -15,7 +18,7 @@ const Value = @This();
 
 ip_index: InternPool.Index,
 
-pub fn format(val: Value, writer: *std.io.Writer) !void {
+pub fn format(val: Value, writer: *std.Io.Writer) !void {
     _ = val;
     _ = writer;
     @compileError("do not use format values directly; use either fmtDebug or fmtValue");
@@ -23,15 +26,15 @@ pub fn format(val: Value, writer: *std.io.Writer) !void {
 
 /// This is a debug function. In order to print values in a meaningful way
 /// we also need access to the type.
-pub fn dump(start_val: Value, w: std.io.Writer) std.io.Writer.Error!void {
+pub fn dump(start_val: Value, w: *std.Io.Writer) std.Io.Writer.Error!void {
     try w.print("(interned: {})", .{start_val.toIntern()});
 }
 
-pub fn fmtDebug(val: Value) std.fmt.Formatter(Value, dump) {
+pub fn fmtDebug(val: Value) std.fmt.Alt(Value, dump) {
     return .{ .data = val };
 }
 
-pub fn fmtValue(val: Value, pt: Zcu.PerThread) std.fmt.Formatter(print_value.FormatContext, print_value.format) {
+pub fn fmtValue(val: Value, pt: Zcu.PerThread) std.fmt.Alt(print_value.FormatContext, print_value.format) {
     return .{ .data = .{
         .val = val,
         .pt = pt,
@@ -40,7 +43,7 @@ pub fn fmtValue(val: Value, pt: Zcu.PerThread) std.fmt.Formatter(print_value.For
     } };
 }
 
-pub fn fmtValueSema(val: Value, pt: Zcu.PerThread, sema: *Sema) std.fmt.Formatter(print_value.FormatContext, print_value.formatSema) {
+pub fn fmtValueSema(val: Value, pt: Zcu.PerThread, sema: *Sema) std.fmt.Alt(print_value.FormatContext, print_value.formatSema) {
     return .{ .data = .{
         .val = val,
         .pt = pt,
@@ -49,7 +52,7 @@ pub fn fmtValueSema(val: Value, pt: Zcu.PerThread, sema: *Sema) std.fmt.Formatte
     } };
 }
 
-pub fn fmtValueSemaFull(ctx: print_value.FormatContext) std.fmt.Formatter(print_value.FormatContext, print_value.formatSema) {
+pub fn fmtValueSemaFull(ctx: print_value.FormatContext) std.fmt.Alt(print_value.FormatContext, print_value.formatSema) {
     return .{ .data = ctx };
 }
 
@@ -66,8 +69,8 @@ pub fn toIpString(val: Value, ty: Type, pt: Zcu.PerThread) !InternPool.NullTermi
         .repeated_elem => |elem| {
             const byte: u8 = @intCast(Value.fromInterned(elem).toUnsignedInt(zcu));
             const len: u32 = @intCast(ty.arrayLen(zcu));
-            const strings = ip.getLocal(pt.tid).getMutableStrings(zcu.gpa);
-            try strings.appendNTimes(.{byte}, len);
+            const string_bytes = ip.getLocal(pt.tid).getMutableStringBytes(zcu.gpa);
+            try string_bytes.appendNTimes(.{byte}, len);
             return ip.getOrPutTrailingString(zcu.gpa, pt.tid, len, .no_embedded_nulls);
         },
     }
@@ -109,16 +112,16 @@ fn arrayToIpString(val: Value, len_u64: u64, pt: Zcu.PerThread) !InternPool.Null
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     const len: u32 = @intCast(len_u64);
-    const strings = ip.getLocal(pt.tid).getMutableStrings(gpa);
-    try strings.ensureUnusedCapacity(len);
+    const string_bytes = ip.getLocal(pt.tid).getMutableStringBytes(gpa);
+    try string_bytes.ensureUnusedCapacity(len);
     for (0..len) |i| {
         // I don't think elemValue has the possibility to affect ip.string_bytes. Let's
         // assert just to be sure.
-        const prev_len = strings.mutate.len;
+        const prev_len = string_bytes.mutate.len;
         const elem_val = try val.elemValue(pt, i);
-        assert(strings.mutate.len == prev_len);
+        assert(string_bytes.mutate.len == prev_len);
         const byte: u8 = @intCast(elem_val.toUnsignedInt(zcu));
-        strings.appendAssumeCapacity(.{byte});
+        string_bytes.appendAssumeCapacity(.{byte});
     }
     return ip.getOrPutTrailingString(gpa, pt.tid, len, .no_embedded_nulls);
 }
@@ -574,166 +577,37 @@ pub fn writeToPackedMemory(
     }
 }
 
-/// Load a Value from the contents of `buffer`.
+/// Load a Value from the contents of `buffer`, where `ty` is an unsigned integer type.
 ///
 /// Asserts that buffer.len >= ty.abiSize(). The buffer is allowed to extend past
 /// the end of the value in memory.
-pub fn readFromMemory(
+pub fn readUintFromMemory(
     ty: Type,
     pt: Zcu.PerThread,
     buffer: []const u8,
     arena: Allocator,
-) error{
-    IllDefinedMemoryLayout,
-    Unimplemented,
-    OutOfMemory,
-}!Value {
+) Allocator.Error!Value {
     const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-    const target = zcu.getTarget();
-    const endian = target.cpu.arch.endian();
-    switch (ty.zigTypeTag(zcu)) {
-        .void => return Value.void,
-        .bool => {
-            if (buffer[0] == 0) {
-                return Value.false;
-            } else {
-                return Value.true;
-            }
-        },
-        .int, .@"enum" => |ty_tag| {
-            const int_ty = switch (ty_tag) {
-                .int => ty,
-                .@"enum" => ty.intTagType(zcu),
-                else => unreachable,
-            };
-            const int_info = int_ty.intInfo(zcu);
-            const bits = int_info.bits;
-            const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
-            if (bits == 0 or buffer.len == 0) return zcu.getCoerced(try zcu.intValue(int_ty, 0), ty);
+    const endian = zcu.getTarget().cpu.arch.endian();
 
-            if (bits <= 64) switch (int_info.signedness) { // Fast path for integers <= u64
-                .signed => {
-                    const val = std.mem.readVarInt(i64, buffer[0..byte_count], endian);
-                    const result = (val << @as(u6, @intCast(64 - bits))) >> @as(u6, @intCast(64 - bits));
-                    return zcu.getCoerced(try zcu.intValue(int_ty, result), ty);
-                },
-                .unsigned => {
-                    const val = std.mem.readVarInt(u64, buffer[0..byte_count], endian);
-                    const result = (val << @as(u6, @intCast(64 - bits))) >> @as(u6, @intCast(64 - bits));
-                    return zcu.getCoerced(try zcu.intValue(int_ty, result), ty);
-                },
-            } else { // Slow path, we have to construct a big-int
-                const Limb = std.math.big.Limb;
-                const limb_count = (byte_count + @sizeOf(Limb) - 1) / @sizeOf(Limb);
-                const limbs_buffer = try arena.alloc(Limb, limb_count);
+    assert(ty.isUnsignedInt(zcu));
+    const bits = ty.intInfo(zcu).bits;
+    const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
 
-                var bigint = BigIntMutable.init(limbs_buffer, 0);
-                bigint.readTwosComplement(buffer[0..byte_count], bits, endian, int_info.signedness);
-                return zcu.getCoerced(try zcu.intValue_big(int_ty, bigint.toConst()), ty);
-            }
-        },
-        .float => return Value.fromInterned(try pt.intern(.{ .float = .{
-            .ty = ty.toIntern(),
-            .storage = switch (ty.floatBits(target)) {
-                16 => .{ .f16 = @bitCast(std.mem.readInt(u16, buffer[0..2], endian)) },
-                32 => .{ .f32 = @bitCast(std.mem.readInt(u32, buffer[0..4], endian)) },
-                64 => .{ .f64 = @bitCast(std.mem.readInt(u64, buffer[0..8], endian)) },
-                80 => .{ .f80 = @bitCast(std.mem.readInt(u80, buffer[0..10], endian)) },
-                128 => .{ .f128 = @bitCast(std.mem.readInt(u128, buffer[0..16], endian)) },
-                else => unreachable,
-            },
-        } })),
-        .array => {
-            const elem_ty = ty.childType(zcu);
-            const elem_size = elem_ty.abiSize(zcu);
-            const elems = try arena.alloc(InternPool.Index, @intCast(ty.arrayLen(zcu)));
-            var offset: usize = 0;
-            for (elems) |*elem| {
-                elem.* = (try readFromMemory(elem_ty, zcu, buffer[offset..], arena)).toIntern();
-                offset += @intCast(elem_size);
-            }
-            return pt.aggregateValue(ty, elems);
-        },
-        .vector => {
-            // We use byte_count instead of abi_size here, so that any padding bytes
-            // follow the data bytes, on both big- and little-endian systems.
-            const byte_count = (@as(usize, @intCast(ty.bitSize(zcu))) + 7) / 8;
-            return readFromPackedMemory(ty, zcu, buffer[0..byte_count], 0, arena);
-        },
-        .@"struct" => {
-            const struct_type = zcu.typeToStruct(ty).?;
-            switch (struct_type.layout) {
-                .auto => unreachable, // Sema is supposed to have emitted a compile error already
-                .@"extern" => {
-                    const field_types = struct_type.field_types;
-                    const field_vals = try arena.alloc(InternPool.Index, field_types.len);
-                    for (field_vals, 0..) |*field_val, i| {
-                        const field_ty = Type.fromInterned(field_types.get(ip)[i]);
-                        const off: usize = @intCast(ty.structFieldOffset(i, zcu));
-                        const sz: usize = @intCast(field_ty.abiSize(zcu));
-                        field_val.* = (try readFromMemory(field_ty, zcu, buffer[off..(off + sz)], arena)).toIntern();
-                    }
-                    return pt.aggregateValue(ty, field_vals);
-                },
-                .@"packed" => {
-                    const byte_count = (@as(usize, @intCast(ty.bitSize(zcu))) + 7) / 8;
-                    return readFromPackedMemory(ty, zcu, buffer[0..byte_count], 0, arena);
-                },
-            }
-        },
-        .error_set => {
-            const bits = zcu.errorSetBits();
-            const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
-            const int = std.mem.readVarInt(u64, buffer[0..byte_count], endian);
-            const index = (int << @as(u6, @intCast(64 - bits))) >> @as(u6, @intCast(64 - bits));
-            const name = zcu.global_error_set.keys()[@intCast(index)];
+    assert(buffer.len >= byte_count);
 
-            return Value.fromInterned(try pt.intern(.{ .err = .{
-                .ty = ty.toIntern(),
-                .name = name,
-            } }));
-        },
-        .@"union" => switch (ty.containerLayout(zcu)) {
-            .auto => return error.IllDefinedMemoryLayout,
-            .@"extern" => {
-                const union_size = ty.abiSize(zcu);
-                const array_ty = try zcu.arrayType(.{ .len = union_size, .child = .u8_type });
-                const val = (try readFromMemory(array_ty, zcu, buffer, arena)).toIntern();
-                return Value.fromInterned(try pt.internUnion(.{
-                    .ty = ty.toIntern(),
-                    .tag = .none,
-                    .val = val,
-                }));
-            },
-            .@"packed" => {
-                const byte_count = (@as(usize, @intCast(ty.bitSize(zcu))) + 7) / 8;
-                return readFromPackedMemory(ty, zcu, buffer[0..byte_count], 0, arena);
-            },
-        },
-        .pointer => {
-            assert(!ty.isSlice(zcu)); // No well defined layout.
-            const int_val = try readFromMemory(Type.usize, zcu, buffer, arena);
-            return Value.fromInterned(try pt.intern(.{ .ptr = .{
-                .ty = ty.toIntern(),
-                .base_addr = .int,
-                .byte_offset = int_val.toUnsignedInt(zcu),
-            } }));
-        },
-        .optional => {
-            assert(ty.isPtrLikeOptional(zcu));
-            const child_ty = ty.optionalChild(zcu);
-            const child_val = try readFromMemory(child_ty, zcu, buffer, arena);
-            return Value.fromInterned(try pt.intern(.{ .opt = .{
-                .ty = ty.toIntern(),
-                .val = switch (child_val.orderAgainstZero(pt)) {
-                    .lt => unreachable,
-                    .eq => .none,
-                    .gt => child_val.toIntern(),
-                },
-            } }));
-        },
-        else => return error.Unimplemented,
+    if (bits <= 64) {
+        const val = std.mem.readVarInt(u64, buffer[0..byte_count], endian);
+        const result = (val << @as(u6, @intCast(64 - bits))) >> @as(u6, @intCast(64 - bits));
+        return pt.intValue(ty, result);
+    } else {
+        const Limb = std.math.big.Limb;
+        const limb_count = (byte_count + @sizeOf(Limb) - 1) / @sizeOf(Limb);
+        const limbs_buffer = try arena.alloc(Limb, limb_count);
+
+        var bigint: BigIntMutable = .init(limbs_buffer, 0);
+        bigint.readTwosComplement(buffer[0..byte_count], bits, endian, .unsigned);
+        return pt.intValue_big(ty, bigint.toConst());
     }
 }
 
@@ -2149,15 +2023,18 @@ pub fn makeBool(x: bool) Value {
     return if (x) .true else .false;
 }
 
-/// `parent_ptr` must be a single-pointer to some optional.
+/// `parent_ptr` must be a single-pointer or C pointer to some optional.
+///
 /// Returns a pointer to the payload of the optional.
+///
 /// May perform type resolution.
 pub fn ptrOptPayload(parent_ptr: Value, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     const parent_ptr_ty = parent_ptr.typeOf(zcu);
     const opt_ty = parent_ptr_ty.childType(zcu);
+    const ptr_size = parent_ptr_ty.ptrSize(zcu);
 
-    assert(parent_ptr_ty.ptrSize(zcu) == .one);
+    assert(ptr_size == .one or ptr_size == .c);
     assert(opt_ty.zigTypeTag(zcu) == .optional);
 
     const result_ty = try pt.ptrTypeSema(info: {
@@ -2212,9 +2089,12 @@ pub fn ptrEuPayload(parent_ptr: Value, pt: Zcu.PerThread) !Value {
     } }));
 }
 
-/// `parent_ptr` must be a single-pointer to a struct, union, or slice.
+/// `parent_ptr` must be a single-pointer or c pointer to a struct, union, or slice.
+///
 /// Returns a pointer to the aggregate field at the specified index.
+///
 /// For slices, uses `slice_ptr_index` and `slice_len_index`.
+///
 /// May perform type resolution.
 pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
@@ -2222,7 +2102,7 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
     const aggregate_ty = parent_ptr_ty.childType(zcu);
 
     const parent_ptr_info = parent_ptr_ty.ptrInfo(zcu);
-    assert(parent_ptr_info.flags.size == .one);
+    assert(parent_ptr_info.flags.size == .one or parent_ptr_info.flags.size == .c);
 
     // Exiting this `switch` indicates that the `field` pointer representation should be used.
     // `field_align` may be `.none` to represent the natural alignment of `field_ty`, but is not necessarily.
@@ -2249,32 +2129,18 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
                     });
                     return parent_ptr.getOffsetPtr(byte_off, result_ty, pt);
                 },
-                .@"packed" => switch (aggregate_ty.packedStructFieldPtrInfo(parent_ptr_ty, field_idx, pt)) {
-                    .bit_ptr => |packed_offset| {
-                        const result_ty = try pt.ptrType(info: {
-                            var new = parent_ptr_info;
-                            new.packed_offset = packed_offset;
-                            new.child = field_ty.toIntern();
-                            if (new.flags.alignment == .none) {
-                                new.flags.alignment = try aggregate_ty.abiAlignmentSema(pt);
-                            }
-                            break :info new;
-                        });
-                        return pt.getCoerced(parent_ptr, result_ty);
-                    },
-                    .byte_ptr => |ptr_info| {
-                        const result_ty = try pt.ptrTypeSema(info: {
-                            var new = parent_ptr_info;
-                            new.child = field_ty.toIntern();
-                            new.packed_offset = .{
-                                .host_size = 0,
-                                .bit_offset = 0,
-                            };
-                            new.flags.alignment = ptr_info.alignment;
-                            break :info new;
-                        });
-                        return parent_ptr.getOffsetPtr(ptr_info.offset, result_ty, pt);
-                    },
+                .@"packed" => {
+                    const packed_offset = aggregate_ty.packedStructFieldPtrInfo(parent_ptr_ty, field_idx, pt);
+                    const result_ty = try pt.ptrType(info: {
+                        var new = parent_ptr_info;
+                        new.packed_offset = packed_offset;
+                        new.child = field_ty.toIntern();
+                        if (new.flags.alignment == .none) {
+                            new.flags.alignment = try aggregate_ty.abiAlignmentSema(pt);
+                        }
+                        break :info new;
+                    });
+                    return pt.getCoerced(parent_ptr, result_ty);
                 },
             }
         },
@@ -2547,6 +2413,7 @@ pub const PointerDeriveStep = union(enum) {
 pub fn pointerDerivation(ptr_val: Value, arena: Allocator, pt: Zcu.PerThread) Allocator.Error!PointerDeriveStep {
     return ptr_val.pointerDerivationAdvanced(arena, pt, false, null) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
+        error.Canceled => @panic("TODO"), // pls remove from error set mlugg
         error.AnalysisFail => unreachable,
     };
 }
@@ -2961,6 +2828,29 @@ pub fn resolveLazy(
                     .val = resolved_val,
                 }));
         },
+        .error_union => |eu| switch (eu.val) {
+            .err_name => return val,
+            .payload => |payload| {
+                const resolved_payload = try Value.fromInterned(payload).resolveLazy(arena, pt);
+                if (resolved_payload.toIntern() == payload) return val;
+                return .fromInterned(try pt.intern(.{ .error_union = .{
+                    .ty = eu.ty,
+                    .val = .{ .payload = resolved_payload.toIntern() },
+                } }));
+            },
+        },
+        .opt => |opt| switch (opt.val) {
+            .none => return val,
+            else => |payload| {
+                const resolved_payload = try Value.fromInterned(payload).resolveLazy(arena, pt);
+                if (resolved_payload.toIntern() == payload) return val;
+                return .fromInterned(try pt.intern(.{ .opt = .{
+                    .ty = opt.ty,
+                    .val = resolved_payload.toIntern(),
+                } }));
+            },
+        },
+
         else => return val,
     }
 }

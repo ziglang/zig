@@ -13,7 +13,7 @@ const Log2Word = std.math.Log2Int(Word);
 
 const Opcode = spec.Opcode;
 
-instructions: std.ArrayListUnmanaged(Word) = .empty,
+instructions: std.ArrayList(Word) = .empty,
 
 pub fn deinit(section: *Section, allocator: Allocator) void {
     section.instructions.deinit(allocator);

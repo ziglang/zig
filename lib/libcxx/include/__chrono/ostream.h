@@ -18,6 +18,7 @@
 #  include <__chrono/day.h>
 #  include <__chrono/duration.h>
 #  include <__chrono/file_clock.h>
+#  include <__chrono/gps_clock.h>
 #  include <__chrono/hh_mm_ss.h>
 #  include <__chrono/local_info.h>
 #  include <__chrono/month.h>
@@ -26,6 +27,7 @@
 #  include <__chrono/statically_widen.h>
 #  include <__chrono/sys_info.h>
 #  include <__chrono/system_clock.h>
+#  include <__chrono/tai_clock.h>
 #  include <__chrono/utc_clock.h>
 #  include <__chrono/weekday.h>
 #  include <__chrono/year.h>
@@ -68,6 +70,18 @@ operator<<(basic_ostream<_CharT, _Traits>& __os, const sys_days& __dp) {
 template <class _CharT, class _Traits, class _Duration>
 _LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const utc_time<_Duration>& __tp) {
+  return __os << std::format(__os.getloc(), _LIBCPP_STATICALLY_WIDEN(_CharT, "{:L%F %T}"), __tp);
+}
+
+template <class _CharT, class _Traits, class _Duration>
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
+operator<<(basic_ostream<_CharT, _Traits>& __os, const tai_time<_Duration>& __tp) {
+  return __os << std::format(__os.getloc(), _LIBCPP_STATICALLY_WIDEN(_CharT, "{:L%F %T}"), __tp);
+}
+
+template <class _CharT, class _Traits, class _Duration>
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
+operator<<(basic_ostream<_CharT, _Traits>& __os, const gps_time<_Duration>& __tp) {
   return __os << std::format(__os.getloc(), _LIBCPP_STATICALLY_WIDEN(_CharT, "{:L%F %T}"), __tp);
 }
 

@@ -951,7 +951,6 @@ test "returning an error union containing a type with no runtime bits" {
 }
 
 test "try used in recursive function with inferred error set" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 

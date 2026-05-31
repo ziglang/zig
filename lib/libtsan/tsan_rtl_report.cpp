@@ -846,7 +846,16 @@ ALWAYS_INLINE USED void PrintCurrentStack(uptr pc, bool fast) {
     ptrace->trace_buffer[i] = ptrace->trace_buffer[ptrace->size - i - 1];
     ptrace->trace_buffer[ptrace->size - i - 1] = tmp;
   }
-  PrintStack(SymbolizeStack(*ptrace));
+
+  if (ready_to_symbolize) {
+    PrintStack(SymbolizeStack(*ptrace));
+  } else {
+    Printf(
+        "WARNING: PrintCurrentStack() has been called too early, before "
+        "symbolization is possible. Printing unsymbolized stack trace:\n");
+    for (unsigned int i = 0; i < ptrace->size; i++)
+      Printf("    #%u: 0x%zx\n", i, ptrace->trace[i]);
+  }
 #endif
 }
 

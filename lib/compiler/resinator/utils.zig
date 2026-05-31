@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// Like std.io.FixedBufferStream but does no bounds checking
 pub const UncheckedSliceWriter = struct {
     const Self = @This();
 
@@ -27,7 +26,11 @@ pub const UncheckedSliceWriter = struct {
 /// Cross-platform 'std.fs.Dir.openFile' wrapper that will always return IsDir if
 /// a directory is attempted to be opened.
 /// TODO: Remove once https://github.com/ziglang/zig/issues/5732 is addressed.
-pub fn openFileNotDir(cwd: std.fs.Dir, path: []const u8, flags: std.fs.File.OpenFlags) std.fs.File.OpenError!std.fs.File {
+pub fn openFileNotDir(
+    cwd: std.fs.Dir,
+    path: []const u8,
+    flags: std.fs.File.OpenFlags,
+) (std.fs.File.OpenError || std.fs.File.StatError)!std.fs.File {
     const file = try cwd.openFile(path, flags);
     errdefer file.close();
     // https://github.com/ziglang/zig/issues/5732
@@ -86,7 +89,7 @@ pub const ErrorMessageType = enum { err, warning, note };
 
 /// Used for generic colored errors/warnings/notes, more context-specific error messages
 /// are handled elsewhere.
-pub fn renderErrorMessage(writer: *std.io.Writer, config: std.io.tty.Config, msg_type: ErrorMessageType, comptime format: []const u8, args: anytype) !void {
+pub fn renderErrorMessage(writer: *std.Io.Writer, config: std.Io.tty.Config, msg_type: ErrorMessageType, comptime format: []const u8, args: anytype) !void {
     switch (msg_type) {
         .err => {
             try config.setColor(writer, .bold);

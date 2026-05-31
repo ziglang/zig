@@ -5,7 +5,5 @@ export fn a() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:19: error: for input is not captured

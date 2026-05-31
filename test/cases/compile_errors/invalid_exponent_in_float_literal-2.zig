@@ -4,7 +4,5 @@ fn main() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:29: error: invalid digit 'F' in exponent

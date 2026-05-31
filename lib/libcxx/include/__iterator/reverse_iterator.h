@@ -48,7 +48,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 _LIBCPP_SUPPRESS_DEPRECATED_PUSH
 template <class _Iter>
-class _LIBCPP_TEMPLATE_VIS reverse_iterator
+class reverse_iterator
 #if _LIBCPP_STD_VER <= 14 || !defined(_LIBCPP_ABI_NO_ITERATOR_BASES)
     : public iterator<typename iterator_traits<_Iter>::iterator_category,
                       typename iterator_traits<_Iter>::value_type,

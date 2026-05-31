@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include <__assert>
+#include <__system_error/throw_system_error.h>
 #include <__thread/id.h>
 #include <__utility/exception_guard.h>
 #include <limits>
@@ -28,7 +29,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 void mutex::lock() {
   int ec = __libcpp_mutex_lock(&__m_);
   if (ec)
-    __throw_system_error(ec, "mutex lock failed");
+    std::__throw_system_error(ec, "mutex lock failed");
 }
 
 bool mutex::try_lock() noexcept { return __libcpp_mutex_trylock(&__m_); }
@@ -45,7 +46,7 @@ void mutex::unlock() noexcept {
 recursive_mutex::recursive_mutex() {
   int ec = __libcpp_recursive_mutex_init(&__m_);
   if (ec)
-    __throw_system_error(ec, "recursive_mutex constructor failed");
+    std::__throw_system_error(ec, "recursive_mutex constructor failed");
 }
 
 recursive_mutex::~recursive_mutex() {
@@ -57,7 +58,7 @@ recursive_mutex::~recursive_mutex() {
 void recursive_mutex::lock() {
   int ec = __libcpp_recursive_mutex_lock(&__m_);
   if (ec)
-    __throw_system_error(ec, "recursive_mutex lock failed");
+    std::__throw_system_error(ec, "recursive_mutex lock failed");
 }
 
 void recursive_mutex::unlock() noexcept {
@@ -108,7 +109,7 @@ void recursive_timed_mutex::lock() {
   unique_lock<mutex> lk(__m_);
   if (id == __id_) {
     if (__count_ == numeric_limits<size_t>::max())
-      __throw_system_error(EAGAIN, "recursive_timed_mutex lock limit reached");
+      std::__throw_system_error(EAGAIN, "recursive_timed_mutex lock limit reached");
     ++__count_;
     return;
   }

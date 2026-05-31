@@ -273,19 +273,19 @@ pub const InfoReader = struct {
     }
 
     pub fn readUleb128(p: *InfoReader, comptime Type: type) !Type {
-        var stream = std.io.fixedBufferStream(p.bytes()[p.pos..]);
-        var creader = std.io.countingReader(stream.reader());
-        const value: Type = try leb.readUleb128(Type, creader.reader());
-        p.pos += math.cast(usize, creader.bytes_read) orelse return error.Overflow;
-        return value;
+        var reader: std.Io.Reader = .fixed(p.bytes());
+        reader.seek = p.pos;
+        defer p.pos = reader.seek;
+
+        return reader.takeLeb128(Type);
     }
 
     pub fn readIleb128(p: *InfoReader, comptime Type: type) !Type {
-        var stream = std.io.fixedBufferStream(p.bytes()[p.pos..]);
-        var creader = std.io.countingReader(stream.reader());
-        const value: Type = try leb.readIleb128(Type, creader.reader());
-        p.pos += math.cast(usize, creader.bytes_read) orelse return error.Overflow;
-        return value;
+        var reader: std.Io.Reader = .fixed(p.bytes());
+        reader.seek = p.pos;
+        defer p.pos = reader.seek;
+
+        return reader.takeLeb128(Type);
     }
 
     pub fn seekTo(p: *InfoReader, off: u64) !void {
@@ -340,11 +340,11 @@ pub const AbbrevReader = struct {
     }
 
     pub fn readUleb128(p: *AbbrevReader, comptime Type: type) !Type {
-        var stream = std.io.fixedBufferStream(p.bytes()[p.pos..]);
-        var creader = std.io.countingReader(stream.reader());
-        const value: Type = try leb.readUleb128(Type, creader.reader());
-        p.pos += math.cast(usize, creader.bytes_read) orelse return error.Overflow;
-        return value;
+        var reader: std.Io.Reader = .fixed(p.bytes());
+        reader.seek = p.pos;
+        defer p.pos = reader.seek;
+
+        return reader.takeLeb128(Type);
     }
 
     pub fn seekTo(p: *AbbrevReader, off: u64) !void {

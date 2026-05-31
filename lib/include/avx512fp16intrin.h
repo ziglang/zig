@@ -553,7 +553,8 @@ static __inline__ __m512h __DEFAULT_FN_ATTRS512 _mm512_abs_ph(__m512h __A) {
 }
 
 static __inline__ __m512h __DEFAULT_FN_ATTRS512 _mm512_conj_pch(__m512h __A) {
-  return (__m512h)_mm512_xor_ps((__m512)__A, _mm512_set1_ps(-0.0f));
+  return (__m512h)_mm512_xor_epi32((__m512i)__A,
+                                   _mm512_set1_epi32(-2147483648));
 }
 
 static __inline__ __m512h __DEFAULT_FN_ATTRS512

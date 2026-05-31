@@ -14,8 +14,6 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:19: error: expected type '*[]const u8', found '*const []const u8'
 // :4:19: note: cast discards const qualifier

@@ -94,13 +94,15 @@ pub const E = enum(u16) {
     OVERFLOW,
     LOOP,
     TXTBSY,
-
-    pub fn init(r: usize) E {
-        const signed_r: isize = @bitCast(r);
-        const int = if (signed_r > -4096 and signed_r < 0) -signed_r else 0;
-        return @enumFromInt(int);
-    }
 };
+
+/// Get the errno from a syscall return value. SUCCESS means no error.
+pub fn errno(r: usize) E {
+    const signed_r: isize = @bitCast(r);
+    const int = if (signed_r > -4096 and signed_r < 0) -signed_r else 0;
+    return @enumFromInt(int);
+}
+
 // The max bytes that can be in the errstr buff
 pub const ERRMAX = 128;
 var errstr_buf: [ERRMAX]u8 = undefined;

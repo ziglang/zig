@@ -5,7 +5,5 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:20: error: expected type 'f32', found '[]u8'

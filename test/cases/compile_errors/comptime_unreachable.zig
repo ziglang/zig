@@ -3,7 +3,5 @@ pub export fn entry() void {
 }
 
 // error
-// target=native
-// backend=stage2
 //
 // :2:14: error: reached unreachable code

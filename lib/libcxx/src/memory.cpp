@@ -11,7 +11,9 @@
 #  define _LIBCPP_SHARED_PTR_DEFINE_LEGACY_INLINE_FUNCTIONS
 #endif
 
+#include <__functional/hash.h>
 #include <memory>
+#include <typeinfo>
 
 #if _LIBCPP_HAS_THREADS
 #  include <mutex>

@@ -15,7 +15,7 @@
 #    define SANITIZER_REDEFINE_BUILTINS_H
 
 // The asm hack only works with GCC and Clang.
-#    if !defined(_WIN32)
+#    if !defined(_WIN32) && !defined(_AIX)
 
 asm(R"(
     .set memcpy, __sanitizer_internal_memcpy

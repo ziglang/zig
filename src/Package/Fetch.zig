@@ -26,22 +26,22 @@
 //!
 //! All of this must be done with only referring to the state inside this struct
 //! because this work will be done in a dedicated thread.
+const Fetch = @This();
 
 const builtin = @import("builtin");
+const native_os = builtin.os.tag;
+
 const std = @import("std");
+const Io = std.Io;
 const fs = std.fs;
 const assert = std.debug.assert;
 const ascii = std.ascii;
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
-const ThreadPool = std.Thread.Pool;
-const WaitGroup = std.Thread.WaitGroup;
-const Fetch = @This();
 const git = @import("Fetch/git.zig");
 const Package = @import("../Package.zig");
 const Manifest = Package.Manifest;
 const ErrorBundle = std.zig.ErrorBundle;
-const native_os = builtin.os.tag;
 
 arena: std.heap.ArenaAllocator,
 location: Location,
@@ -101,7 +101,8 @@ pub const LazyStatus = enum {
 
 /// Contains shared state among all `Fetch` tasks.
 pub const JobQueue = struct {
-    mutex: std.Thread.Mutex = .{},
+    io: Io,
+    mutex: Io.Mutex = .init,
     /// It's an array hash map so that it can be sorted before rendering the
     /// dependencies.zig source file.
     /// Protected by `mutex`.
@@ -109,11 +110,10 @@ pub const JobQueue = struct {
     /// `table` may be missing some tasks such as ones that failed, so this
     /// field contains references to all of them.
     /// Protected by `mutex`.
-    all_fetches: std.ArrayListUnmanaged(*Fetch) = .empty,
+    all_fetches: std.ArrayList(*Fetch) = .empty,
 
     http_client: *std.http.Client,
-    thread_pool: *ThreadPool,
-    wait_group: WaitGroup = .{},
+    group: Io.Group = .init,
     global_cache: Cache.Directory,
     /// If true then, no fetching occurs, and:
     /// * The `global_cache` directory is assumed to be the direct parent
@@ -200,7 +200,7 @@ pub const JobQueue = struct {
 
             const hash_slice = hash.toSlice();
 
-            try buf.writer().print(
+            try buf.print(
                 \\    pub const {f} = struct {{
                 \\
             , .{std.zig.fmtId(hash_slice)});
@@ -226,13 +226,13 @@ pub const JobQueue = struct {
                 }
             }
 
-            try buf.writer().print(
+            try buf.print(
                 \\        pub const build_root = "{f}";
                 \\
             , .{std.fmt.alt(fetch.package_root, .formatEscapeString)});
 
             if (fetch.has_build_zig) {
-                try buf.writer().print(
+                try buf.print(
                     \\        pub const build_zig = @import("{f}");
                     \\
                 , .{std.zig.fmtString(hash_slice)});
@@ -245,7 +245,7 @@ pub const JobQueue = struct {
                 );
                 for (manifest.dependencies.keys(), manifest.dependencies.values()) |name, dep| {
                     const h = depDigest(fetch.package_root, jq.global_cache, dep) orelse continue;
-                    try buf.writer().print(
+                    try buf.print(
                         "            .{{ \"{f}\", \"{f}\" }},\n",
                         .{ std.zig.fmtString(name), std.zig.fmtString(h.toSlice()) },
                     );
@@ -277,7 +277,7 @@ pub const JobQueue = struct {
 
         for (root_manifest.dependencies.keys(), root_manifest.dependencies.values()) |name, dep| {
             const h = depDigest(root_fetch.package_root, jq.global_cache, dep) orelse continue;
-            try buf.writer().print(
+            try buf.print(
                 "    .{{ \"{f}\", \"{f}\" }},\n",
                 .{ std.zig.fmtString(name), std.zig.fmtString(h.toSlice()) },
             );
@@ -317,12 +317,14 @@ pub const Location = union(enum) {
 
 pub const RunError = error{
     OutOfMemory,
+    Canceled,
     /// This error code is intended to be handled by inspecting the
     /// `error_bundle` field.
     FetchFailed,
 };
 
 pub fn run(f: *Fetch) RunError!void {
+    const io = f.job_queue.io;
     const eb = &f.error_bundle;
     const arena = f.arena.allocator();
     const gpa = f.arena.child_allocator;
@@ -389,7 +391,7 @@ pub fn run(f: *Fetch) RunError!void {
 
                 const file_err = if (dir_err == error.NotDir) e: {
                     if (fs.cwd().openFile(path_or_url, .{})) |file| {
-                        var resource: Resource = .{ .file = file.reader(&server_header_buffer) };
+                        var resource: Resource = .{ .file = file.reader(io, &server_header_buffer) };
                         return f.runResource(path_or_url, &resource, null);
                     } else |err| break :e err;
                 } else dir_err;
@@ -484,7 +486,8 @@ fn runResource(
     resource: *Resource,
     remote_hash: ?Package.Hash,
 ) RunError!void {
-    defer resource.deinit();
+    const io = f.job_queue.io;
+    defer resource.deinit(io);
     const arena = f.arena.allocator();
     const eb = &f.error_bundle;
     const s = fs.path.sep_str;
@@ -655,10 +658,9 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
     const eb = &f.error_bundle;
     const arena = f.arena.allocator();
     const manifest_bytes = pkg_root.root_dir.handle.readFileAllocOptions(
-        arena,
         try fs.path.join(arena, &.{ pkg_root.sub_path, Manifest.basename }),
-        Manifest.max_bytes,
-        null,
+        arena,
+        .limited(Manifest.max_bytes),
         .@"1",
         0,
     ) catch |err| switch (err) {
@@ -698,6 +700,8 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
 }
 
 fn queueJobsForDeps(f: *Fetch) RunError!void {
+    const io = f.job_queue.io;
+
     assert(f.job_queue.recursive);
 
     // If the package does not have a build.zig.zon file then there are no dependencies.
@@ -717,8 +721,8 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
         const prog_names = try parent_arena.alloc([]const u8, deps.len);
         var new_fetch_index: usize = 0;
 
-        f.job_queue.mutex.lock();
-        defer f.job_queue.mutex.unlock();
+        try f.job_queue.mutex.lock(io);
+        defer f.job_queue.mutex.unlock(io);
 
         try f.job_queue.all_fetches.ensureUnusedCapacity(gpa, new_fetches.len);
         try f.job_queue.table.ensureUnusedCapacity(gpa, @intCast(new_fetches.len));
@@ -735,28 +739,34 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
         //     calling run(); no need to add it again.
         //
         // If we add a dep as lazy and then later try to add the same dep as eager,
-        // eagerness takes precedence and the existing entry is updated.
+        // eagerness takes precedence and the existing entry is updated and re-scheduled
+        // for fetching.
 
         for (dep_names, deps) |dep_name, dep| {
+            var promoted_existing_to_eager = false;
             const new_fetch = &new_fetches[new_fetch_index];
             const location: Location = switch (dep.location) {
-                .url => |url| .{ .remote = .{
-                    .url = url,
-                    .hash = h: {
-                        const h = dep.hash orelse break :h null;
-                        const pkg_hash: Package.Hash = .fromSlice(h);
-                        if (h.len == 0) break :h pkg_hash;
-                        const gop = f.job_queue.table.getOrPutAssumeCapacity(pkg_hash);
-                        if (gop.found_existing) {
-                            if (!dep.lazy) {
-                                gop.value_ptr.*.lazy_status = .eager;
+                .url => |url| .{
+                    .remote = .{
+                        .url = url,
+                        .hash = h: {
+                            const h = dep.hash orelse break :h null;
+                            const pkg_hash: Package.Hash = .fromSlice(h);
+                            if (h.len == 0) break :h pkg_hash;
+                            const gop = f.job_queue.table.getOrPutAssumeCapacity(pkg_hash);
+                            if (gop.found_existing) {
+                                if (!dep.lazy and gop.value_ptr.*.lazy_status != .eager) {
+                                    gop.value_ptr.*.lazy_status = .eager;
+                                    promoted_existing_to_eager = true;
+                                } else {
+                                    continue;
+                                }
                             }
-                            continue;
-                        }
-                        gop.value_ptr.* = new_fetch;
-                        break :h pkg_hash;
+                            gop.value_ptr.* = new_fetch;
+                            break :h pkg_hash;
+                        },
                     },
-                } },
+                },
                 .path => |rel_path| l: {
                     // This might produce an invalid path, which is checked for
                     // at the beginning of run().
@@ -764,10 +774,12 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                     const pkg_hash = relativePathDigest(new_root, cache_root);
                     const gop = f.job_queue.table.getOrPutAssumeCapacity(pkg_hash);
                     if (gop.found_existing) {
-                        if (!dep.lazy) {
+                        if (!dep.lazy and gop.value_ptr.*.lazy_status != .eager) {
                             gop.value_ptr.*.lazy_status = .eager;
+                            promoted_existing_to_eager = true;
+                        } else {
+                            continue;
                         }
-                        continue;
                     }
                     gop.value_ptr.* = new_fetch;
                     break :l .{ .relative_path = new_root };
@@ -775,7 +787,9 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
             };
             prog_names[new_fetch_index] = dep_name;
             new_fetch_index += 1;
-            f.job_queue.all_fetches.appendAssumeCapacity(new_fetch);
+            if (!promoted_existing_to_eager) {
+                f.job_queue.all_fetches.appendAssumeCapacity(new_fetch);
+            }
             new_fetch.* = .{
                 .arena = std.heap.ArenaAllocator.init(gpa),
                 .location = location,
@@ -814,11 +828,9 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
         break :nf .{ new_fetches[0..new_fetch_index], prog_names[0..new_fetch_index] };
     };
 
-    // Now it's time to give tasks to the thread pool.
-    const thread_pool = f.job_queue.thread_pool;
-
+    // Now it's time to dispatch tasks.
     for (new_fetches, prog_names) |*new_fetch, prog_name| {
-        thread_pool.spawnWg(&f.job_queue.wait_group, workerRun, .{ new_fetch, prog_name });
+        f.job_queue.group.async(io, workerRun, .{ new_fetch, prog_name });
     }
 }
 
@@ -832,6 +844,7 @@ pub fn workerRun(f: *Fetch, prog_name: []const u8) void {
 
     run(f) catch |err| switch (err) {
         error.OutOfMemory => f.oom_flag = true,
+        error.Canceled => {},
         error.FetchFailed => {
             // Nothing to do because the errors are already reported in `error_bundle`,
             // and a reference is kept to the `Fetch` task inside `all_fetches`.
@@ -888,9 +901,9 @@ const Resource = union(enum) {
         decompress_buffer: []u8,
     };
 
-    fn deinit(resource: *Resource) void {
+    fn deinit(resource: *Resource, io: Io) void {
         switch (resource.*) {
-            .file => |*file_reader| file_reader.file.close(),
+            .file => |*file_reader| file_reader.file.close(io),
             .http_request => |*http_request| http_request.request.deinit(),
             .git => |*git_resource| {
                 git_resource.fetch_stream.deinit();
@@ -900,7 +913,7 @@ const Resource = union(enum) {
         resource.* = undefined;
     }
 
-    fn reader(resource: *Resource) *std.Io.Reader {
+    fn reader(resource: *Resource) *Io.Reader {
         return switch (resource.*) {
             .file => |*file_reader| return &file_reader.interface,
             .http_request => |*http_request| return http_request.response.readerDecompressing(
@@ -976,6 +989,7 @@ const FileType = enum {
 const init_resource_buffer_size = git.Packet.max_data_length;
 
 fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u8) RunError!void {
+    const io = f.job_queue.io;
     const arena = f.arena.allocator();
     const eb = &f.error_bundle;
 
@@ -986,7 +1000,7 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
                 f.parent_package_root, path, err,
             }));
         };
-        resource.* = .{ .file = file.reader(reader_buffer) };
+        resource.* = .{ .file = file.reader(io, reader_buffer) };
         return;
     }
 
@@ -1204,12 +1218,10 @@ fn unpackResource(
         },
         .@"tar.xz" => {
             const gpa = f.arena.child_allocator;
-            var dcp = std.compress.xz.decompress(gpa, resource.reader().adaptToOldInterface()) catch |err|
+            var decompress = std.compress.xz.Decompress.init(resource.reader(), gpa, &.{}) catch |err|
                 return f.fail(f.location_tok, try eb.printString("unable to decompress tarball: {t}", .{err}));
-            defer dcp.deinit();
-            var adapter_buffer: [1024]u8 = undefined;
-            var adapter = dcp.reader().adaptToNewApi(&adapter_buffer);
-            return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
+            defer decompress.deinit();
+            return try unpackTarball(f, tmp_directory.handle, &decompress.reader);
         },
         .@"tar.zst" => {
             const window_len = std.compress.zstd.default_window_len;
@@ -1235,7 +1247,7 @@ fn unpackResource(
     }
 }
 
-fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: *std.Io.Reader) RunError!UnpackResult {
+fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: *Io.Reader) RunError!UnpackResult {
     const eb = &f.error_bundle;
     const arena = f.arena.allocator();
 
@@ -1266,11 +1278,16 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: *std.Io.Reader) RunError!Un
     return res;
 }
 
-fn unzip(f: *Fetch, out_dir: fs.Dir, reader: *std.Io.Reader) error{ ReadFailed, OutOfMemory, FetchFailed }!UnpackResult {
+fn unzip(
+    f: *Fetch,
+    out_dir: fs.Dir,
+    reader: *Io.Reader,
+) error{ ReadFailed, OutOfMemory, Canceled, FetchFailed }!UnpackResult {
     // We write the entire contents to a file first because zip files
     // must be processed back to front and they could be too large to
     // load into memory.
 
+    const io = f.job_queue.io;
     const cache_root = f.job_queue.global_cache;
     const prefix = "tmp/";
     const suffix = ".zip";
@@ -1290,6 +1307,7 @@ fn unzip(f: *Fetch, out_dir: fs.Dir, reader: *std.Io.Reader) error{ ReadFailed, 
             .read = true,
         }) catch |err| switch (err) {
             error.PathAlreadyExists => continue,
+            error.Canceled => return error.Canceled,
             else => |e| return f.fail(
                 f.location_tok,
                 try eb.printString("failed to create temporary zip file: {t}", .{e}),
@@ -1312,7 +1330,7 @@ fn unzip(f: *Fetch, out_dir: fs.Dir, reader: *std.Io.Reader) error{ ReadFailed, 
             f.location_tok,
             try eb.printString("failed writing temporary zip file: {t}", .{err}),
         );
-        break :b zip_file_writer.moveToReader();
+        break :b zip_file_writer.moveToReader(io);
     };
 
     var diagnostics: std.zip.Diagnostics = .{ .allocator = f.arena.allocator() };
@@ -1332,7 +1350,10 @@ fn unzip(f: *Fetch, out_dir: fs.Dir, reader: *std.Io.Reader) error{ ReadFailed, 
 }
 
 fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!UnpackResult {
+    const io = f.job_queue.io;
     const arena = f.arena.allocator();
+    // TODO don't try to get a gpa from an arena. expose this dependency higher up
+    // because the backing of arena could be page allocator
     const gpa = f.arena.child_allocator;
     const object_format: git.Oid.Format = resource.want_oid;
 
@@ -1351,7 +1372,7 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!U
             const fetch_reader = &resource.fetch_stream.reader;
             _ = try fetch_reader.streamRemaining(&pack_file_writer.interface);
             try pack_file_writer.interface.flush();
-            break :b pack_file_writer.moveToReader();
+            break :b pack_file_writer.moveToReader(io);
         };
 
         var index_file = try pack_dir.createFile("pkg.idx", .{ .read = true });
@@ -1365,7 +1386,7 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!U
         }
 
         {
-            var index_file_reader = index_file.reader(&index_file_buffer);
+            var index_file_reader = index_file.reader(io, &index_file_buffer);
             const checkout_prog_node = f.prog_node.start("Checkout", 0);
             defer checkout_prog_node.end();
             var repository: git.Repository = undefined;
@@ -1467,11 +1488,11 @@ const ComputedHash = struct {
 /// hashed* and must not be present on the file system when calling this
 /// function.
 fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!ComputedHash {
+    const io = f.job_queue.io;
     // All the path name strings need to be in memory for sorting.
     const arena = f.arena.allocator();
     const gpa = f.arena.child_allocator;
     const eb = &f.error_bundle;
-    const thread_pool = f.job_queue.thread_pool;
     const root_dir = pkg_path.root_dir.handle;
 
     // Collect all files, recursively, then sort.
@@ -1495,10 +1516,8 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
     {
         // The final hash will be a hash of each file hashed independently. This
         // allows hashing in parallel.
-        var wait_group: WaitGroup = .{};
-        // `computeHash` is called from a worker thread so there must not be
-        // any waiting without working or a deadlock could occur.
-        defer thread_pool.waitAndWork(&wait_group);
+        var group: Io.Group = .init;
+        defer group.wait(io);
 
         while (walker.next() catch |err| {
             try eb.addRootErrorMessage(.{ .msg = try eb.printString(
@@ -1523,7 +1542,7 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
                     .fs_path = fs_path,
                     .failure = undefined, // to be populated by the worker
                 };
-                thread_pool.spawnWg(&wait_group, workerDeleteFile, .{ root_dir, deleted_file });
+                group.async(io, workerDeleteFile, .{ root_dir, deleted_file });
                 try deleted_files.append(deleted_file);
                 continue;
             }
@@ -1551,7 +1570,7 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
                 .failure = undefined, // to be populated by the worker
                 .size = undefined, // to be populated by the worker
             };
-            thread_pool.spawnWg(&wait_group, workerHashFile, .{ root_dir, hashed_file });
+            group.async(io, workerHashFile, .{ root_dir, hashed_file });
             try all_files.append(hashed_file);
         }
     }
@@ -2022,9 +2041,9 @@ const UnpackResult = struct {
         // output errors to string
         var errors = try fetch.error_bundle.toOwnedBundle("");
         defer errors.deinit(gpa);
-        var aw: std.io.Writer.Allocating = .init(gpa);
+        var aw: Io.Writer.Allocating = .init(gpa);
         defer aw.deinit();
-        try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
+        try errors.renderToWriter(.{}, &aw.writer, .no_color);
         try std.testing.expectEqualStrings(
             \\error: unable to unpack
             \\    note: unable to create symlink from 'dir2/file2' to 'filename': SymlinkError
@@ -2050,6 +2069,7 @@ test "tarball with duplicate paths" {
     //
 
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -2060,7 +2080,7 @@ test "tarball with duplicate paths" {
 
     // Run tarball fetch, expect to fail
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
+    var fetch = try fb.build(gpa, io, tmp.dir, tarball_path);
     defer fb.deinit();
     try std.testing.expectError(error.FetchFailed, fetch.run());
 
@@ -2082,6 +2102,7 @@ test "tarball with excluded duplicate paths" {
     //
 
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -2092,7 +2113,7 @@ test "tarball with excluded duplicate paths" {
 
     // Run tarball fetch, should succeed
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
+    var fetch = try fb.build(gpa, io, tmp.dir, tarball_path);
     defer fb.deinit();
     try fetch.run();
 
@@ -2126,6 +2147,8 @@ test "tarball without root folder" {
     //
 
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
+
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -2136,7 +2159,7 @@ test "tarball without root folder" {
 
     // Run tarball fetch, should succeed
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
+    var fetch = try fb.build(gpa, io, tmp.dir, tarball_path);
     defer fb.deinit();
     try fetch.run();
 
@@ -2157,6 +2180,8 @@ test "tarball without root folder" {
 test "set executable bit based on file content" {
     if (!std.fs.has_executable_bit) return error.SkipZigTest;
     const gpa = std.testing.allocator;
+    const io = std.testing.io;
+
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
@@ -2175,7 +2200,7 @@ test "set executable bit based on file content" {
     // -rwxrwxr-x       17  executables/script
 
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
+    var fetch = try fb.build(gpa, io, tmp.dir, tarball_path);
     defer fb.deinit();
 
     try fetch.run();
@@ -2216,7 +2241,6 @@ fn saveEmbedFile(comptime tarball_name: []const u8, dir: fs.Dir) !void {
 
 // Builds Fetch with required dependencies, clears dependencies on deinit().
 const TestFetchBuilder = struct {
-    thread_pool: ThreadPool,
     http_client: std.http.Client,
     global_cache_directory: Cache.Directory,
     job_queue: Fetch.JobQueue,
@@ -2225,18 +2249,18 @@ const TestFetchBuilder = struct {
     fn build(
         self: *TestFetchBuilder,
         allocator: std.mem.Allocator,
+        io: Io,
         cache_parent_dir: std.fs.Dir,
         path_or_url: []const u8,
     ) !*Fetch {
         const cache_dir = try cache_parent_dir.makeOpenPath("zig-global-cache", .{});
 
-        try self.thread_pool.init(.{ .allocator = allocator });
-        self.http_client = .{ .allocator = allocator };
+        self.http_client = .{ .allocator = allocator, .io = io };
         self.global_cache_directory = .{ .handle = cache_dir, .path = null };
 
         self.job_queue = .{
+            .io = io,
             .http_client = &self.http_client,
-            .thread_pool = &self.thread_pool,
             .global_cache = self.global_cache_directory,
             .recursive = false,
             .read_only = false,
@@ -2282,7 +2306,6 @@ const TestFetchBuilder = struct {
         self.fetch.prog_node.end();
         self.global_cache_directory.handle.close();
         self.http_client.deinit();
-        self.thread_pool.deinit();
     }
 
     fn packageDir(self: *TestFetchBuilder) !fs.Dir {
@@ -2296,7 +2319,7 @@ const TestFetchBuilder = struct {
         var package_dir = try self.packageDir();
         defer package_dir.close();
 
-        var actual_files: std.ArrayListUnmanaged([]u8) = .empty;
+        var actual_files: std.ArrayList([]u8) = .empty;
         defer actual_files.deinit(std.testing.allocator);
         defer for (actual_files.items) |file| std.testing.allocator.free(file);
         var walker = try package_dir.walk(std.testing.allocator);
@@ -2331,9 +2354,9 @@ const TestFetchBuilder = struct {
         if (notes_len > 0) {
             try std.testing.expectEqual(notes_len, em.notes_len);
         }
-        var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+        var aw: Io.Writer.Allocating = .init(std.testing.allocator);
         defer aw.deinit();
-        try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
+        try errors.renderToWriter(.{}, &aw.writer, .no_color);
         try std.testing.expectEqualStrings(msg, aw.written());
     }
 };

@@ -58,7 +58,7 @@ _LIBCPP_HIDE_FROM_ABI auto __choose_mask_type() {
 
 template <class _Tp>
 _LIBCPP_HIDE_FROM_ABI auto constexpr __set_all_bits(bool __v) {
-  return __v ? (numeric_limits<decltype(__choose_mask_type<_Tp>())>::max()) : 0;
+  return __v ? (numeric_limits<decltype(experimental::__choose_mask_type<_Tp>())>::max()) : 0;
 }
 
 template <class _From, class _To, class = void>

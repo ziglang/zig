@@ -12,8 +12,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:8: error: packed unions cannot contain fields of type 'tmp.Foo'
 // :6:8: note: only packed structs layout are allowed in packed types

@@ -29,6 +29,8 @@ struct Sign {
   static const Sign POS;
   static const Sign NEG;
 
+  LIBC_INLINE constexpr Sign negate() const { return Sign(!is_negative); }
+
 private:
   LIBC_INLINE constexpr explicit Sign(bool is_negative)
       : is_negative(is_negative) {}

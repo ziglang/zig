@@ -9,8 +9,6 @@ export fn entry2(single: *u32) void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:28: error: expected type '*const [0]u32', found '*u32'
 // :2:28: note: pointer type child 'u32' cannot cast into pointer type child '[0]u32'

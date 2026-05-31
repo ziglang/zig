@@ -44,7 +44,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 namespace ranges {
 struct __stable_partition {
   template <class _Iter, class _Sent, class _Proj, class _Pred>
-  _LIBCPP_HIDE_FROM_ABI static subrange<__remove_cvref_t<_Iter>>
+  _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX26 subrange<__remove_cvref_t<_Iter>>
   __stable_partition_fn_impl(_Iter&& __first, _Sent&& __last, _Pred&& __pred, _Proj&& __proj) {
     auto __last_iter = ranges::next(__first, __last);
 
@@ -60,7 +60,8 @@ struct __stable_partition {
             class _Proj = identity,
             indirect_unary_predicate<projected<_Iter, _Proj>> _Pred>
     requires permutable<_Iter>
-  _LIBCPP_HIDE_FROM_ABI subrange<_Iter> operator()(_Iter __first, _Sent __last, _Pred __pred, _Proj __proj = {}) const {
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 subrange<_Iter>
+  operator()(_Iter __first, _Sent __last, _Pred __pred, _Proj __proj = {}) const {
     return __stable_partition_fn_impl(__first, __last, __pred, __proj);
   }
 
@@ -68,7 +69,7 @@ struct __stable_partition {
             class _Proj = identity,
             indirect_unary_predicate<projected<iterator_t<_Range>, _Proj>> _Pred>
     requires permutable<iterator_t<_Range>>
-  _LIBCPP_HIDE_FROM_ABI borrowed_subrange_t<_Range>
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 borrowed_subrange_t<_Range>
   operator()(_Range&& __range, _Pred __pred, _Proj __proj = {}) const {
     return __stable_partition_fn_impl(ranges::begin(__range), ranges::end(__range), __pred, __proj);
   }

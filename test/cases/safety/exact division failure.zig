@@ -17,5 +17,5 @@ fn divExact(a: i32, b: i32) i32 {
     return @divExact(a, b);
 }
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux,aarch64-linux

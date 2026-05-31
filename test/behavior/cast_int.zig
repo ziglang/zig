@@ -225,20 +225,26 @@ test "load non byte-sized value in union" {
     // using ptrCast not to depend on unitialised memory state
 
     var union0: packed union {
-        p: Piece,
+        p: packed struct(u8) {
+            a: Piece,
+            b: u4,
+        },
         int: u8,
     } = .{ .int = 0 };
     union0.int = 0b11111011;
-    try expect(union0.p.type == .PAWN);
-    try expect(union0.p.color == .BLACK);
+    try expect(union0.p.a.type == .PAWN);
+    try expect(union0.p.a.color == .BLACK);
 
     var union1: union {
-        p: Piece,
+        p: packed struct(u8) {
+            a: Piece,
+            b: u4,
+        },
         int: u8,
-    } = .{ .p = .{ .color = .WHITE, .type = .KING } };
-    @as(*u8, @ptrCast(&union1.p)).* = 0b11111011;
-    try expect(union1.p.type == .PAWN);
-    try expect(union1.p.color == .BLACK);
+    } = .{ .p = .{ .a = .{ .color = .WHITE, .type = .KING }, .b = 0 } };
+    @as(*u8, @ptrCast(&union1.p.a)).* = 0b11111011;
+    try expect(union1.p.a.type == .PAWN);
+    try expect(union1.p.a.color == .BLACK);
 
     var pieces: [3]Piece = undefined;
     @as(*u8, @ptrCast(&pieces[1])).* = 0b11111011;

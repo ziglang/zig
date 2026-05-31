@@ -229,18 +229,18 @@ struct __passthrough_type;
 
 template <class _Tp, size_t _Extent>
 struct __passthrough_type<span<_Tp, _Extent>> {
-  using type = span<_Tp>;
+  using type _LIBCPP_NODEBUG = span<_Tp>;
 };
 
 template <class _CharT, class _Traits>
 struct __passthrough_type<basic_string_view<_CharT, _Traits>> {
-  using type = basic_string_view<_CharT, _Traits>;
+  using type _LIBCPP_NODEBUG = basic_string_view<_CharT, _Traits>;
 };
 
 template <class _Iter, class _Sent, subrange_kind _Kind>
   requires requires { typename subrange<_Iter>; }
 struct __passthrough_type<subrange<_Iter, _Sent, _Kind>> {
-  using type = subrange<_Iter>;
+  using type _LIBCPP_NODEBUG = subrange<_Iter>;
 };
 
 template <class _Tp>

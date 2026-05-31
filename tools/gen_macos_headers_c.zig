@@ -33,7 +33,7 @@ pub fn main() anyerror!void {
 
     if (positionals.items.len != 1) fatal("expected one positional argument: [dir]", .{});
 
-    var dir = try std.fs.cwd().openDir(positionals.items[0], .{ .no_follow = true });
+    var dir = try std.fs.cwd().openDir(positionals.items[0], .{ .follow_symlinks = false });
     defer dir.close();
     var paths = std.array_list.Managed([]const u8).init(arena);
     try findHeaders(arena, dir, "", &paths);
@@ -73,7 +73,7 @@ fn findHeaders(
         switch (entry.kind) {
             .directory => {
                 const path = try std.fs.path.join(arena, &.{ prefix, entry.name });
-                var subdir = try dir.openDir(entry.name, .{ .no_follow = true });
+                var subdir = try dir.openDir(entry.name, .{ .follow_symlinks = false });
                 defer subdir.close();
                 try findHeaders(arena, subdir, path, paths);
             },

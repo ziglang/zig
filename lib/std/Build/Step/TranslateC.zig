@@ -163,6 +163,12 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         try argv_list.append("-fno-clang");
     }
 
+    try argv_list.append("--cache-dir");
+    try argv_list.append(b.cache_root.path orelse ".");
+
+    try argv_list.append("--global-cache-dir");
+    try argv_list.append(b.graph.global_cache_root.path orelse ".");
+
     try argv_list.append("--listen=-");
 
     if (!translate_c.target.query.isNative()) {

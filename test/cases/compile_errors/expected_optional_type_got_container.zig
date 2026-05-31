@@ -9,8 +9,6 @@ fn bar() X {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:15: error: expected optional type, found 'tmp.X'
 // :6:11: note: enum declared here

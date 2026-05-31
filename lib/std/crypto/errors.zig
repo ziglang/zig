@@ -34,5 +34,8 @@ pub const WeakPublicKeyError = error{WeakPublicKey};
 /// Point is not in the prime order group
 pub const UnexpectedSubgroupError = error{UnexpectedSubgroup};
 
+/// Context string is too long
+pub const ContextTooLongError = error{ContextTooLong};
+
 /// Any error related to cryptography operations
-pub const Error = AuthenticationError || OutputTooLongError || IdentityElementError || EncodingError || SignatureVerificationError || KeyMismatchError || NonCanonicalError || NotSquareError || PasswordVerificationError || WeakParametersError || WeakPublicKeyError || UnexpectedSubgroupError;
+pub const Error = AuthenticationError || OutputTooLongError || IdentityElementError || EncodingError || SignatureVerificationError || KeyMismatchError || NonCanonicalError || NotSquareError || PasswordVerificationError || WeakParametersError || WeakPublicKeyError || UnexpectedSubgroupError || ContextTooLongError;

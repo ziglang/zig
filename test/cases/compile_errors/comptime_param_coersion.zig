@@ -11,8 +11,6 @@ fn foo(comptime _: i32, comptime _: i32) void {}
 fn bar(comptime _: i32, _: i32) void {}
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:9: error: expected type 'fn (comptime i32, comptime i32) void', found 'fn (comptime i32, i32) void'
 // :3:9: note: non-comptime parameter 1 cannot cast into a comptime parameter

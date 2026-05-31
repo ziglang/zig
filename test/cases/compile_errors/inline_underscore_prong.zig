@@ -9,7 +9,5 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :7:16: error: cannot inline '_' prong

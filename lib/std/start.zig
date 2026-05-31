@@ -61,6 +61,10 @@ comptime {
                 } else if (!@typeInfo(@TypeOf(root.main)).@"fn".calling_convention.eql(.c)) {
                     @export(&main, .{ .name = "main" });
                 }
+            } else if (native_os == .windows and builtin.link_libc and @hasDecl(root, "wWinMain")) {
+                if (!@typeInfo(@TypeOf(root.wWinMain)).@"fn".calling_convention.eql(.c)) {
+                    @export(&wWinMain, .{ .name = "wWinMain" });
+                }
             } else if (native_os == .windows) {
                 if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
                     !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
@@ -91,8 +95,9 @@ comptime {
                 // Only call main when defined. For WebAssembly it's allowed to pass `-fno-entry` in which
                 // case it's not required to provide an entrypoint such as main.
                 if (!@hasDecl(root, start_sym_name) and @hasDecl(root, "main")) @export(&wasm_freestanding_start, .{ .name = start_sym_name });
-            } else if (native_os != .other and native_os != .freestanding) {
-                if (!@hasDecl(root, start_sym_name)) @export(&_start, .{ .name = start_sym_name });
+            } else switch (native_os) {
+                .other, .freestanding, .@"3ds", .vita => {},
+                else => if (!@hasDecl(root, start_sym_name)) @export(&_start, .{ .name = start_sym_name }),
             }
         }
     }
@@ -194,20 +199,25 @@ fn _start() callconv(.naked) noreturn {
     // This is the first userspace frame. Prevent DWARF-based unwinders from unwinding further. We
     // prevent FP-based unwinders from unwinding further by zeroing the register below.
     if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (switch (native_arch) {
-            .arc => ".cfi_undefined blink",
-            .arm, .armeb, .thumb, .thumbeb => "", // https://github.com/llvm/llvm-project/issues/115891
             .aarch64, .aarch64_be => ".cfi_undefined lr",
+            .alpha => ".cfi_undefined $26",
+            .arc, .arceb => ".cfi_undefined blink",
+            .arm, .armeb, .thumb, .thumbeb => "", // https://github.com/llvm/llvm-project/issues/115891
             .csky => ".cfi_undefined lr",
             .hexagon => ".cfi_undefined r31",
+            .kvx => ".cfi_undefined r14",
             .loongarch32, .loongarch64 => ".cfi_undefined 1",
             .m68k => ".cfi_undefined %%pc",
+            .microblaze, .microblazeel => ".cfi_undefined r15",
             .mips, .mipsel, .mips64, .mips64el => ".cfi_undefined $ra",
+            .or1k => ".cfi_undefined r9",
             .powerpc, .powerpcle, .powerpc64, .powerpc64le => ".cfi_undefined lr",
-            .riscv32, .riscv64 => if (builtin.zig_backend == .stage2_riscv64)
+            .riscv32, .riscv32be, .riscv64, .riscv64be => if (builtin.zig_backend == .stage2_riscv64)
                 ""
             else
                 ".cfi_undefined ra",
             .s390x => ".cfi_undefined %%r14",
+            .sh, .sheb => ".cfi_undefined pr",
             .sparc, .sparc64 => ".cfi_undefined %%i7",
             .x86 => ".cfi_undefined %%eip",
             .x86_64 => ".cfi_undefined %%rip",
@@ -251,13 +261,24 @@ fn _start() callconv(.naked) noreturn {
             \\ and sp, x0, #-16
             \\ b %[posixCallMainAndExit]
             ,
-            .arc =>
-            // The `arc` tag currently means ARC v1 and v2, which have an unusually low stack
-            // alignment requirement. ARC v3 increases it from 4 to 16, but we don't support v3 yet.
+            .alpha =>
+            // $15 = FP, $26 = LR, $29 = GP, $30 = SP
+            \\ br $29, 1f
+            \\1:
+            \\ ldgp $29, 0($29)
+            \\ mov 0, $15
+            \\ mov 0, $26
+            \\ mov $30, $16
+            \\ ldi $1, -16
+            \\ and $30, $30, $1
+            \\ jsr $26, %[posixCallMainAndExit]
+            ,
+            .arc, .arceb =>
+            // ARC v1 and v2 had a very low stack alignment requirement of 4; v3 increased it to 16.
             \\ mov fp, 0
             \\ mov blink, 0
             \\ mov r0, sp
-            \\ and sp, sp, -4
+            \\ and sp, sp, -16
             \\ b %[posixCallMainAndExit]
             ,
             .arm, .armeb, .thumb, .thumbeb =>
@@ -298,6 +319,15 @@ fn _start() callconv(.naked) noreturn {
             \\ r29 = add(r29, #-8)
             \\ call %[posixCallMainAndExit]
             ,
+            .kvx =>
+            \\ make $fp = 0
+            \\ ;;
+            \\ set $ra = $fp
+            \\ copyd $r0 = $sp
+            \\ andd $sp = $sp, -32
+            \\ ;;
+            \\ goto %[posixCallMainAndExit]
+            ,
             .loongarch32, .loongarch64 =>
             \\ move $fp, $zero
             \\ move $ra, $zero
@@ -305,7 +335,15 @@ fn _start() callconv(.naked) noreturn {
             \\ bstrins.d $sp, $zero, 3, 0
             \\ b %[posixCallMainAndExit]
             ,
-            .riscv32, .riscv64 =>
+            .or1k =>
+            // r1 = SP, r2 = FP, r9 = LR
+            \\ l.ori r2, r0, 0
+            \\ l.ori r9, r0, 0
+            \\ l.ori r3, r1, 0
+            \\ l.andi r1, r1, -4
+            \\ l.jal %[posixCallMainAndExit]
+            ,
+            .riscv32, .riscv32be, .riscv64, .riscv64be =>
             \\ li fp, 0
             \\ li ra, 0
             \\ mv a0, sp
@@ -324,44 +362,75 @@ fn _start() callconv(.naked) noreturn {
             \\ lea %[posixCallMainAndExit] - . - 8, %%a0
             \\ jsr (%%pc, %%a0)
             ,
+            .microblaze, .microblazeel =>
+            // r1 = SP, r15 = LR, r19 = FP, r20 = GP
+            \\ ori r15, r0, r0
+            \\ ori r19, r0, r0
+            \\ mfs r20, rpc
+            \\ addik r20, r20, _GLOBAL_OFFSET_TABLE_ + 8
+            \\ ori r5, r1, r0
+            \\ andi r1, r1, -4
+            \\ brlid r15, %[posixCallMainAndExit]
+            ,
             .mips, .mipsel =>
-            \\ move $fp, $0
+            \\ move $fp, $zero
             \\ bal 1f
             \\ .gpword .
             \\ .gpword %[posixCallMainAndExit]
-            \\ 1:
+            \\1:
             // The `gp` register on MIPS serves a similar purpose to `r2` (ToC pointer) on PPC64.
             \\ lw $gp, 0($ra)
+            \\ nop
             \\ subu $gp, $ra, $gp
-            \\ lw $25, 4($ra)
-            \\ addu $25, $25, $gp
-            \\ move $ra, $0
+            \\ lw $t9, 4($ra)
+            \\ nop
+            \\ addu $t9, $t9, $gp
+            \\ move $ra, $zero
             \\ move $a0, $sp
             \\ and $sp, -8
             \\ subu $sp, $sp, 16
-            \\ jalr $25
+            \\ jalr $t9
             ,
-            .mips64, .mips64el =>
-            \\ move $fp, $0
-            // This is needed because early MIPS versions don't support misaligned loads. Without
-            // this directive, the hidden `nop` inserted to fill the delay slot after `bal` would
-            // cause the two doublewords to be aligned to 4 bytes instead of 8.
-            \\ .balign 8
-            \\ bal 1f
-            \\ .gpdword .
-            \\ .gpdword %[posixCallMainAndExit]
-            \\ 1:
-            // The `gp` register on MIPS serves a similar purpose to `r2` (ToC pointer) on PPC64.
-            \\ ld $gp, 0($ra)
-            \\ dsubu $gp, $ra, $gp
-            \\ ld $25, 8($ra)
-            \\ daddu $25, $25, $gp
-            \\ move $ra, $0
-            \\ move $a0, $sp
-            \\ and $sp, -16
-            \\ dsubu $sp, $sp, 16
-            \\ jalr $25
-            ,
+            .mips64, .mips64el => switch (builtin.abi) {
+                .gnuabin32, .muslabin32 =>
+                \\ move $fp, $zero
+                \\ bal 1f
+                \\ .gpword .
+                \\ .gpword %[posixCallMainAndExit]
+                \\1:
+                // The `gp` register on MIPS serves a similar purpose to `r2` (ToC pointer) on PPC64.
+                \\ lw $gp, 0($ra)
+                \\ subu $gp, $ra, $gp
+                \\ lw $t9, 4($ra)
+                \\ addu $t9, $t9, $gp
+                \\ move $ra, $zero
+                \\ move $a0, $sp
+                \\ and $sp, -8
+                \\ subu $sp, $sp, 16
+                \\ jalr $t9
+                ,
+                else =>
+                \\ move $fp, $zero
+                // This is needed because early MIPS versions don't support misaligned loads. Without
+                // this directive, the hidden `nop` inserted to fill the delay slot after `bal` would
+                // cause the two doublewords to be aligned to 4 bytes instead of 8.
+                \\ .balign 8
+                \\ bal 1f
+                \\ .gpdword .
+                \\ .gpdword %[posixCallMainAndExit]
+                \\1:
+                // The `gp` register on MIPS serves a similar purpose to `r2` (ToC pointer) on PPC64.
+                \\ ld $gp, 0($ra)
+                \\ dsubu $gp, $ra, $gp
+                \\ ld $t9, 8($ra)
+                \\ daddu $t9, $t9, $gp
+                \\ move $ra, $zero
+                \\ move $a0, $sp
+                \\ and $sp, -16
+                \\ dsubu $sp, $sp, 16
+                \\ jalr $t9
+                ,
+            },
             .powerpc, .powerpcle =>
             // Set up the initial stack frame, and clear the back chain pointer.
             // r1 = SP, r31 = FP
@@ -400,6 +469,21 @@ fn _start() callconv(.naked) noreturn {
             \\ lghi %%r0, 0
             \\ stg  %%r0, 0(%%r15)
             \\ jg %[posixCallMainAndExit]
+            ,
+            .sh, .sheb =>
+            // r14 = FP, r15 = SP, pr = LR
+            \\ mov #0, r0
+            \\ lds r0, pr
+            \\ mov r0, r14
+            \\ mov r15, r4
+            \\ mov #-4, r0
+            \\ and r0, r15
+            \\ mov.l 2f, r1
+            \\1:
+            \\ bsrf r1
+            \\2:
+            \\ .balign 4
+            \\ .long %[posixCallMainAndExit]@PCREL - (1b + 4 - .)
             ,
             .sparc =>
             // argc is stored after a register window (16 registers * 4 bytes).
@@ -457,6 +541,10 @@ fn wWinMainCRTStartup() callconv(.withStackAlign(.c, 1)) noreturn {
     std.os.windows.ntdll.RtlExitUserProcess(@as(std.os.windows.UINT, @bitCast(result)));
 }
 
+fn wWinMain(hInstance: *anyopaque, hPrevInstance: ?*anyopaque, pCmdLine: [*:0]u16, nCmdShow: c_int) callconv(.c) c_int {
+    return root.wWinMain(@ptrCast(hInstance), @ptrCast(hPrevInstance), pCmdLine, @intCast(nCmdShow));
+}
+
 fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
     // We're not ready to panic until thread local storage is initialized.
     @setRuntimeSafety(false);
@@ -492,7 +580,7 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.c) noreturn {
     // Apply the initial relocations as early as possible in the startup process. We cannot
     // make calls yet on some architectures (e.g. MIPS) *because* they haven't been applied yet,
     // so this must be fully inlined.
-    if (builtin.position_independent_executable) {
+    if (builtin.link_mode == .static and builtin.position_independent_executable) {
         @call(.always_inline, std.pie.relocate, .{phdrs});
     }
 
@@ -582,7 +670,6 @@ inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     std.os.environ = envp;
 
     std.debug.maybeEnableSegfaultHandler();
-    maybeIgnoreSigpipe();
 
     return callMain();
 }
@@ -635,8 +722,11 @@ pub inline fn callMain() u8 {
                     else => {},
                 }
                 std.log.err("{s}", .{@errorName(err)});
-                if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
+                switch (native_os) {
+                    .freestanding, .other => {},
+                    else => if (@errorReturnTrace()) |trace| {
+                        std.debug.dumpStackTrace(trace);
+                    },
                 }
                 return 1;
             };
@@ -662,60 +752,21 @@ pub fn call_wWinMain() std.os.windows.INT {
     // - u32 in PEB.ProcessParameters.dwShowWindow
     // Since STARTUPINFO is the bottleneck for the allowed values, we use `u16` as the
     // type which can coerce into i32/c_int/u32 depending on how the user defines their wWinMain
-    // (the Win32 docs show wWinMain with `int` as the type for nCmdShow).
-    const nCmdShow: u16 = nCmdShow: {
-        // This makes Zig match the nCmdShow behavior of a C program with a WinMain symbol:
+    // (the Win32 docs show wWinMain with `int` as the type for nShowCmd).
+    const nShowCmd: u16 = nShowCmd: {
+        // This makes Zig match the nShowCmd behavior of a C program with a WinMain symbol:
         // - With STARTF_USESHOWWINDOW set in STARTUPINFO.dwFlags of the CreateProcess call:
-        //   - Compiled with subsystem:console -> nCmdShow is always SW_SHOWDEFAULT
-        //   - Compiled with subsystem:windows -> nCmdShow is STARTUPINFO.wShowWindow from
-        //     the parent CreateProcess call
+        //   - nShowCmd is STARTUPINFO.wShowWindow from the parent CreateProcess call
         // - With STARTF_USESHOWWINDOW unset:
-        //   - nCmdShow is always SW_SHOWDEFAULT
+        //   - nShowCmd is always SW_SHOWDEFAULT
         const SW_SHOWDEFAULT = 10;
         const STARTF_USESHOWWINDOW = 1;
-        // root having a wWinMain means that std.builtin.subsystem will always have a non-null value.
-        if (std.builtin.subsystem.? == .Windows and peb.ProcessParameters.dwFlags & STARTF_USESHOWWINDOW != 0) {
-            break :nCmdShow @truncate(peb.ProcessParameters.dwShowWindow);
+        if (peb.ProcessParameters.dwFlags & STARTF_USESHOWWINDOW != 0) {
+            break :nShowCmd @truncate(peb.ProcessParameters.dwShowWindow);
         }
-        break :nCmdShow SW_SHOWDEFAULT;
+        break :nShowCmd SW_SHOWDEFAULT;
     };
 
     // second parameter hPrevInstance, MSDN: "This parameter is always NULL"
-    return root.wWinMain(hInstance, null, lpCmdLine, nCmdShow);
+    return root.wWinMain(hInstance, null, lpCmdLine, nShowCmd);
 }
-
-fn maybeIgnoreSigpipe() void {
-    const have_sigpipe_support = switch (builtin.os.tag) {
-        .linux,
-        .plan9,
-        .solaris,
-        .netbsd,
-        .openbsd,
-        .haiku,
-        .macos,
-        .ios,
-        .watchos,
-        .tvos,
-        .visionos,
-        .dragonfly,
-        .freebsd,
-        .serenity,
-        => true,
-
-        else => false,
-    };
-
-    if (have_sigpipe_support and !std.options.keep_sigpipe) {
-        const posix = std.posix;
-        const act: posix.Sigaction = .{
-            // Set handler to a noop function instead of `SIG.IGN` to prevent
-            // leaking signal disposition to a child process.
-            .handler = .{ .handler = noopSigHandler },
-            .mask = posix.sigemptyset(),
-            .flags = 0,
-        };
-        posix.sigaction(posix.SIG.PIPE, &act, null);
-    }
-}
-
-fn noopSigHandler(_: i32) callconv(.c) void {}

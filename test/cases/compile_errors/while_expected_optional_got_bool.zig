@@ -8,7 +8,5 @@ fn bar() bool {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:15: error: expected optional type, found 'bool'

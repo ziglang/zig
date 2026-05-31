@@ -49,7 +49,7 @@ pub fn panic(msg: []const u8, st: ?*std.builtin.StackTrace, addr: ?usize) noretu
 
 fn logFn(
     comptime message_level: log.Level,
-    comptime scope: @TypeOf(.enum_literal),
+    comptime scope: @EnumLiteral(),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -94,6 +94,7 @@ export fn message_end() void {
 
         .time_report_generic_result => return time_report.genericResultMessage(msg_bytes) catch @panic("OOM"),
         .time_report_compile_result => return time_report.compileResultMessage(msg_bytes) catch @panic("OOM"),
+        .time_report_run_test_result => return time_report.runTestResultMessage(msg_bytes) catch @panic("OOM"),
     }
 }
 

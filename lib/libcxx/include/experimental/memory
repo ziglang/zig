@@ -50,15 +50,15 @@ public:
 */
 
 #if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
-#  include <__cxx03/experimental/memory>
+#  include <__cxx03/__config>
 #else
 #  include <__config>
 #  include <__cstddef/nullptr_t.h>
 #  include <__cstddef/size_t.h>
 #  include <__functional/hash.h>
 #  include <__functional/operations.h>
-#  include <__type_traits/add_lvalue_reference.h>
 #  include <__type_traits/add_pointer.h>
+#  include <__type_traits/add_reference.h>
 #  include <__type_traits/common_type.h>
 #  include <__type_traits/enable_if.h>
 #  include <__type_traits/is_convertible.h>

@@ -63,8 +63,6 @@ pub export fn memset_array() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:5: error: unknown copy length
 // :5:18: note: destination type '[*]u8' provides no length

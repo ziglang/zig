@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const elf = std.elf;
 const assert = std.debug.assert;
 
+const R_ALPHA_RELATIVE = 27;
 const R_AMD64_RELATIVE = 8;
 const R_386_RELATIVE = 8;
 const R_ARC_RELATIVE = 56;
@@ -10,28 +11,37 @@ const R_ARM_RELATIVE = 23;
 const R_AARCH64_RELATIVE = 1027;
 const R_CSKY_RELATIVE = 9;
 const R_HEXAGON_RELATIVE = 35;
+const R_KVX_RELATIVE = 39;
 const R_LARCH_RELATIVE = 3;
 const R_68K_RELATIVE = 22;
+const R_MICROBLAZE_REL = 16;
 const R_MIPS_RELATIVE = 128;
+const R_OR1K_RELATIVE = 21;
 const R_PPC_RELATIVE = 22;
 const R_RISCV_RELATIVE = 3;
 const R_390_RELATIVE = 12;
+const R_SH_RELATIVE = 165;
 const R_SPARC_RELATIVE = 22;
 
 const R_RELATIVE = switch (builtin.cpu.arch) {
     .x86 => R_386_RELATIVE,
     .x86_64 => R_AMD64_RELATIVE,
-    .arc => R_ARC_RELATIVE,
+    .arc, .arceb => R_ARC_RELATIVE,
     .arm, .armeb, .thumb, .thumbeb => R_ARM_RELATIVE,
     .aarch64, .aarch64_be => R_AARCH64_RELATIVE,
+    .alpha => R_ALPHA_RELATIVE,
     .csky => R_CSKY_RELATIVE,
     .hexagon => R_HEXAGON_RELATIVE,
+    .kvx => R_KVX_RELATIVE,
     .loongarch32, .loongarch64 => R_LARCH_RELATIVE,
     .m68k => R_68K_RELATIVE,
+    .microblaze, .microblazeel => R_MICROBLAZE_REL,
     .mips, .mipsel, .mips64, .mips64el => R_MIPS_RELATIVE,
+    .or1k => R_OR1K_RELATIVE,
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => R_PPC_RELATIVE,
-    .riscv32, .riscv64 => R_RISCV_RELATIVE,
+    .riscv32, .riscv32be, .riscv64, .riscv64be => R_RISCV_RELATIVE,
     .s390x => R_390_RELATIVE,
+    .sh, .sheb => R_SH_RELATIVE,
     .sparc, .sparc64 => R_SPARC_RELATIVE,
     else => @compileError("Missing R_RELATIVE definition for this target"),
 };
@@ -46,8 +56,9 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
                 \\ call 1f
-                \\ 1: pop %[ret]
-                \\ lea _DYNAMIC-1b(%[ret]), %[ret]
+                \\1:
+                \\ pop %[ret]
+                \\ lea _DYNAMIC - 1b(%[ret]), %[ret]
                 : [ret] "=r" (-> [*]const elf.Dyn),
             ),
             .x86_64 => asm volatile (
@@ -56,7 +67,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ lea _DYNAMIC(%%rip), %[ret]
                 : [ret] "=r" (-> [*]const elf.Dyn),
             ),
-            .arc => asm volatile (
+            .arc, .arceb => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
                 \\ add %[ret], pcl, _DYNAMIC@pcl
@@ -69,8 +80,9 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ ldr %[ret], 1f
                 \\ add %[ret], pc
                 \\ b 2f
-                \\ 1: .word _DYNAMIC-1b
-                \\ 2:
+                \\1:
+                \\ .word _DYNAMIC-1b
+                \\2:
                 : [ret] "=r" (-> [*]const elf.Dyn),
             ),
             // A simple `adr` is not enough as it has a limited offset range
@@ -81,6 +93,15 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ add %[ret], %[ret], #:lo12:_DYNAMIC
                 : [ret] "=r" (-> [*]const elf.Dyn),
             ),
+            // The compiler is not required to load the GP register, so do it ourselves.
+            .alpha => asm volatile (
+                \\ br $29, 1f
+                \\1:
+                \\ ldgp $29, 0($29)
+                \\ ldq %[ret], -0x8000($29)
+                : [ret] "=r" (-> [*]const elf.Dyn),
+                :
+                : .{ .r26 = true, .r29 = true }),
             // The CSKY ABI requires the gb register to point to the GOT. Additionally, the first
             // entry in the GOT is defined to hold the address of _DYNAMIC.
             .csky => asm volatile (
@@ -93,7 +114,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ .hidden _DYNAMIC
                 \\ jump 1f
                 \\ .word _DYNAMIC - .
-                \\ 1:
+                \\1:
                 \\ r1 = pc
                 \\ r1 = add(r1, #-4)
                 \\ %[ret] = memw(r1)
@@ -101,6 +122,12 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
                 : .{ .r1 = true }),
+            .kvx => asm volatile (
+                \\ .weak _DYNAMIC
+                \\ .hidden _DYNAMIC
+                \\ pcrel %[ret] = @pcrel(_DYNAMIC)
+                : [ret] "=r" (-> [*]const elf.Dyn),
+            ),
             .loongarch32, .loongarch64 => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
@@ -116,35 +143,64 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ lea (%[ret], %%pc), %[ret]
                 : [ret] "=r" (-> [*]const elf.Dyn),
             ),
+            .microblaze, .microblazeel => asm volatile (
+                \\ lwi %[ret], r20, 0
+                : [ret] "=r" (-> [*]const elf.Dyn),
+            ),
             .mips, .mipsel => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
                 \\ bal 1f
                 \\ .gpword _DYNAMIC
-                \\ 1:
+                \\1:
                 \\ lw %[ret], 0($ra)
+                \\ nop
                 \\ addu %[ret], %[ret], $gp
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
                 : .{ .lr = true }),
-            .mips64, .mips64el => asm volatile (
+            .mips64, .mips64el => switch (builtin.abi) {
+                .gnuabin32, .muslabin32 => asm volatile (
+                    \\ .weak _DYNAMIC
+                    \\ .hidden _DYNAMIC
+                    \\ bal 1f
+                    \\ .gpword _DYNAMIC
+                    \\1:
+                    \\ lw %[ret], 0($ra)
+                    \\ addu %[ret], %[ret], $gp
+                    : [ret] "=r" (-> [*]const elf.Dyn),
+                    :
+                    : .{ .lr = true }),
+                else => asm volatile (
+                    \\ .weak _DYNAMIC
+                    \\ .hidden _DYNAMIC
+                    \\ .balign 8
+                    \\ bal 1f
+                    \\ .gpdword _DYNAMIC
+                    \\1:
+                    \\ ld %[ret], 0($ra)
+                    \\ daddu %[ret], %[ret], $gp
+                    : [ret] "=r" (-> [*]const elf.Dyn),
+                    :
+                    : .{ .lr = true }),
+            },
+            .or1k => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
-                \\ .balign 8
-                \\ bal 1f
-                \\ .gpdword _DYNAMIC
-                \\ 1:
-                \\ ld %[ret], 0($ra)
-                \\ daddu %[ret], %[ret], $gp
+                \\ l.jal 1f
+                \\ .word _DYNAMIC - .
+                \\1:
+                \\ l.lwz %[ret], 0(r9)
+                \\ l.add %[ret], %[ret], r9
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
-                : .{ .lr = true }),
+                : .{ .r9 = true }),
             .powerpc, .powerpcle => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
                 \\ bl 1f
                 \\ .long _DYNAMIC - .
-                \\ 1:
+                \\1:
                 \\ mflr %[ret]
                 \\ lwz 4, 0(%[ret])
                 \\ add %[ret], 4, %[ret]
@@ -156,14 +212,14 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ .hidden _DYNAMIC
                 \\ bl 1f
                 \\ .quad _DYNAMIC - .
-                \\ 1:
+                \\1:
                 \\ mflr %[ret]
                 \\ ld 4, 0(%[ret])
                 \\ add %[ret], 4, %[ret]
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
                 : .{ .lr = true, .r4 = true }),
-            .riscv32, .riscv64 => asm volatile (
+            .riscv32, .riscv32be, .riscv64, .riscv64be => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
                 \\ lla %[ret], _DYNAMIC
@@ -175,20 +231,36 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ larl %[ret], 1f
                 \\ ag %[ret], 0(%[ret])
                 \\ jg 2f
-                \\ 1: .quad _DYNAMIC - .
-                \\ 2:
-                : [ret] "=r" (-> [*]const elf.Dyn),
+                \\1:
+                \\ .quad _DYNAMIC - .
+                \\2:
+                : [ret] "=a" (-> [*]const elf.Dyn),
             ),
+            .sh, .sheb => asm volatile (
+                \\ .weak _DYNAMIC
+                \\ .hidden _DYNAMIC
+                \\ mova 1f, r0
+                \\ mov.l 1f, %[ret]
+                \\ add r0, %[ret]
+                \\ bra 2f
+                \\1:
+                \\ .balign 4
+                \\ .long DYNAMIC - .
+                \\2:
+                : [ret] "=r" (-> [*]const elf.Dyn),
+                :
+                : .{ .r0 = true }),
             // The compiler does not necessarily have any obligation to load the `l7` register (pointing
             // to the GOT), so do it ourselves just in case.
             .sparc, .sparc64 => asm volatile (
                 \\ sethi %%hi(_GLOBAL_OFFSET_TABLE_ - 4), %%l7
                 \\ call 1f
-                \\ add %%l7, %%lo(_GLOBAL_OFFSET_TABLE_ + 4), %%l7
-                \\ 1:
+                \\  add %%l7, %%lo(_GLOBAL_OFFSET_TABLE_ + 4), %%l7
+                \\1:
                 \\ add %%l7, %%o7, %[ret]
                 : [ret] "=r" (-> [*]const elf.Dyn),
-            ),
+                :
+                : .{ .l7 = true }),
             else => {
                 @compileError("PIE startup is not yet supported for this target!");
             },

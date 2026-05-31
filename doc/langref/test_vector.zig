@@ -17,7 +17,7 @@ test "Basic vector usage" {
 }
 
 test "Conversion between vectors, arrays, and slices" {
-    // Vectors and fixed-length arrays can be automatically assigned back and forth
+    // Vectors can be coerced to arrays, and vice versa.
     const arr1: [4]f32 = [_]f32{ 1.1, 3.2, 4.5, 5.6 };
     const vec: @Vector(4, f32) = arr1;
     const arr2: [4]f32 = vec;

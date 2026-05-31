@@ -1,5 +1,5 @@
 comptime {
-    const undef: @Type(.enum_literal) = undefined;
+    const undef: @EnumLiteral() = undefined;
     _ = @tagName(undef);
 }
 

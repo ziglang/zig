@@ -7,8 +7,6 @@ export fn foo(x: *X, y: *Y) void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :1:11: error: opaque types do not support 'packed' or 'extern'
 // :2:11: error: opaque types do not support 'packed' or 'extern'

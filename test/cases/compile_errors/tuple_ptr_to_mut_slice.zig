@@ -19,8 +19,6 @@ export fn entry4() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:19: error: cannot cast pointer to tuple to '[]u8'
 // :3:19: note: pointers to tuples can only coerce to constant pointers

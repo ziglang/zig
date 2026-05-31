@@ -264,7 +264,7 @@ private:
   LIBC_INLINE void left_shift(uint32_t shift_amount) {
     uint32_t new_digits = this->get_num_new_digits(shift_amount);
 
-    int32_t read_index = this->num_digits - 1;
+    int32_t read_index = static_cast<int32_t>(this->num_digits - 1);
     uint32_t write_index = this->num_digits + new_digits;
 
     uint64_t accumulator = 0;
@@ -329,7 +329,7 @@ public:
         if (saw_dot) {
           break;
         }
-        this->decimal_point = total_digits;
+        this->decimal_point = static_cast<int32_t>(total_digits);
         saw_dot = true;
       } else {
         if (num_string[num_cur] == '0' && this->num_digits == 0) {
@@ -350,7 +350,7 @@ public:
     }
 
     if (!saw_dot)
-      this->decimal_point = total_digits;
+      this->decimal_point = static_cast<int32_t>(total_digits);
 
     if (num_cur < num_len &&
         (num_string[num_cur] == 'e' || num_string[num_cur] == 'E')) {
@@ -393,7 +393,7 @@ public:
         this->left_shift(MAX_SHIFT_AMOUNT);
         shift_amount -= MAX_SHIFT_AMOUNT;
       }
-      this->left_shift(shift_amount);
+      this->left_shift(static_cast<uint32_t>(shift_amount));
     }
     // Right
     else {
@@ -401,7 +401,7 @@ public:
         this->right_shift(MAX_SHIFT_AMOUNT);
         shift_amount += MAX_SHIFT_AMOUNT;
       }
-      this->right_shift(-shift_amount);
+      this->right_shift(static_cast<uint32_t>(-shift_amount));
     }
   }
 
@@ -424,8 +424,8 @@ public:
       result *= 10;
       ++cur_digit;
     }
-    return result + static_cast<unsigned int>(
-                        this->should_round_up(this->decimal_point, round));
+    return result +
+           static_cast<T>(this->should_round_up(this->decimal_point, round));
   }
 
   // Extra functions for testing.

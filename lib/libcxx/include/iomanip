@@ -49,10 +49,12 @@ template <class charT, class traits, class Allocator>
 
 #  if _LIBCPP_HAS_LOCALIZATION
 
+#    include <__iterator/istreambuf_iterator.h>
+#    include <__locale_dir/money.h>
+#    include <__locale_dir/time.h>
 #    include <__ostream/put_character_sequence.h>
 #    include <ios>
 #    include <iosfwd>
-#    include <locale>
 #    include <version>
 
 #    if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -564,6 +566,11 @@ _LIBCPP_END_NAMESPACE_STD
 #    include <unordered_map>
 #    include <vector>
 #  endif
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 23
+#    include <locale>
+#  endif
+
 #endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_IOMANIP

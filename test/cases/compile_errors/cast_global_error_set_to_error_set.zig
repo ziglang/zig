@@ -8,8 +8,6 @@ fn foo() anyerror {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:33: error: expected type 'error{A}', found 'anyerror'
 // :3:33: note: global error set cannot cast into a smaller set

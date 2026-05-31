@@ -21,5 +21,5 @@ fn foo(bytes: []u8) u32 {
     return int_slice[0];
 }
 // run
-// backend=stage2,llvm
+// backend=selfhosted,llvm
 // target=x86_64-linux,aarch64-linux

@@ -127,49 +127,24 @@ enum drm_panthor_ioctl_id {
 
 	/** @DRM_PANTHOR_TILER_HEAP_DESTROY: Destroy a tiler heap. */
 	DRM_PANTHOR_TILER_HEAP_DESTROY,
+
+	/** @DRM_PANTHOR_BO_SET_LABEL: Label a BO. */
+	DRM_PANTHOR_BO_SET_LABEL,
+
+	/**
+	 * @DRM_PANTHOR_SET_USER_MMIO_OFFSET: Set the offset to use as the user MMIO offset.
+	 *
+	 * The default behavior is to pick the MMIO offset based on the size of the pgoff_t
+	 * type seen by the process that manipulates the FD, such that a 32-bit process can
+	 * always map the user MMIO ranges. But this approach doesn't work well for emulators
+	 * like FEX, where the emulator is an 64-bit binary which might be executing 32-bit
+	 * code. In that case, the kernel thinks it's the 64-bit process and assumes
+	 * DRM_PANTHOR_USER_MMIO_OFFSET_64BIT is in use, but the UMD library expects
+	 * DRM_PANTHOR_USER_MMIO_OFFSET_32BIT, because it can't mmap() anything above the
+	 * pgoff_t size.
+	 */
+	DRM_PANTHOR_SET_USER_MMIO_OFFSET,
 };
-
-/**
- * DRM_IOCTL_PANTHOR() - Build a Panthor IOCTL number
- * @__access: Access type. Must be R, W or RW.
- * @__id: One of the DRM_PANTHOR_xxx id.
- * @__type: Suffix of the type being passed to the IOCTL.
- *
- * Don't use this macro directly, use the DRM_IOCTL_PANTHOR_xxx
- * values instead.
- *
- * Return: An IOCTL number to be passed to ioctl() from userspace.
- */
-#define DRM_IOCTL_PANTHOR(__access, __id, __type) \
-	DRM_IO ## __access(DRM_COMMAND_BASE + DRM_PANTHOR_ ## __id, \
-			   struct drm_panthor_ ## __type)
-
-#define DRM_IOCTL_PANTHOR_DEV_QUERY \
-	DRM_IOCTL_PANTHOR(WR, DEV_QUERY, dev_query)
-#define DRM_IOCTL_PANTHOR_VM_CREATE \
-	DRM_IOCTL_PANTHOR(WR, VM_CREATE, vm_create)
-#define DRM_IOCTL_PANTHOR_VM_DESTROY \
-	DRM_IOCTL_PANTHOR(WR, VM_DESTROY, vm_destroy)
-#define DRM_IOCTL_PANTHOR_VM_BIND \
-	DRM_IOCTL_PANTHOR(WR, VM_BIND, vm_bind)
-#define DRM_IOCTL_PANTHOR_VM_GET_STATE \
-	DRM_IOCTL_PANTHOR(WR, VM_GET_STATE, vm_get_state)
-#define DRM_IOCTL_PANTHOR_BO_CREATE \
-	DRM_IOCTL_PANTHOR(WR, BO_CREATE, bo_create)
-#define DRM_IOCTL_PANTHOR_BO_MMAP_OFFSET \
-	DRM_IOCTL_PANTHOR(WR, BO_MMAP_OFFSET, bo_mmap_offset)
-#define DRM_IOCTL_PANTHOR_GROUP_CREATE \
-	DRM_IOCTL_PANTHOR(WR, GROUP_CREATE, group_create)
-#define DRM_IOCTL_PANTHOR_GROUP_DESTROY \
-	DRM_IOCTL_PANTHOR(WR, GROUP_DESTROY, group_destroy)
-#define DRM_IOCTL_PANTHOR_GROUP_SUBMIT \
-	DRM_IOCTL_PANTHOR(WR, GROUP_SUBMIT, group_submit)
-#define DRM_IOCTL_PANTHOR_GROUP_GET_STATE \
-	DRM_IOCTL_PANTHOR(WR, GROUP_GET_STATE, group_get_state)
-#define DRM_IOCTL_PANTHOR_TILER_HEAP_CREATE \
-	DRM_IOCTL_PANTHOR(WR, TILER_HEAP_CREATE, tiler_heap_create)
-#define DRM_IOCTL_PANTHOR_TILER_HEAP_DESTROY \
-	DRM_IOCTL_PANTHOR(WR, TILER_HEAP_DESTROY, tiler_heap_destroy)
 
 /**
  * DOC: IOCTL arguments
@@ -334,6 +309,9 @@ struct drm_panthor_gpu_info {
 
 	/** @as_present: Bitmask encoding the number of address-space exposed by the MMU. */
 	__u32 as_present;
+
+	/** @pad0: MBZ. */
+	__u32 pad0;
 
 	/** @shader_present: Bitmask encoding the shader cores exposed by the GPU. */
 	__u64 shader_present;
@@ -923,6 +901,15 @@ enum drm_panthor_group_state_flags {
 	 * When a group ends up with this flag set, no jobs can be submitted to its queues.
 	 */
 	DRM_PANTHOR_GROUP_STATE_FATAL_FAULT = 1 << 1,
+
+	/**
+	 * @DRM_PANTHOR_GROUP_STATE_INNOCENT: Group was killed during a reset caused by other
+	 * groups.
+	 *
+	 * This flag can only be set if DRM_PANTHOR_GROUP_STATE_TIMEDOUT is set and
+	 * DRM_PANTHOR_GROUP_STATE_FATAL_FAULT is not.
+	 */
+	DRM_PANTHOR_GROUP_STATE_INNOCENT = 1 << 2,
 };
 
 /**
@@ -1008,6 +995,94 @@ struct drm_panthor_tiler_heap_destroy {
 
 	/** @pad: Padding field, MBZ. */
 	__u32 pad;
+};
+
+/**
+ * struct drm_panthor_bo_set_label - Arguments passed to DRM_IOCTL_PANTHOR_BO_SET_LABEL
+ */
+struct drm_panthor_bo_set_label {
+	/** @handle: Handle of the buffer object to label. */
+	__u32 handle;
+
+	/**  @pad: MBZ. */
+	__u32 pad;
+
+	/**
+	 * @label: User pointer to a NUL-terminated string
+	 *
+	 * Length cannot be greater than 4096
+	 */
+	__u64 label;
+};
+
+/**
+ * struct drm_panthor_set_user_mmio_offset - Arguments passed to
+ * DRM_IOCTL_PANTHOR_SET_USER_MMIO_OFFSET
+ *
+ * This ioctl is only really useful if you want to support userspace
+ * CPU emulation environments where the size of an unsigned long differs
+ * between the host and the guest architectures.
+ */
+struct drm_panthor_set_user_mmio_offset {
+	/**
+	 * @offset: User MMIO offset to use.
+	 *
+	 * Must be either DRM_PANTHOR_USER_MMIO_OFFSET_32BIT or
+	 * DRM_PANTHOR_USER_MMIO_OFFSET_64BIT.
+	 *
+	 * Use DRM_PANTHOR_USER_MMIO_OFFSET (which selects OFFSET_32BIT or
+	 * OFFSET_64BIT based on the size of an unsigned long) unless you
+	 * have a very good reason to overrule this decision.
+	 */
+	__u64 offset;
+};
+
+/**
+ * DRM_IOCTL_PANTHOR() - Build a Panthor IOCTL number
+ * @__access: Access type. Must be R, W or RW.
+ * @__id: One of the DRM_PANTHOR_xxx id.
+ * @__type: Suffix of the type being passed to the IOCTL.
+ *
+ * Don't use this macro directly, use the DRM_IOCTL_PANTHOR_xxx
+ * values instead.
+ *
+ * Return: An IOCTL number to be passed to ioctl() from userspace.
+ */
+#define DRM_IOCTL_PANTHOR(__access, __id, __type) \
+	DRM_IO ## __access(DRM_COMMAND_BASE + DRM_PANTHOR_ ## __id, \
+			   struct drm_panthor_ ## __type)
+
+enum {
+	DRM_IOCTL_PANTHOR_DEV_QUERY =
+		DRM_IOCTL_PANTHOR(WR, DEV_QUERY, dev_query),
+	DRM_IOCTL_PANTHOR_VM_CREATE =
+		DRM_IOCTL_PANTHOR(WR, VM_CREATE, vm_create),
+	DRM_IOCTL_PANTHOR_VM_DESTROY =
+		DRM_IOCTL_PANTHOR(WR, VM_DESTROY, vm_destroy),
+	DRM_IOCTL_PANTHOR_VM_BIND =
+		DRM_IOCTL_PANTHOR(WR, VM_BIND, vm_bind),
+	DRM_IOCTL_PANTHOR_VM_GET_STATE =
+		DRM_IOCTL_PANTHOR(WR, VM_GET_STATE, vm_get_state),
+	DRM_IOCTL_PANTHOR_BO_CREATE =
+		DRM_IOCTL_PANTHOR(WR, BO_CREATE, bo_create),
+	DRM_IOCTL_PANTHOR_BO_MMAP_OFFSET =
+		DRM_IOCTL_PANTHOR(WR, BO_MMAP_OFFSET, bo_mmap_offset),
+	DRM_IOCTL_PANTHOR_GROUP_CREATE =
+		DRM_IOCTL_PANTHOR(WR, GROUP_CREATE, group_create),
+	DRM_IOCTL_PANTHOR_GROUP_DESTROY =
+		DRM_IOCTL_PANTHOR(WR, GROUP_DESTROY, group_destroy),
+	DRM_IOCTL_PANTHOR_GROUP_SUBMIT =
+		DRM_IOCTL_PANTHOR(WR, GROUP_SUBMIT, group_submit),
+	DRM_IOCTL_PANTHOR_GROUP_GET_STATE =
+		DRM_IOCTL_PANTHOR(WR, GROUP_GET_STATE, group_get_state),
+	DRM_IOCTL_PANTHOR_TILER_HEAP_CREATE =
+		DRM_IOCTL_PANTHOR(WR, TILER_HEAP_CREATE, tiler_heap_create),
+	DRM_IOCTL_PANTHOR_TILER_HEAP_DESTROY =
+		DRM_IOCTL_PANTHOR(WR, TILER_HEAP_DESTROY, tiler_heap_destroy),
+	DRM_IOCTL_PANTHOR_BO_SET_LABEL =
+		DRM_IOCTL_PANTHOR(WR, BO_SET_LABEL, bo_set_label),
+	DRM_IOCTL_PANTHOR_SET_USER_MMIO_OFFSET =
+		DRM_IOCTL_PANTHOR(WR, SET_USER_MMIO_OFFSET, set_user_mmio_offset),
 };
 
 #if defined(__cplusplus)

@@ -8,8 +8,6 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :7:6: error: member function expected 2 argument(s), found 1
 // :3:5: note: function declared here

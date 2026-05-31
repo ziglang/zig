@@ -8,7 +8,5 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:26: error: tag capture on non-inline prong

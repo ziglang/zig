@@ -6,7 +6,5 @@ export fn invalidBreak() u8 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:22: error: type 'u8' cannot represent integer value '256'

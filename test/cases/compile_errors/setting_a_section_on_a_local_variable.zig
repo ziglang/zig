@@ -4,7 +4,5 @@ export fn entry() i32 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:30: error: cannot set section of local variable 'foo'

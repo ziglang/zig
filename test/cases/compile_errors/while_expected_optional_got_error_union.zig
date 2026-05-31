@@ -8,8 +8,6 @@ fn bar() anyerror!i32 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:15: error: expected optional type, found 'anyerror!i32'
 // :2:15: note: consider using 'try', 'catch', or 'if'

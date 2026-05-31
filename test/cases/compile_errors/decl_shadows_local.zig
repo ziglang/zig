@@ -14,8 +14,6 @@ fn bar(a: usize) void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:15: error: declaration 'a' shadows function parameter from outer scope
 // :1:8: note: previous declaration here

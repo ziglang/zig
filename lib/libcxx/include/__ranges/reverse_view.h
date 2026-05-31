@@ -144,13 +144,13 @@ inline constexpr bool __is_unsized_reverse_subrange<subrange<reverse_iterator<_I
 
 template <class _Tp>
 struct __unwrapped_reverse_subrange {
-  using type =
+  using type _LIBCPP_NODEBUG =
       void; // avoid SFINAE-ing out the overload below -- let the concept requirements do it for better diagnostics
 };
 
 template <class _Iter, subrange_kind _Kind>
 struct __unwrapped_reverse_subrange<subrange<reverse_iterator<_Iter>, reverse_iterator<_Iter>, _Kind>> {
-  using type = subrange<_Iter, _Iter, _Kind>;
+  using type _LIBCPP_NODEBUG = subrange<_Iter, _Iter, _Kind>;
 };
 
 struct __fn : __range_adaptor_closure<__fn> {

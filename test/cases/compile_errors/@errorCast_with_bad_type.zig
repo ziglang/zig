@@ -20,7 +20,6 @@ pub export fn entry4() void {
 }
 
 // error
-// backend=stage2
 // target=x86_64-linux
 //
 // :4:25: error: expected error set or error union type, found 'comptime_int'

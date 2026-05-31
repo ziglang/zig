@@ -5,7 +5,5 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:23: error: comptime-only type 'comptime_int' has no pointer address
